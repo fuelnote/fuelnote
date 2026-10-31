@@ -359,7 +359,15 @@ export type Settings = {
   dismissed_renewals: string[]
   /** 每天自动备份到 iCloud 云盘（2.0 设计第 6 节） */
   auto_backup: boolean
+  /** 添加的数据源插件（插件化设计第 5 节） */
+  plugins: PluginRef[]
 }
+
+/** 数据源插件能提供的数据（插件化设计第 4.3 节） */
+export type PluginCapability = "fuel" | "trips" | "vehicle_status" | "service"
+
+/** 添加的插件：脚本名（`Script.run` 用）、插件自己的 id、名称、提供的数据 */
+export type PluginRef = { script: string; id: string; name: string; capabilities: PluginCapability[] }
 
 /** 账本（2.0 的格式，ledger2.json）：所有车辆的记录、保险、权益、门店都在这里 */
 export type LedgerFile = {
@@ -396,7 +404,7 @@ export function gradeText(grade: number | null): string {
 }
 
 export function defaultSettings(): Settings {
-  return { current_vehicle_id: null, default_full: true, station_search: "auto", dismissed_stops: [], ocr_engine: "local", ocr_assistant: null, dismissed_renewals: [], auto_backup: true }
+  return { current_vehicle_id: null, default_full: true, station_search: "auto", dismissed_stops: [], ocr_engine: "local", ocr_assistant: null, dismissed_renewals: [], auto_backup: true, plugins: [] }
 }
 
 export function emptyLedger(): LedgerFile {

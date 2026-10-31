@@ -1,11 +1,14 @@
 // 设置
-import { Button, Capsule, HStack, List, NavigationLink, NavigationStack, Script, Section, Spacer, Text, Toggle, VStack } from "scripting"
+import { Button, Capsule, HStack, List, Navigation, NavigationLink, NavigationStack, Script, Section, Spacer, Text, Toggle, useState, VStack } from "scripting"
 import {
-  AppData, currentVehicle, OCR_ENGINE_TITLES, PROVIDERS, providerCredential, searcherName, updateSettings, Vehicle,
+  AppData, capabilityLine, currentVehicle, OCR_ENGINE_TITLES, pluginsOf, pluginState, pluginStateText, pluginStatus, providerCapabilities, PROVIDERS,
+  providerCredential, searcherName, updateSettings, Vehicle,
 } from "../common/model"
 import { CaptureSettings } from "./capture_settings"
 import { BackupRowLabel, BackupSettings } from "./backup_settings"
 import { AppActions } from "./components"
+import { PluginAdd } from "./plugin_add"
+import { PluginDetail } from "./plugin_detail"
 import { ProviderSettings } from "./provider_settings"
 import { RecognizeSettings } from "./recognize_settings"
 import { StationSearchSettings } from "./station_search_settings"
@@ -17,6 +20,18 @@ function Detail({ title, detail }: { title: string; detail: string }) {
     <Text>{title}</Text>
     <Spacer />
     <Text foregroundStyle="secondaryLabel" lineLimit={1}>{detail}</Text>
+  </HStack>
+}
+
+/** 数据源一行（画稿 DsSettings）：名称，下面写内置或插件、提供的数据；右边是连接状态 */
+function SourceRow({ title, detail, state, warn }: { title: string; detail: string; state: string; warn: boolean }) {
+  return <HStack foregroundStyle="label">
+    <VStack alignment="leading" spacing={3}>
+      <Text>{title}</Text>
+      <Text font="caption" foregroundStyle="secondaryLabel">{detail}</Text>
+    </VStack>
+    <Spacer />
+    <Text foregroundStyle={warn ? "systemOrange" : "secondaryLabel"}>{state}</Text>
   </HStack>
 }
 
@@ -39,9 +54,14 @@ export function SettingsPage({ data, app }: { data: AppData; app: AppActions }) 
   const hidden = data.ledger.vehicles.filter(v => v.hidden)
 
   const xxyhDetail = xxyhRowDetail(data)
+  const plugins = pluginsOf(data)
+  const [, setTick] = useState(0)
+  /** 每次回到设置页问一次各个插件的状态 */
+  const refreshPlugins = () => { for (const p of plugins) void pluginStatus(p).then(() => setTick(t => t + 1)) }
+  const openAdd = () => Navigation.present({ element: <PluginAdd getData={app.getData} onAdded={app.setData} /> })
 
   return <NavigationStack>
-    <List navigationTitle="设置">
+    <List navigationTitle="设置" onAppear={refreshPlugins}>
       <Section title="车辆">
         {shown.map(v => <VehicleRow key={v.id} data={data} app={app} vehicle={v} current={v.id === current?.id} />)}
         <Button title="添加车辆" systemImage="plus" action={() => { app.addVehicle() }} />
@@ -57,10 +77,17 @@ export function SettingsPage({ data, app }: { data: AppData; app: AppActions }) 
         </NavigationLink>
       </Section>
 
-      <Section title="车辆数据">
+      <Section header={<Text>数据源</Text>} footer={<Text>插件是独立的 Scripting 脚本，只提供数据；记账和核对都在油记中完成。插件的凭据保存在插件中，不在油记的备份里。</Text>}>
         {PROVIDERS.map(p => <NavigationLink key={p.id} destination={<ProviderSettings data={data} app={app} provider={p} />}>
-          <Detail title={p.name} detail={providerCredential(p.id) ? "已连接" : "未连接"} />
+          <SourceRow title={p.name} detail={`内置 · ${capabilityLine(providerCapabilities(p))}`} state={providerCredential(p.id) ? "已连接" : "未连接"} warn={false} />
         </NavigationLink>)}
+        {plugins.map(p => {
+          const state = pluginState(p.id)
+          return <NavigationLink key={p.id} destination={<PluginDetail app={app} pluginId={p.id} />}>
+            <SourceRow title={p.name} detail={`插件 · ${capabilityLine(p.capabilities)}`} state={state ? pluginStateText(state) : ""} warn={state === "expired"} />
+          </NavigationLink>
+        })}
+        <Button title="添加插件" systemImage="plus" action={() => { void openAdd() }} />
       </Section>
 
       <Section header={<Text>识别</Text>} footer={<Text>加油截图，和添加权益时的文字、截图，都用这里选的方式。</Text>}>

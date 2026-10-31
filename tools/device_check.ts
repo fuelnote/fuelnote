@@ -1,6 +1,6 @@
 // 手机上的自动检查（电脑端）。手机上开着「FuelNote Check」（tools/check），它向采样服务报到后，这里直接请求手机。说明见 tools/check/README.md。
 //
-//   XXYH_ROOT=E:/GitHub/xxyh npx tsx tools/device_check.ts [recognize] [ledger] [shots] [split] [benefits] [export] [service]   （不写时都做）
+//   XXYH_ROOT=E:/GitHub/xxyh npx tsx tools/device_check.ts [recognize] [ledger] [shots] [split] [benefits] [export] [service] [plugin]   （不写时都做）
 //
 // 真实数据（期望值、小熊里的保险费用、小熊备份）只从 XXYH_ROOT 读，计划在这里生成后发给手机；结果和截图存到 XXYH_ROOT/out/check/，不进仓库。
 // split（1.6，设计文档第 21 节）：把最新的小熊备份发给手机，在检查用的文件夹里导入选中的那辆车，用同一套纯函数算出期望值来比较。
@@ -270,6 +270,18 @@ async function service(phone: string): Promise<number> {
   return bad
 }
 
+const SHOTS_PLUGIN: Array<[string, number]> = [["plugin-settings", 1900], ["plugin-add", 0], ["plugin-detail", 0]]
+
+/** 数据源插件（2.2.0-beta.1）：在检查用的文件夹里添加示例插件、读状态和交易、移除，调别的脚本被拦下。要先装好示例插件（npm run check:install），在手机上同步过一次 */
+async function plugin(phone: string): Promise<number> {
+  const r = await post<{ steps: Step[] }>(`${phone}/run/plugin`, {})
+  writeFileSync(join(OUT, "plugin.json"), JSON.stringify(r, null, 1))
+  for (const s of r.steps) console.log(`  ${s.ok ? "✓" : "✗"} ${s.name}${s.detail ? `（${s.detail}）` : ""}`)
+  const bad = r.steps.filter(s => !s.ok).length
+  console.log(`数据源插件：${r.steps.length} 项，${bad ? `${bad} 项不对` : "全部通过"}`)
+  return bad
+}
+
 async function shots(phone: string, screens: Array<[string, number]>): Promise<number> {
   mkdirSync(join(OUT, "shots"), { recursive: true })
   let failed = 0
@@ -319,6 +331,10 @@ async function main() {
   if (run("service")) {
     bad += await service(phone)
     bad += await shots(phone, SHOTS_SERVICE)
+  }
+  if (run("plugin")) {
+    bad += await plugin(phone)
+    bad += await shots(phone, SHOTS_PLUGIN)
   }
   process.exitCode = bad ? 1 : 0
 }

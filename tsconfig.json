@@ -18,6 +18,7 @@
     "./app/**/*",
     "./pages/**/*",
     "./tools/probe/**/*.tsx",
-    "./tools/check/**/*.tsx"
+    "./tools/check/**/*.tsx",
+    "./tools/plugin_example/**/*.tsx"
   ]
 }

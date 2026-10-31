@@ -1,7 +1,7 @@
 // 手机上的自动检查（开发用，不随油记发布）。电脑端是 tools/device_check.ts，说明见 tools/check/README.md。
 // 启动时把数据文件夹换成 FuelNoteCheck：账本、保单原件、小组件文件都在那里，不碰油记的真实数据；
-// 不读写钥匙串、不连小熊，只向电脑上的采样服务（tools/ocr_bridge.mjs）取保单文件。
-// 在 3200 端口等电脑的请求：/ping、/run/recognize、/run/ledger、/run/split、/run/benefits、/run/export、/run/service、/shot。识别扫描件要用这一页上的 WebView，所以这一页要留在屏幕上。
+// 不读写钥匙串、不连小熊，只向电脑上的采样服务（tools/ocr_bridge.mjs）取保单文件；数据源插件只调示例插件。
+// 在 3200 端口等电脑的请求：/ping、/run/recognize、/run/ledger、/run/split、/run/benefits、/run/export、/run/service、/run/plugin、/shot。识别扫描件要用这一页上的 WebView，所以这一页要留在屏幕上。
 import {
   Button, fetch, List, Navigation, NavigationStack, ScreenshotMaker, ScrollView, Section, Text, TextField, VirtualNode, WebView, ZStack, useEffect, useRef,
   useState,
@@ -60,12 +60,17 @@ import { ServiceVisitsPage } from "../../pages/service_visits"
 import { ServiceForm } from "../../pages/expense_form"
 import { volvoCn } from "../../providers/volvo_cn"
 import { categoryName, entryTitle, oilChangeNumbers, saveServiceVisit, serviceForm, ServiceVisit, ServiceView, settlementRefs, visitState } from "../../common/model"
+import { addPlugin, EXAMPLE_PLUGIN, installedPlugins, pluginsOf, pluginState, pluginStatus, removePlugin } from "../../common/model"
+import { pluginFuel } from "../../app/plugins"
+import { PluginAdd } from "../../pages/plugin_add"
+import { PluginDetail } from "../../pages/plugin_detail"
+import { SettingsPage } from "../../pages/settings"
 
 const SANDBOX = "FuelNoteCheck"
 setDataRoot(SANDBOX)
 
 /** 改了这个值，手机重新运行后报到的 STAMP 跟着变（确认跑的是新代码） */
-export const STAMP = "37"
+export const STAMP = "40"
 const PORT = 3200
 const DAY = 86400e3
 const BJ_OFFSET = 8 * 3600e3
@@ -938,6 +943,61 @@ function serviceScreen(screen: string, data: AppData): VirtualNode | null {
   return null
 }
 
+// ---------- 2.2.0-beta.1 数据源插件（/run/plugin）：在检查用的文件夹里添加示例插件、读状态和交易、移除；调别的脚本被拦下 ----------
+
+/** 要先装好示例插件（npm run check:install），并在手机上同步过一次。最后把示例插件加回来，留给截图 */
+async function runPlugin(): Promise<{ steps: Step[] }> {
+  const steps: Step[] = []
+  let data = loadData().data
+  for (const p of pluginsOf(data)) data = removePlugin(data, p.id)
+  const getData = () => data
+  const all = FileManager.readDirectorySync(FileManager.scriptsDirectory).map(p => p.split("/").pop() || p)
+  const marked = all.filter(n => FileManager.existsSync(`${FileManager.scriptsDirectory}/${n}/fuelnote.json`))
+  const ex = installedPlugins().find(p => p.script === EXAMPLE_PLUGIN)
+  add(steps, "脚本目录：列得出已装的脚本，读得到示例插件的 fuelnote.json 和 script.json（名称、版本、图标）", !!ex && !!ex.version && !!ex.icon,
+    `${all.length} 个脚本、${marked.length} 个带标记${ex ? `；${ex.title} · ${ex.version} · ${ex.icon}` : ""}`)
+  if (!ex) return { steps }
+
+  data = await addPlugin(getData, EXAMPLE_PLUGIN)
+  const ref = pluginsOf(data).find(p => p.script === EXAMPLE_PLUGIN)
+  add(steps, "添加：调一次 describe，存进设置（id、名称、提供的数据）", !!ref && ref.id === "example" && ref.capabilities.join() === "fuel", ref ? JSON.stringify(ref) : "没有")
+  if (!ref) return { steps }
+  let dup = ""
+  try { await addPlugin(getData, EXAMPLE_PLUGIN) } catch (e) { dup = errorText(e) }
+  add(steps, "同一个插件再添加一次被拦下", dup.includes("已经添加过了"), dup)
+
+  const st = await pluginStatus(ref)
+  add(steps, "读状态：已连接，账号打码，记下上次的结果", st.ok && st.value.connected && !!st.value.account && pluginState(ref.id) === "connected",
+    st.ok ? `${st.value.account ?? "没有账号"} · ${pluginState(ref.id)}` : st.error.message)
+  const now = Date.now()
+  const t0 = Date.now()
+  const fuel = await pluginFuel(ref, { from: now - 30 * DAY, to: now })
+  const first = Date.now() - t0
+  const t1 = Date.now()
+  const again = await pluginFuel(ref, { from: now - 30 * DAY, to: now })
+  const second = Date.now() - t1
+  add(steps, "读加油交易：最近 30 天 8 笔，新的在前；10 分钟内再读用缓存", fuel.ok && fuel.value.length === 8 && fuel.value[0].ts >= fuel.value[7].ts && again.ok && again.value.length === 8,
+    fuel.ok ? `${fuel.value.length} 笔，第一次 ${first} ms，再读 ${second} ms` : fuel.error.message)
+
+  let blocked = ""
+  try { await addPlugin(getData, "FuelNote") } catch (e) { blocked = errorText(e) }
+  add(steps, "检查用的文件夹里调别的脚本被拦下（不运行它）", blocked.includes("不可用"), blocked)
+
+  data = removePlugin(data, ref.id)
+  add(steps, "移除：设置里没有了，上次的结果一起清掉", !pluginsOf(data).length && pluginState(ref.id) == null)
+  data = await addPlugin(getData, EXAMPLE_PLUGIN)
+  return { steps }
+}
+
+/** 数据源插件的截图（/run/plugin 之后）：设置页、添加插件、插件详情 */
+function pluginScreen(screen: string, data: AppData): VirtualNode | null {
+  const app = { getData: () => data, setData: noop, addVehicle: async () => undefined }
+  if (screen === "plugin-settings") return <SettingsPage data={data} app={app} />
+  if (screen === "plugin-add") return <PluginAdd getData={() => data} onAdded={noop} />
+  if (screen === "plugin-detail" && pluginsOf(data).length) return <NavigationStack><PluginDetail app={app} pluginId={pluginsOf(data)[0].id} /></NavigationStack>
+  return null
+}
+
 /** 打开一笔费用（带门店） */
 function expenseFormOf(data: AppData, v: Vehicle, e: ExpenseRecord): VirtualNode {
   return <ExpenseForm getData={() => data} vehicle={v} record={{ ts: e.ts, category_id: e.category_id, amount: e.amount, remark: e.remark, id: e.id, ...(e.store_id ? { store_id: e.store_id } : {}) }}
@@ -963,6 +1023,7 @@ function screenElement(screen: string): VirtualNode | null {
   if (screen.startsWith("benefit-") || screen === "expense-benefits" || screen.startsWith("store-")) return benefitScreen(screen, data)
   if (screen.startsWith("export-")) return exportScreen(screen, data)
   if (screen.startsWith("service-")) return serviceScreen(screen, data)
+  if (screen.startsWith("plugin-")) return pluginScreen(screen, data)
   // 2.0.0-beta.4：备份与恢复、恢复列表、看一眼再恢复（最新的一份恢复前副本）、备份密码；用记账留下的「恢复前」副本
   if (screen.startsWith("backup-")) {
     const app = { getData: () => data, setData: noop, addVehicle: async () => undefined }
@@ -1079,6 +1140,7 @@ export function CheckPage() {
     server.registerAsyncHandler("/run/benefits", guarded("权益", async req => jsonResponse(await runBenefits(bodyJson<BenefitsPlan>(req)))))
     server.registerAsyncHandler("/run/export", guarded("导出", async req => jsonResponse(await runExportCheck(bodyJson<ExportBody>(req)))))
     server.registerAsyncHandler("/run/service", guarded("养修", async req => jsonResponse(await runService(bodyJson<ServiceBody>(req)))))
+    server.registerAsyncHandler("/run/plugin", guarded("数据源插件", async () => jsonResponse(await runPlugin())))
     server.registerAsyncHandler("/shot", guarded("截图", async req =>
       pngResponse(await takeShot(query(req, "screen"), query(req, "scheme") === "dark" ? "dark" : "light", Number(query(req, "height")) || 0))))
     const error = server.start({ port: PORT, forceIPv4: true })
