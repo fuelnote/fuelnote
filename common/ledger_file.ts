@@ -19,7 +19,6 @@ export function normalizeLedger(raw: Record<string, unknown>): LedgerFile {
   const cats = arr<LedgerFile["expense_categories"][number]>(l.expense_categories)
   l.expense_categories = cats.length ? cats : DEFAULT_EXPENSE_CATEGORIES.map(c => ({ ...c }))
   const settings = { ...defaultSettings(), ...((l.settings as Partial<Settings>) || {}) } as Settings & Record<string, unknown>
-  if (settings.station_search !== "off") settings.station_search = "auto" // 不认识的值按默认
   settings.plugins = arr(settings.plugins)
   l.settings = settings
   return l as unknown as LedgerFile

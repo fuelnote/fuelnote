@@ -46,7 +46,7 @@ export function AddPerksForm({ getData, vehicle, presetYear, stores, scanned }: 
   const [hasEnd, setHasEnd] = useState(true)
   const [end, setEnd] = useState<number | null>(null)
   const [store, setStore] = useState<Store | null>(null)
-  // 识别出的店名不在我的门店里时先记下名字，轻点门店时在高德里搜（2.1 设计第 10 节）；不先建一家没定位的门店
+  // 识别出的店名不在我的门店里时先记下名字，轻点门店时在地图上搜（2.1 设计第 10 节）；不先建一家没定位的门店
   const [pendingStore, setPendingStore] = useState("")
   const [price, setPrice] = useState("")
   const [bought, setBought] = useState(now)
@@ -197,7 +197,7 @@ export function AddPerksForm({ getData, vehicle, presetYear, stores, scanned }: 
       {origin === "insurance"
         ? <Section key="insurance" footer={<Text>{existing.length
           ? `「${source}」已有 ${existing.length} 项，添加的也放进这一组。`
-          : pendingStore ? `识别出的门店是「${pendingStore}」，我的门店里还没有。轻点门店在高德里选这家店，搜索框里已经填好店名。` : "有效期默认取这一年的保险到期日，门店会填进每一项。"}</Text>}>
+          : pendingStore ? `识别出的门店是「${pendingStore}」，我的门店里还没有。轻点门店在地图上选这家店，搜索框里已经填好店名。` : "有效期默认取这一年的保险到期日，门店会填进每一项。"}</Text>}>
           {years.length
             ? <Picker title="车险" value={yearId} onChanged={(v: string) => { setYearId(v); setEnd(null) }} pickerStyle="menu">
               {years.map(y => <Text key={y.id} tag={y.id}>{`${yearOf(y)} · ${yearInsurer(y)}`}</Text>)}
@@ -210,7 +210,7 @@ export function AddPerksForm({ getData, vehicle, presetYear, stores, scanned }: 
             <Text font="caption" foregroundStyle="secondaryLabel">{existing.map(giftName).join(" · ")}</Text>
           </VStack> : null}
         </Section>
-        : <Section key="info" footer={<Text>{pendingStore ? `识别出的门店是「${pendingStore}」，我的门店里还没有。轻点门店在高德里选这家店，搜索框里已经填好店名。` : "名称就是这一批的「来自」。有效期和门店会填进每一项，之后可以分别修改。"}</Text>}>
+        : <Section key="info" footer={<Text>{pendingStore ? `识别出的门店是「${pendingStore}」，我的门店里还没有。轻点门店在地图上选这家店，搜索框里已经填好店名。` : "名称就是这一批的「来自」。有效期和门店会填进每一项，之后可以分别修改。"}</Text>}>
           <TextField title="名称" value={name} onChanged={setName} prompt={origin === "package" ? "套餐名称" : "名称，例如「洗车卡」"} />
           <Toggle title="有有效期" value={hasEnd} onChanged={setHasEnd} />
           {hasEnd ? <DatePicker title="有效期至" value={endValue} onChanged={v => setEnd(v)} displayedComponents={["date"]} /> : null}

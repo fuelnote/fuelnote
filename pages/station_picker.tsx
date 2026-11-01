@@ -1,6 +1,6 @@
-// 选择油站：附近（以选中的停车点为中心）、我的油站、关键字搜索
+// 选择油站：附近（以选中的停车点为中心）、我的油站、关键字搜索（以手机现在的位置为区域，插件化设计 6.1 节；页面一打开就开始取位置）
 import { Button, HStack, List, Navigation, NavigationStack, ProgressView, Section, Spacer, Text, VStack, useEffect, useState } from "scripting"
-import { AppData, distanceText, Station, StationCandidate, stationCandidates, Vehicle } from "../common/model"
+import { AppData, distanceText, Station, StationCandidate, stationCandidates, Vehicle, warmSearchCenter } from "../common/model"
 
 function CandidateRow({ c }: { c: StationCandidate }) {
   return <HStack>
@@ -22,6 +22,7 @@ export function StationPicker({ data, vehicle, center }: { data: AppData; vehicl
   const [list, setList] = useState<StationCandidate[] | null>(null)
   const [error, setError] = useState<string | null>(null)
 
+  useEffect(() => { void warmSearchCenter() }, [])
   useEffect(() => {
     let alive = true
     setList(null)

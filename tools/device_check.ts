@@ -1,6 +1,6 @@
 // 手机上的自动检查（电脑端）。手机上开着「FuelNote Check」（tools/check），它向采样服务报到后，这里直接请求手机。说明见 tools/check/README.md。
 //
-//   XXYH_ROOT=E:/GitHub/xxyh npx tsx tools/device_check.ts [recognize] [ledger] [shots] [split] [benefits] [export] [service] [plugin]   （不写时都做）
+//   XXYH_ROOT=E:/GitHub/xxyh npx tsx tools/device_check.ts [recognize] [ledger] [shots] [split] [benefits] [export] [service] [plugin] [map]   （不写时都做）
 //
 // 真实数据（期望值、小熊里的保险费用、小熊备份）只从 XXYH_ROOT 读，计划在这里生成后发给手机；结果和截图存到 XXYH_ROOT/out/check/，不进仓库。
 // split（1.6，设计文档第 21 节）：把最新的小熊备份发给手机，在检查用的文件夹里导入选中的那辆车，用同一套纯函数算出期望值来比较。
@@ -282,6 +282,18 @@ async function plugin(phone: string): Promise<number> {
   return bad
 }
 
+const SHOTS_MAP: Array<[string, number]> = [["map-settings", 1900], ["map-picker", 1600], ["map-search", 1400], ["map-store", 0], ["map-store-hours", 0]]
+
+/** 地图搜索（2.2.0-beta.2）：系统地图搜加油站和汽车服务（要在 split 之后，用它导入的油站），核对坐标换算、按距离筛、同一家门店不重复加 */
+async function mapCheck(phone: string): Promise<number> {
+  const r = await post<{ steps: Step[] }>(`${phone}/run/map`, {})
+  writeFileSync(join(OUT, "map.json"), JSON.stringify(r, null, 1))
+  for (const s of r.steps) console.log(`  ${s.ok ? "✓" : "✗"} ${s.name}${s.detail ? `（${s.detail}）` : ""}`)
+  const bad = r.steps.filter(s => !s.ok).length
+  console.log(`地图搜索：${r.steps.length} 项，${bad ? `${bad} 项不对` : "全部通过"}`)
+  return bad
+}
+
 async function shots(phone: string, screens: Array<[string, number]>): Promise<number> {
   mkdirSync(join(OUT, "shots"), { recursive: true })
   let failed = 0
@@ -335,6 +347,11 @@ async function main() {
   if (run("plugin")) {
     bad += await plugin(phone)
     bad += await shots(phone, SHOTS_PLUGIN)
+  }
+  // 要在 split 之后（用它导入的油站）
+  if (run("map")) {
+    bad += await mapCheck(phone)
+    bad += await shots(phone, SHOTS_MAP)
   }
   process.exitCode = bad ? 1 : 0
 }

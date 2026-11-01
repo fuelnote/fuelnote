@@ -1,28 +1,19 @@
-// 油站搜索（设计文档第 9 节）和按单价判断标号用的油价。开关打开时有高德 key 用高德，否则用小熊的附近油站
+// 油站搜索（设计文档第 9 节；2.2 起用系统地图，插件化设计 6.1 节）和按单价判断标号用的油价
 import { LngLat, metres } from "../common/geo"
 import { AppData, fuelRecords, stationsFor } from "../common/ledger"
 import { CityPrices, PriceRef, priceRefAt } from "../common/receipt"
 import { Stop } from "../common/stops"
 import { Station, StationCandidate, Vehicle } from "../common/types"
-import { createPoiCache, PoiCacheEntries } from "../stations/poi_cache"
-import { amapSearcher, StationSearcher, xxyhSearcher } from "../stations/search"
+import { searchCenter, stationsByKeyword, stationsNearby } from "../stations/map_search"
 import { candidateFromPoi, stationPoint } from "../stations/match"
+import { createPoiCache, PoiCacheEntries } from "../stations/poi_cache"
 import { cityPrices, price92History } from "../sync/xxyh/api"
+import { currentPosition } from "../platform/location"
+import { locatePlaces } from "../platform/map_search"
 import { scriptingHttp } from "../platform/scripting_http"
-import { getSecret, SECRET_AMAP_KEY, setSecret } from "../platform/secrets"
 import { readCache, writeCache } from "../platform/storage"
 import { errorText } from "./errors"
 import { xxyhToken } from "./xxyh_io"
-
-export const amapKey = () => getSecret(SECRET_AMAP_KEY)
-export const setAmapKey = (key: string) => setSecret(SECRET_AMAP_KEY, key)
-
-/** 用这个 key 实际查一次附近加油站（上海人民广场 2 km）；key 无效、额度用完时抛出高德的错误信息 */
-export async function testAmapKey(key: string): Promise<string> {
-  const t0 = Date.now()
-  const pois = await amapSearcher(scriptingHttp, key).nearby([121.4691, 31.2323], 2000)
-  return `查到 ${pois.length} 个加油站，${((Date.now() - t0) / 1000).toFixed(1)} 秒`
-}
 
 type PoiCacheFile = { schema_version: 1; entries: PoiCacheEntries }
 const POI_CACHE_FILE = "poi_cache.json"
@@ -37,22 +28,29 @@ const poiCache = createPoiCache({
   now: () => Date.now(),
 })
 
-function rawSearcher(data: AppData): StationSearcher | null {
-  if (data.ledger.settings.station_search === "off") return null
-  const amap = amapKey()
-  if (amap) return amapSearcher(scriptingHttp, amap)
-  const token = xxyhToken()
-  return token ? xxyhSearcher(scriptingHttp, token) : null
+/** 地图上 p 附近 radiusM 内的加油站，按距离排；同一个地方 30 天内用缓存（找加油停车、选择油站的附近） */
+export const nearbyStations = poiCache.wrap("map", (p, r) => stationsNearby(locatePlaces, p, r))
+
+/** 搜索时最多等手机的位置这么久，等不到就用最近用过的油站 */
+const POSITION_WAIT_MS = 3000
+/** 取到的位置在这段时间里重复用 */
+const POSITION_TTL_MS = 120e3
+let position: { at: number; p: Promise<LngLat | null> } | null = null
+
+/** 开始取手机的位置：搜索页打开时调，打完字时一般已经取到。2 分钟内重复用；取不到时下次重新取 */
+export function warmSearchCenter(): Promise<LngLat | null> {
+  const now = Date.now()
+  if (position && now - position.at <= POSITION_TTL_MS) return position.p
+  const entry = { at: now, p: currentPosition() }
+  position = entry
+  void entry.p.then(v => { if (!v && position === entry) position = null })
+  return entry.p
 }
 
-/** 附近和关键字搜索；关掉或都没有凭据时 null（只用我的油站） */
-export function searcher(data: AppData): StationSearcher | null {
-  const s = rawSearcher(data)
-  return s ? { ...s, nearby: poiCache.wrap(s.name, (p, r) => s.nearby(p, r)) } : null
-}
-
-export function searcherName(data: AppData): string {
-  return searcher(data)?.name || "不搜索，只用我的油站"
+/** 门店、油站搜索框的区域中心（插件化设计 6.1 节，D14）：手机现在的位置（最多等 3 秒），取不到时用最近用过的油站，都没有时 null */
+export async function searchCenterFor(data: AppData): Promise<LngLat | null> {
+  const here = await Promise.race([warmSearchCenter(), new Promise<null>(resolve => setTimeout(() => resolve(null), POSITION_WAIT_MS))])
+  return searchCenter(here, data.ledger.stations)
 }
 
 const priceCache = new Map<string, Promise<{ current: CityPrices | null; history: Array<[number, number]> }>>()
@@ -101,23 +99,18 @@ export async function stationCandidates(data: AppData, vehicle: Vehicle | null, 
     seen.add(c.station.id)
     out.push(c)
   }
-  const s = searcher(data)
   let error: string | null = null
   const kw = keyword.trim()
   if (kw) {
     for (const st of mine.filter(x => x.name.includes(kw) || x.address.includes(kw)).slice(0, 8)) add({ kind: "mine", station: st, dist: center ? metres(stationPoint(st), center) : null })
-    if (s && s.keyword) {
-      const city = center ? (mine.slice().sort((a, b) => metres(stationPoint(a), center) - metres(stationPoint(b), center))[0]?.city || "") : ""
-      try { for (const poi of await s.keyword(kw, city)) add(candidateFromPoi(poi, mine, center, now)) } catch (e) { error = errorText(e) }
-    }
+    const hint = await searchCenterFor(data)
+    try { for (const poi of await stationsByKeyword(locatePlaces, kw, hint)) add(candidateFromPoi(poi, mine, center, now)) } catch (e) { error = errorText(e) }
     return { list: out, error }
   }
   if (center) {
     mine.map(st => ({ st, d: metres(stationPoint(st), center) })).filter(x => x.d <= 3000).sort((a, b) => a.d - b.d).slice(0, 5)
       .forEach(x => add({ kind: "mine", station: x.st, dist: x.d }))
-    if (s) {
-      try { for (const poi of await s.nearby(center, 2000)) add(candidateFromPoi(poi, mine, center, now)) } catch (e) { error = errorText(e) }
-    }
+    try { for (const poi of await nearbyStations(center, 2000)) add(candidateFromPoi(poi, mine, center, now)) } catch (e) { error = errorText(e) }
     return { list: out.sort((a, b) => (a.dist ?? 1e9) - (b.dist ?? 1e9)).slice(0, 12), error }
   }
   mine.slice().sort((a, b) => b.last_used_ts - a.last_used_ts).slice(0, 30).forEach(st => add({ kind: "mine", station: st, dist: null }))

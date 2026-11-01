@@ -25,11 +25,11 @@ export function stationFromPoi(poi: Poi, ts: number): Station {
   }
 }
 
-/** 搜索结果落在已有油站附近时用已有油站（高德与旧油站的坐标常差几米到几十米） */
+/** 搜索结果落在已有油站附近时用已有油站（地图与旧油站的坐标常差几米到几十米） */
 export function candidateFromPoi(poi: Poi, stations: Station[], from: LngLat | null, now: number): StationCandidate {
   const mine = nearestStation(stations, [poi.lng, poi.lat], SAME_STATION_M)
   if (mine) return { kind: "mine", station: mine.station, dist: from ? metres(stationPoint(mine.station), from) : null }
-  return { kind: "new", station: stationFromPoi(poi, now), dist: from ? metres([poi.lng, poi.lat], from) : null, src: poi.src }
+  return { kind: "new", station: stationFromPoi(poi, now), dist: from ? metres([poi.lng, poi.lat], from) : null }
 }
 
 const coreName = (s: string) => String(s || "").replace(/中国石化|中石化|中国石油|中石油|销售|有限公司|加油站|加油加气站|加气站|服务区|股份|[()（）\s·\-]/g, "")

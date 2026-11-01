@@ -1,8 +1,6 @@
-// 小熊油耗接口：账号、云备份下载与上传、附近油站、油价
+// 小熊油耗接口：账号、云备份下载与上传、油价
 import { randomCode } from "../../common/ids"
-import { bd09ToWgs84, LngLat } from "../../common/geo"
 import { CityPrices } from "../../common/receipt"
-import { Poi } from "../../common/types"
 import { formEncode, Http, parseJson } from "../../platform/http"
 import { XxyhBackup } from "./types"
 
@@ -117,20 +115,4 @@ export async function price92History(http: Http, city: string): Promise<Array<[n
   } catch {
     return []
   }
-}
-
-/** 小熊的附近加油站；坐标带 coordinate_type，没有时是百度坐标 */
-export async function aroundPois(http: Http, token: string, wgs: LngLat): Promise<Poi[]> {
-  const b = await call(http, "geo/index.php", {
-    form: { a: "aroundpois", auth_token: token, coordinate_type: "wgs84", keyword: "加油站", location: `${wgs[0]},${wgs[1]}`, reqcode: randomCode(12) },
-  })
-  const out: Poi[] = []
-  for (const p of (b.pois || []) as any[]) {
-    if (Number(p.sType) !== 1) continue
-    const [lng, lat] = String(p.location || "").split(",").map(Number)
-    if (!lng || !lat) continue
-    const w = p.coordinate_type === "wgs84" ? [lng, lat] : bd09ToWgs84([lng, lat])
-    out.push({ name: String(p.name || ""), address: String(p.address || ""), province: String(p.province || ""), city: String(p.city || ""), district: String(p.district || ""), lng: w[0], lat: w[1], src: "xxyh" })
-  }
-  return out
 }

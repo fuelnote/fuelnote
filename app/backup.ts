@@ -13,7 +13,7 @@ import { yearFiles, yearLabel } from "../common/insurance"
 import { AppData } from "../common/ledger"
 import { PROVIDERS } from "../providers/registry"
 import {
-  getSecret, providerSecretKey, providerSessionKey, removeSecret, SECRET_AMAP_KEY, SECRET_AZURE, SECRET_BACKUP_KEY, SECRET_XXYH_TOKEN, setSecret,
+  getSecret, providerSecretKey, providerSessionKey, removeSecret, SECRET_AZURE, SECRET_BACKUP_KEY, SECRET_XXYH_TOKEN, setSecret,
 } from "../platform/secrets"
 import {
   backupDirectory, isMainDataRoot, listBackupNames, policyDirectory, policyFilePath, readAutoBackupState, readLatestSnapshot, saveAutoBackupState, saveLedger,
@@ -28,7 +28,6 @@ function secretItems(): Array<{ key: string; label: string }> {
   return [
     { key: SECRET_XXYH_TOKEN, label: "小熊油耗" },
     ...PROVIDERS.map(p => ({ key: providerSecretKey(p.id), label: p.name })),
-    { key: SECRET_AMAP_KEY, label: "高德" },
     { key: SECRET_AZURE, label: "Azure OpenAI" },
   ]
 }

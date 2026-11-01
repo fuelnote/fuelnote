@@ -1,5 +1,7 @@
 // 我的门店（纯函数，设计文档 20.7、22.11 节）：选择门店页的顺序，记费用时默认这一类上次用的门店。
-// 2.0 起门店只看费用的 store_id，不从备注里认店名；2.1 起每家门店都是高德地点（docs/specs/2026-10-24-maintenance-volvo.md 第 10 节）。
+// 2.0 起门店只看费用的 store_id，不从备注里认店名；2.1 起每家门店都是地图上的地点（docs/specs/2026-10-24-maintenance-volvo.md 第 10 节），
+// 2.2 起用系统地图，按名称和位置认同一家（插件化设计 6.1 节）。
+import { metres } from "./geo"
 import { ExpenseRecord, FuelRecord, LedgerFile, MaintenanceRecord, Store, StorePoi } from "./types"
 
 type AnyRecord = FuelRecord | ExpenseRecord | MaintenanceRecord
@@ -7,6 +9,15 @@ type AnyRecord = FuelRecord | ExpenseRecord | MaintenanceRecord
 /** 比较店名时忽略空白、全角括号 */
 export function normalizeName(name: string): string {
   return name.replace(/\s+/g, "").replace(/（/g, "(").replace(/）/g, ")").toLowerCase()
+}
+
+export const SAME_STORE_M = 80
+
+/** 地图上的地点是不是这家门店（插件化设计 6.1 节）：名称相同、相距 80 m 内。系统地图的地点没有 id；没有位置的门店认不出 */
+export function sameStorePlace(store: Store, place: { name: string; lng: number; lat: number }): boolean {
+  if (store.lng == null || store.lat == null) return false
+  const names = [store.full_name, store.name].filter(Boolean).map(normalizeName)
+  return names.includes(normalizeName(place.name)) && metres([store.lng, store.lat], [place.lng, place.lat]) <= SAME_STORE_M
 }
 
 export type StoreCandidate = {
@@ -46,36 +57,40 @@ export function expenseStoreName(stores: Store[], e: ExpenseRecord): string | nu
   return e.store_id ? stores.find(s => s.id === e.store_id)?.name ?? null : null
 }
 
-/** 我的门店里加上一家（同一个高德地点不重复加）；返回加进来的那一家（已有时是原来的） */
+/** 我的门店里加上一家（同一个地点不重复加）；返回加进来的那一家（已有时是原来的） */
 export function addStore(stores: Store[], store: Store, newId: () => string): { stores: Store[]; store: Store } {
-  const same = stores.find(s => s.id === store.id || (!!store.poi_id && s.poi_id === store.poi_id))
+  const at = store.lng != null && store.lat != null ? { name: store.full_name || store.name, lng: store.lng, lat: store.lat } : null
+  const same = stores.find(s => s.id === store.id) ?? (at ? storeOfPlace(stores, at) : null)
   if (same) return { stores, store: same }
   const saved: Store = { ...store, id: store.id || newId(), name: store.name.trim() }
   return { stores: [...stores, saved], store: saved }
 }
 
-/** 高德的名称去掉末尾括号里的分店名：「优车美装（正大乐城）」→「优车美装」 */
+/** 地图上的名称去掉末尾括号里的分店名：「优车美装（正大乐城）」→「优车美装」 */
 export function shortStoreName(name: string): string {
   const s = name.replace(/[（(][^（）()]*[）)]\s*$/, "").trim()
   return s || name.trim()
 }
 
-/** 从高德选中的地点建一家门店（还没有 id，存进我的门店时给） */
+/** 从地图选中的地点建一家门店（还没有 id，存进我的门店时给）；系统地图没有营业时间 */
 export function storeFromPoi(poi: StorePoi): Store {
   return {
-    id: "", name: shortStoreName(poi.name), full_name: poi.name, address: poi.address, phone: poi.phone, hours: poi.hours,
-    poi_id: poi.poi_id, lng: poi.lng, lat: poi.lat, dealer: null,
+    id: "", name: shortStoreName(poi.name), full_name: poi.name, address: poi.address, phone: poi.phone, hours: "",
+    poi_id: "", lng: poi.lng, lat: poi.lat, dealer: null,
   }
 }
 
-/** 重新定位：换上高德的资料；id、名称、经销商代码不变，用到它的费用和权益卡不用改 */
+/**
+ * 重新定位：换上地图的资料；id、名称、经销商代码不变，用到它的费用和权益卡不用改。
+ * 以前高德的营业时间和地点 id 说的是原来那个地点，一起清掉
+ */
 export function relocatedStore(store: Store, poi: StorePoi): Store {
-  return { ...store, full_name: poi.name, address: poi.address, phone: poi.phone, hours: poi.hours, poi_id: poi.poi_id, lng: poi.lng, lat: poi.lat }
+  return { ...store, full_name: poi.name, address: poi.address, phone: poi.phone, hours: "", poi_id: "", lng: poi.lng, lat: poi.lat }
 }
 
-/** 我的门店里的同一个高德地点；没有时 null */
-export function storeOfPoi(stores: Store[], poiId: string): Store | null {
-  return poiId ? stores.find(s => s.poi_id === poiId) ?? null : null
+/** 我的门店里的同一个地点（名称相同、相距 80 m 内）；没有时 null */
+export function storeOfPlace(stores: Store[], place: { name: string; lng: number; lat: number }): Store | null {
+  return stores.find(s => sameStorePlace(s, place)) ?? null
 }
 
 /** 用到这家店的费用笔数和权益卡张数（门店详情、删除前的确认） */

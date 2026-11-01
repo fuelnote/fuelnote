@@ -2,7 +2,7 @@
 import { Button, Capsule, HStack, List, Navigation, NavigationLink, NavigationStack, Script, Section, Spacer, Text, Toggle, useState, VStack } from "scripting"
 import {
   AppData, capabilityLine, currentVehicle, OCR_ENGINE_TITLES, pluginsOf, pluginState, pluginStateText, pluginStatus, providerCapabilities, PROVIDERS,
-  providerCredential, searcherName, updateSettings, Vehicle,
+  providerCredential, updateSettings, Vehicle,
 } from "../common/model"
 import { CaptureSettings } from "./capture_settings"
 import { BackupRowLabel, BackupSettings } from "./backup_settings"
@@ -11,7 +11,6 @@ import { PluginAdd } from "./plugin_add"
 import { PluginDetail } from "./plugin_detail"
 import { ProviderSettings } from "./provider_settings"
 import { RecognizeSettings } from "./recognize_settings"
-import { StationSearchSettings } from "./station_search_settings"
 import { VehicleEdit } from "./vehicle_edit"
 import { xxyhRowDetail, XxyhSettings } from "./xxyh_settings"
 
@@ -97,9 +96,6 @@ export function SettingsPage({ data, app }: { data: AppData; app: AppActions }) 
       </Section>
 
       <Section title="记加油">
-        <NavigationLink destination={<StationSearchSettings data={data} app={app} />}>
-          <Detail title="油站搜索" detail={searcherName(data)} />
-        </NavigationLink>
         <NavigationLink destination={<CaptureSettings />}>
           <Text>截屏记加油</Text>
         </NavigationLink>

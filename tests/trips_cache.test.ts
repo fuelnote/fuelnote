@@ -90,7 +90,7 @@ test("停车缓存：冷启动读文件里的缓存；读取失败不留缓存�
 })
 
 test("缓存的停车按当前数据重新判断：已记录、之后新建的油站", () => {
-  const s = stop(T0, { refuel: true, candidate: { kind: "new", station: station("new1", 121.6003, 31.2301), dist: 30, src: "amap" } })
+  const s = stop(T0, { refuel: true, candidate: { kind: "new", station: station("new1", 121.6003, 31.2301), dist: 30 } })
   // 还没记录、油站还没建
   let [r] = refreshStops([s], [], [])
   assert.equal(r.recorded, null)
@@ -117,14 +117,14 @@ test("附近油站缓存：同一网格 30 天内不重复查询；出错不缓�
   let stored: PoiCacheEntries | null = null
   const cache = createPoiCache({ load: () => stored, save: e => { stored = e }, now: () => now })
   let calls = 0
-  const nearby = async () => { calls++; return [{ name: "加油站", address: "", province: "", city: "", district: "", lng: 121.6, lat: 31.23, src: "amap" as const }] }
-  const wrapped = cache.wrap("高德", nearby)
+  const nearby = async () => { calls++; return [{ name: "加油站", address: "", province: "", city: "", district: "", lng: 121.6, lat: 31.23 }] }
+  const wrapped = cache.wrap("map", nearby)
   await wrapped([121.60001, 31.23001], 200)
   await wrapped([121.60008, 31.23006], 200) // 同一网格（约 10 米外）
   assert.equal(calls, 1)
   await wrapped([121.60001, 31.23001], 2000) // 半径不同
   assert.equal(calls, 2)
-  assert.notEqual(poiCacheKey("高德", [121.6, 31.23], 200), poiCacheKey("小熊油耗", [121.6, 31.23], 200))
+  assert.notEqual(poiCacheKey("map", [121.6, 31.23], 200), poiCacheKey("高德", [121.6, 31.23], 200), "2.1 用高德、小熊查到的缓存不再用")
   now += POI_TTL_MS + 1
   await wrapped([121.60001, 31.23001], 200)
   assert.equal(calls, 3, "过期后重新查询")

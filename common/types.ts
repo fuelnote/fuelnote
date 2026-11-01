@@ -174,10 +174,9 @@ export type InsuranceYear = {
 
 // ---------- 权益（1.7，权益设计 docs/specs/2026-10-23-benefits-wallet.md）：只存在本机，进备份 ----------
 
-/** 我的门店：费用和权益卡都存它的 id，改名后到处跟着变（2.1 起来自高德） */
 /**
- * 我的门店（2.1 设计第 10 节）：每一家都是高德上的一个地点。
- * name 是费用页和导出到小熊的费用备注里写的名称，从高德选中时默认取高德的名称（去掉括号里的分店名），可以改；其余是高德的资料
+ * 我的门店：费用和权益卡都存它的 id，改名后到处跟着变。每一家都是地图上的一个地点（2.1 设计第 10 节；2.2 起用系统地图，插件化设计 6.1 节）。
+ * name 是费用页和导出到小熊的费用备注里写的名称，从地图选中时默认取地图上的名称（去掉括号里的分店名），可以改；其余是地图的资料
  */
 export type Store = {
   id: string
@@ -185,31 +184,29 @@ export type Store = {
   full_name: string
   address: string
   phone: string
-  /** 高德的营业时间 */
+  /** 营业时间：只有 2.1 从高德选的门店有，系统地图没有这一项 */
   hours: string
-  /** 高德地点 id；选中高德里同一个地点时用已有的那一家 */
+  /** 2.1 的高德地点 id，只留着不再用；2.2 起按名称和位置认同一家 */
   poi_id: string
-  /** WGS-84（高德的 GCJ-02 读进来时换算） */
+  /** WGS-84（地图在国内给的 GCJ-02 读进来时换算） */
   lng: number | null
   lat: number | null
   /** 车辆数据提供方的经销商代码（2.1.0-beta.5 起从养修记录对上） */
   dealer: { provider: string; code: string } | null
 }
 
-/** 高德上的一个汽车服务地点（选择门店的附近和搜索结果） */
+/** 地图上的一个汽车服务地点（选择门店的附近和搜索结果） */
 export type StorePoi = {
-  poi_id: string
   name: string
   address: string
   district: string
   city: string
-  /** 「汽车销售 · 汽车维修」 */
+  /** 类别标签「汽车维修」「汽车销售」「租车」；别的类别是空的 */
   kind: string
   lng: number
   lat: number
   phone: string
-  hours: string
-  /** 周边搜索时离中心点的米数 */
+  /** 附近搜索时离中心点的米数；搜索框的结果是 null */
   distance: number | null
 }
 
@@ -320,7 +317,7 @@ export type ServiceRecord = {
   tickets: Array<ServiceTicket & { record_id: string | null }>
 }
 
-/** 附近搜索的结果（WGS-84） */
+/** 地图上的一个加油站（WGS-84） */
 export type Poi = {
   name: string
   address: string
@@ -329,16 +326,12 @@ export type Poi = {
   district: string
   lng: number
   lat: number
-  src: "amap" | "xxyh"
 }
 
 /** 选油站时的候选：已有油站，或保存时新建的油站 */
 export type StationCandidate =
   | { kind: "mine"; station: Station; dist: number | null }
-  | { kind: "new"; station: Station; dist: number | null; src: Poi["src"] }
-
-/** 搜不搜附近的油站：auto = 有高德 key 用高德，否则用小熊；off = 只用我的油站（2.0 起只有这两种，旧的 amap、xxyh 读成 auto） */
-export type StationSearchMode = "auto" | "off"
+  | { kind: "new"; station: Station; dist: number | null }
 
 /** 截图识别用哪一种来源（只用这一种）：本机 iOS 文字识别，或大模型（Azure OpenAI、Scripting 助手）。以后可能加小熊识别 */
 export type OcrEngine = "local" | "azure" | "assistant"
@@ -349,7 +342,6 @@ export type AssistantModel = { providerID: string; modelId: string; name: string
 export type Settings = {
   current_vehicle_id: string | null
   default_full: boolean
-  station_search: StationSearchMode
   /** 记录页顶部提示里点了「×」的加油停车（熄火时间），只留最近 20 个 */
   dismissed_stops: number[]
   ocr_engine: OcrEngine
@@ -404,7 +396,7 @@ export function gradeText(grade: number | null): string {
 }
 
 export function defaultSettings(): Settings {
-  return { current_vehicle_id: null, default_full: true, station_search: "auto", dismissed_stops: [], ocr_engine: "local", ocr_assistant: null, dismissed_renewals: [], auto_backup: true, plugins: [] }
+  return { current_vehicle_id: null, default_full: true, dismissed_stops: [], ocr_engine: "local", ocr_assistant: null, dismissed_renewals: [], auto_backup: true, plugins: [] }
 }
 
 export function emptyLedger(): LedgerFile {

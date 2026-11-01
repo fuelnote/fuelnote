@@ -77,7 +77,7 @@ test("读不了或格式不对：另存一份坏文件、用默认值并提示�
   assert.match(readJson(fs, LEDGER, () => ({}), v => v.schema_version === 1).warning!, /格式无法识别/)
 })
 
-test("账本：补齐列表和设置；油站搜索不认识的值按默认；不认识的字段原样保留", () => {
+test("账本：补齐列表和设置；不认识的字段原样保留（含 2.1 的油站搜索设置）", () => {
   const fs = memoryFs()
   const path = joinPath(DIR, LEDGER_FILE)
   fs.files.set(path, JSON.stringify({
@@ -88,11 +88,9 @@ test("账本：补齐列表和设置；油站搜索不认识的值按默认；�
   assert.equal(warning, undefined)
   assert.deepEqual([ledger.stations, ledger.insurance, ledger.stores, ledger.perks, ledger.perk_uses], [[], [], [], [], []])
   assert.equal(ledger.expense_categories.length, 4)
-  assert.equal(ledger.settings.station_search, "auto")
   assert.equal(ledger.settings.default_full, true)
   assert.deepEqual((ledger as unknown as Record<string, unknown>).future_field, { keep: true })
-  fs.files.set(path, JSON.stringify({ schema_version: 2, vehicles: [], records: [], settings: { station_search: "off" } }))
-  assert.equal(readLedgerFile(fs, path).ledger.settings.station_search, "off")
+  assert.equal((ledger.settings as unknown as Record<string, unknown>).station_search, "amap", "回退到 2.1 时还在")
   // 不是这个格式的不读
   fs.files.set(path, JSON.stringify({ schema_version: 1, vehicles: [], records: [] }))
   assert.match(readLedgerFile(fs, path).warning!, /格式无法识别/)

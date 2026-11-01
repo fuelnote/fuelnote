@@ -8,7 +8,7 @@ import { join } from "node:path"
 const ROOT = join(__dirname, "..")
 /** 例外：model.ts 转发 app/ 的应用层给页面用；widget_runtime.ts 是小组件的入口模块；widget_data.ts 不引用其他源文件，自己读 widget.json */
 const EXCEPT = new Set(["common/model.ts", "common/widget_runtime.ts", "common/widget_data.ts"])
-const GLOBALS = /\b(FileManager|Keychain|Dialog|Navigation|Pasteboard|Storage|Script|Widget|BackgroundKeeper|Notification|Intent|DocumentPicker|ShareSheet)\./
+const GLOBALS = /\b(FileManager|Keychain|Dialog|Navigation|Pasteboard|Storage|Script|Widget|BackgroundKeeper|Notification|Intent|DocumentPicker|ShareSheet|MapSearch|Safari|Location)\./
 
 function sources(dir: string): string[] {
   return readdirSync(join(ROOT, dir)).filter(n => n.endsWith(".ts")).map(n => `${dir}/${n}`)
@@ -21,7 +21,7 @@ test("纯逻辑层不碰 Scripting", () => {
   for (const f of files) {
     const text = readFileSync(join(ROOT, f), "utf8")
       .replace(/\/\*[\s\S]*?\*\//g, "")
-      .split("\n").map(l => l.replace(/\/\/.*$/, "")).join("\n")
+      .split(/\r?\n/).map(l => l.replace(/\/\/.*$/, "")).join("\n")
     if (/from "scripting"/.test(text)) bad.push(`${f}：导入 "scripting"`)
     const platform = [...text.matchAll(/from "\.\.\/(?:\.\.\/)?platform\/(\w+)"/g)].map(m => m[1]).filter(m => m !== "http")
     if (platform.length) bad.push(`${f}：导入 platform/${platform.join("、")}`)

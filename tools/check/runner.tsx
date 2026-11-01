@@ -1,7 +1,7 @@
 // 手机上的自动检查（开发用，不随油记发布）。电脑端是 tools/device_check.ts，说明见 tools/check/README.md。
 // 启动时把数据文件夹换成 FuelNoteCheck：账本、保单原件、小组件文件都在那里，不碰油记的真实数据；
 // 不读写钥匙串、不连小熊，只向电脑上的采样服务（tools/ocr_bridge.mjs）取保单文件；数据源插件只调示例插件。
-// 在 3200 端口等电脑的请求：/ping、/run/recognize、/run/ledger、/run/split、/run/benefits、/run/export、/run/service、/run/plugin、/shot。识别扫描件要用这一页上的 WebView，所以这一页要留在屏幕上。
+// 在 3200 端口等电脑的请求：/ping、/run/recognize、/run/ledger、/run/split、/run/benefits、/run/export、/run/service、/run/plugin、/run/map、/shot。识别扫描件要用这一页上的 WebView，所以这一页要留在屏幕上。
 import {
   Button, fetch, List, Navigation, NavigationStack, ScreenshotMaker, ScrollView, Section, Text, TextField, VirtualNode, WebView, ZStack, useEffect, useRef,
   useState,
@@ -65,12 +65,17 @@ import { pluginFuel } from "../../app/plugins"
 import { PluginAdd } from "../../pages/plugin_add"
 import { PluginDetail } from "../../pages/plugin_detail"
 import { SettingsPage } from "../../pages/settings"
+import { nearbyStores, searchStores, storeFromPoi, storeOfPlace, warmSearchCenter } from "../../common/model"
+import { LngLat, metres } from "../../common/geo"
+import { STATION_SEARCH_M } from "../../common/stops"
+import { stationsNearby } from "../../stations/map_search"
+import { locatePlaces } from "../../platform/map_search"
 
 const SANDBOX = "FuelNoteCheck"
 setDataRoot(SANDBOX)
 
 /** 改了这个值，手机重新运行后报到的 STAMP 跟着变（确认跑的是新代码） */
-export const STAMP = "40"
+export const STAMP = "46"
 const PORT = 3200
 const DAY = 86400e3
 const BJ_OFFSET = 8 * 3600e3
@@ -542,8 +547,8 @@ async function runBenefits(plan: BenefitsPlan): Promise<{ steps: Step[] }> {
   const near = (a: number, b: number) => Math.abs(a - b) < 0.005
   const now = Date.now()
 
-  // 2.1 起门店是高德地点：名称用高德的全称（不用手写的简称），高德地点 id 是编的
-  const s = saveStore(data, { id: "", name: plan.store.full_name, full_name: plan.store.full_name, address: plan.store.address, phone: "", hours: "", poi_id: "check-amap-store", lng: null, lat: null, dealer: null })
+  // 门店是地图上的地点：名称用全称（不用手写的简称）；这里没有位置
+  const s = saveStore(data, { id: "", name: plan.store.full_name, full_name: plan.store.full_name, address: plan.store.address, phone: "", hours: "", poi_id: "", lng: null, lat: null, dealer: null })
   data = s.data
   const year = insuranceYears(data.ledger.insurance, v.id).find(y => yearOf(y) === plan.gift.year)
   add(steps, `${plan.gift.year} 年的保险在`, !!year)
@@ -676,7 +681,7 @@ async function runExportCheck(body: ExportBody): Promise<{ steps: Step[]; ledger
   fills[0].remark = `${fills[0].remark}（检查）`
   const oldest = ledger.records.filter((r): r is ExpenseRecord => r.kind === "expense" && r.vehicle_id === v.id).sort((a, b) => a.ts - b.ts)[0]
   ledger.records = ledger.records.filter(r => r.id !== oldest.id)
-  ledger.stores.push({ id: "st-check", name: "检查用门店", full_name: "", address: "", phone: "", hours: "", poi_id: "check-amap-export", lng: null, lat: null, dealer: null })
+  ledger.stores.push({ id: "st-check", name: "检查用门店", full_name: "", address: "", phone: "", hours: "", poi_id: "", lng: null, lat: null, dealer: null })
   ledger.stations.push({ id: "check-station", name: "检查用油站", address: "", province: "", city: "", district: "", lng: 121.6, lat: 31.3, last_used_ts: body.now })
   ledger.records.push(
     { kind: "expense", id: "e-check", vehicle_id: v.id, ts: body.now, category_id: 100003, amount: 12.5, remark: "检查", store_id: "st-check" },
@@ -989,6 +994,82 @@ async function runPlugin(): Promise<{ steps: Step[] }> {
   return { steps }
 }
 
+// ---------- 2.2.0-beta.2 地图搜索（/run/map）：系统地图搜加油站和汽车服务，核对坐标换算、按距离筛、同一家门店不重复加 ----------
+
+/** 要在 split 之后：用它导入的油站核对坐标换算，最近用过的油站当附近的中心。只报个数、距离和耗时 */
+async function runMap(): Promise<{ steps: Step[] }> {
+  const steps: Step[] = []
+  let data = loadData().data
+  const stations = [...data.ledger.stations].sort((a, b) => b.last_used_ts - a.last_used_ts).slice(0, 10)
+  if (!stations.length) throw new Error("先跑 split（导入小熊的油站）")
+  const median = (xs: number[]) => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)]
+
+  // 不经过 30 天的缓存，直接搜：换算对的话最近的一个只差几米，不换算差约 480 m
+  const gaps: number[] = []
+  const t0 = Date.now()
+  for (const st of stations) {
+    const pois = await stationsNearby(locatePlaces, [st.lng, st.lat], STATION_SEARCH_M)
+    if (pois.length) gaps.push(metres([pois[0].lng, pois[0].lat], [st.lng, st.lat]))
+  }
+  add(steps, "加油站：账本里的油站附近 200 m 内搜得到，最近的一个和账本的位置中位差不到 30 m（坐标换算对）",
+    gaps.length >= Math.ceil(stations.length * 0.8) && median(gaps) < 30,
+    gaps.length ? `${gaps.length}/${stations.length} 个搜得到，中位 ${Math.round(median(gaps))} m、最远 ${Math.round(Math.max(...gaps))} m；每次 ${Math.round((Date.now() - t0) / stations.length)} ms` : "一个也没搜到")
+
+  const center: LngLat = [stations[0].lng, stations[0].lat]
+  const t1 = Date.now()
+  const near = await nearbyStores(center)
+  const dists = near.map(p => p.distance ?? Infinity)
+  const keys = new Set(near.map(p => `${p.lng.toFixed(5)},${p.lat.toFixed(5)}|${p.name}`))
+  add(steps, "附近的汽车服务（图-1、图-2）：4 个关键字合起来，都在 1500 m 内、按距离排、没有重复",
+    near.length > 0 && dists.every((d, i) => d <= 1500 && (i === 0 || d >= dists[i - 1])) && keys.size === near.length,
+    near.length ? `${near.length} 个，最近 ${Math.round(dists[0])} m、最远 ${Math.round(dists[dists.length - 1])} m，有类别标签的 ${near.filter(p => p.kind).length} 个；${Date.now() - t1} ms` : "一个也没有")
+  if (!near.length) return { steps }
+
+  const first = saveStore(data, storeFromPoi(near[0]))
+  data = first.data
+  const again = await nearbyStores(center)
+  const same = again.find(p => storeOfPlace(data.ledger.stores, p)?.id === first.store.id)
+  const twice = same ? saveStore(data, storeFromPoi(same)) : null
+  add(steps, "图-3：选中的地点存进我的门店；再搜一次认得出这一家，再选不新加",
+    !!twice && twice.store.id === first.store.id && twice.data.ledger.stores.length === data.ledger.stores.length, `门店 ${data.ledger.stores.length} 家`)
+
+  // 搜索框以手机现在的位置为区域（D14）：第一次可能弹定位权限，最多等 15 秒看取不取得到
+  const t2 = Date.now()
+  const here = await Promise.race([warmSearchCenter(), wait(15000).then(() => null)])
+  add(steps, "搜索框的区域：取得到手机现在的位置（没有时用最近用过的油站）", !!here, `${here ? "取到" : "没取到"}，${Date.now() - t2} ms`)
+  const t3 = Date.now()
+  const found = await searchStores(data, near[0].name)
+  const rank = found.findIndex(p => storeOfPlace(data.ledger.stores, p)?.id === first.store.id)
+  add(steps, "搜索框按名称搜：搜得到这一家", rank >= 0, `${found.length} 个，${rank >= 0 ? `这一家排第 ${rank + 1}` : "没有这一家"}；${Date.now() - t3} ms`)
+
+  let empty = ""
+  try { empty = `${(await searchStores(data, "qzxjvkwpb")).length} 个` } catch (e) { empty = `报错：${errorText(e)}` }
+  add(steps, "搜不到时返回列表（页面写「没有找到」），不报错", !empty.startsWith("报错"), empty)
+
+  // 截图用：像 2.1 从高德选的门店，存着营业时间
+  data = saveStore(data, {
+    id: "", name: "检查用门店（2.1）", full_name: "检查用门店（2.1）", address: "示例路 1 号", phone: "021-00000000", hours: "08:30-17:30", poi_id: "check-amap",
+    lng: center[0] + 0.02, lat: center[1], dealer: null,
+  }).data
+  return { steps }
+}
+
+/** 地图搜索的截图（/run/map 之后）：设置页（没有「油站搜索」）、选择门店（附近、搜索结果）、门店详情（地图上选的、2.1 存着营业时间的） */
+function mapScreen(screen: string, data: AppData): VirtualNode | null {
+  const stores = benefitStub(data).stores
+  const center = [...data.ledger.stations].sort((a, b) => b.last_used_ts - a.last_used_ts)[0]
+  const placed = data.ledger.stores.find(s => s.lng != null && !s.hours)
+  const old = data.ledger.stores.find(s => !!s.hours)
+  if (screen === "map-settings") return <SettingsPage data={data} app={{ getData: () => data, setData: noop, addVehicle: async () => undefined }} />
+  if (screen === "map-picker" && center) {
+    return <NavigationStack><StorePicker getData={() => data} selected={null} near={{ point: [center.lng, center.lat], label: "检查用油站附近" }} query="" onPick={noop} stores={stores} /></NavigationStack>
+  }
+  if (screen === "map-search" && placed) return <NavigationStack><StorePicker getData={() => data} selected={null} near={null} query={placed.full_name} onPick={noop} stores={stores} /></NavigationStack>
+  if (screen === "map-store" && placed) return <NavigationStack><StoreDetail getData={() => data} storeId={placed.id} stores={stores} close={noop} /></NavigationStack>
+  if (screen === "map-store-hours" && old) return <NavigationStack><StoreDetail getData={() => data} storeId={old.id} stores={stores} close={noop} /></NavigationStack>
+  return null
+}
+
 /** 数据源插件的截图（/run/plugin 之后）：设置页、添加插件、插件详情 */
 function pluginScreen(screen: string, data: AppData): VirtualNode | null {
   const app = { getData: () => data, setData: noop, addVehicle: async () => undefined }
@@ -1024,6 +1105,7 @@ function screenElement(screen: string): VirtualNode | null {
   if (screen.startsWith("export-")) return exportScreen(screen, data)
   if (screen.startsWith("service-")) return serviceScreen(screen, data)
   if (screen.startsWith("plugin-")) return pluginScreen(screen, data)
+  if (screen.startsWith("map-")) return mapScreen(screen, data)
   // 2.0.0-beta.4：备份与恢复、恢复列表、看一眼再恢复（最新的一份恢复前副本）、备份密码；用记账留下的「恢复前」副本
   if (screen.startsWith("backup-")) {
     const app = { getData: () => data, setData: noop, addVehicle: async () => undefined }
@@ -1141,6 +1223,7 @@ export function CheckPage() {
     server.registerAsyncHandler("/run/export", guarded("导出", async req => jsonResponse(await runExportCheck(bodyJson<ExportBody>(req)))))
     server.registerAsyncHandler("/run/service", guarded("养修", async req => jsonResponse(await runService(bodyJson<ServiceBody>(req)))))
     server.registerAsyncHandler("/run/plugin", guarded("数据源插件", async () => jsonResponse(await runPlugin())))
+    server.registerAsyncHandler("/run/map", guarded("地图搜索", async () => jsonResponse(await runMap())))
     server.registerAsyncHandler("/shot", guarded("截图", async req =>
       pngResponse(await takeShot(query(req, "screen"), query(req, "scheme") === "dark" ? "dark" : "light", Number(query(req, "height")) || 0))))
     const error = server.start({ port: PORT, forceIPv4: true })

@@ -1,65 +1,48 @@
-// 门店接高德（2.1 设计第 10 节）：高德搜索结果的解析、从高德地点建门店（名称去掉分店名）、同一个地点不重复加、重新定位、用到这家店的条数、
-// 读账本时补上新字段、记费用那时停车的地方。编造的数据，不联网。
+// 门店（2.1 设计第 10 节；2.2 起用系统地图，插件化设计 6.1 节）：从地图上的地点建门店（名称去掉分店名，没有营业时间）、
+// 同一个地点不重复加（名称相同、相距 80 m 内）、重新定位、用到这家店的条数、读账本时补上新字段、记费用那时停车的地方。编造的数据，不联网。
 import { test } from "node:test"
 import assert from "node:assert/strict"
 import { normalizeLedger } from "../common/ledger_file"
-import { addStore, parkedAt, relocatedStore, shortStoreName, storeFromPoi, storeOfPoi, storeUsage } from "../common/stores"
-import { emptyLedger, Store } from "../common/types"
-import { poiKind, storePoi, storesByKeyword, storesNearby, STORE_TYPES } from "../stations/store_search"
-import { Http } from "../platform/http"
+import { addStore, parkedAt, relocatedStore, shortStoreName, storeFromPoi, storeOfPlace, storeUsage } from "../common/stores"
+import { emptyLedger, Store, StorePoi } from "../common/types"
 
-const AMAP_POI = {
-  id: "B00155L3J1", name: "示例汽车销售服务有限公司（滨江店）", location: "121.473700,31.230400", address: "示例路100号", pname: "上海市", cityname: "上海市", adname: "徐汇区",
-  type: "汽车销售;沃尔沃销售;沃尔沃4S店|汽车维修;沃尔沃维修", distance: "8", business: { tel: "021-00000000;021-11111111", opentime_today: "08:30-17:00" },
+const POI: StorePoi = {
+  name: "示例汽车销售服务有限公司（滨江店）", address: "示例路100号", district: "徐汇区", city: "上海市", kind: "汽车销售",
+  lng: 121.4737, lat: 31.2304, phone: "+86 21 0000 0000", distance: 8,
 }
 
-test("高德的地点：类型取每段的第一级、电话取第一个、营业时间、距离；坐标换成 WGS-84", () => {
-  const p = storePoi(AMAP_POI)
-  assert.deepEqual([p.poi_id, p.name, p.address, p.district, p.city, p.kind, p.phone, p.hours, p.distance],
-    ["B00155L3J1", "示例汽车销售服务有限公司（滨江店）", "示例路100号", "徐汇区", "上海市", "汽车销售 · 汽车维修", "021-00000000", "08:30-17:00", 8])
-  assert.ok(Math.abs(p.lng - 121.4737) > 0.001 && Math.abs(p.lng - 121.4737) < 0.01, "GCJ-02 换算成 WGS-84")
-  assert.equal(poiKind("洗车场;洗车场"), "洗车场")
-  assert.equal(storePoi({ ...AMAP_POI, distance: "", business: undefined }).distance, null)
-})
+/** 往东挪 dx 米 */
+function east(p: StorePoi, dx: number): StorePoi {
+  return { ...p, lng: p.lng + dx / (111320 * Math.cos((p.lat * Math.PI) / 180)) }
+}
 
-test("周边和关键字搜索：只搜汽车销售、维修、养护和洗车场，带上营业信息；GET 请求；网址里没有没编码的字符", async () => {
-  const urls: string[] = []
-  const http: Http = async req => {
-    urls.push(req.url)
-    assert.equal(req.method ?? "GET", "GET")
-    return { status: 200, text: JSON.stringify({ status: "1", pois: [AMAP_POI] }) }
-  }
-  const near = await storesNearby(http, "k", [121.47, 31.23])
-  const found = await storesByKeyword(http, "k", "示例", "上海市")
-  assert.equal(near[0].poi_id, "B00155L3J1")
-  assert.equal(found.length, 1)
-  for (const u of urls) {
-    assert.ok(u.includes(`types=${encodeURIComponent(STORE_TYPES)}`) && u.includes("show_fields=business"), u)
-    // 手机上带「|」这类字符的网址会被整个再编码一次，中文关键字编码两次后高德一条也找不到
-    assert.ok(/^[A-Za-z0-9\-._~:/?#\[\]@!$&'()*+,;=%]*$/.test(u), `网址里有没编码的字符：${u}`)
-  }
-  assert.ok(urls[0].includes("/v5/place/around") && urls[0].includes("sortrule=distance"))
-  assert.ok(urls[1].includes("/v5/place/text") && urls[1].includes(`region=${encodeURIComponent("上海市")}`))
-})
+/** 2.1 从高德选的门店：改过名称，存着营业时间和高德地点 id */
+const MINE: Store = { ...storeFromPoi(POI), id: "st1", name: "我起的名字", hours: "08:30-17:00", poi_id: "B00155L3J1", dealer: { provider: "volvo_cn", code: "SHK" } }
 
-test("从高德地点建门店：名称去掉末尾括号里的分店名，全称、地址、电话、营业时间、坐标、地点 id 照高德；没有经销商代码", () => {
+test("从地图上的地点建门店：名称去掉末尾括号里的分店名；全称、地址、电话、坐标照地图；没有营业时间、地点 id 和经销商代码", () => {
   assert.equal(shortStoreName("优车美装（正大乐城）"), "优车美装")
   assert.equal(shortStoreName("示例汽车销售服务有限公司"), "示例汽车销售服务有限公司")
   assert.equal(shortStoreName("（只有括号）"), "（只有括号）")
-  const s = storeFromPoi(storePoi(AMAP_POI))
-  assert.deepEqual([s.id, s.name, s.full_name, s.phone, s.hours, s.poi_id, s.dealer], ["", "示例汽车销售服务有限公司", "示例汽车销售服务有限公司（滨江店）", "021-00000000", "08:30-17:00", "B00155L3J1", null])
+  const s = storeFromPoi(POI)
+  assert.deepEqual([s.id, s.name, s.full_name, s.address, s.phone, s.hours, s.poi_id, s.lng, s.lat, s.dealer],
+    ["", "示例汽车销售服务有限公司", "示例汽车销售服务有限公司（滨江店）", "示例路100号", "+86 21 0000 0000", "", "", 121.4737, 31.2304, null])
 })
 
-test("同一个高德地点不重复加；重新定位时 id、名称、经销商代码不变", () => {
-  const s: Store = { ...storeFromPoi(storePoi(AMAP_POI)), id: "st1", name: "我起的名字", dealer: { provider: "volvo_cn", code: "SHK" } }
-  const again = addStore([s], storeFromPoi(storePoi(AMAP_POI)), () => "st2")
+test("图-3、图-4：同名、相距 20 m 的用已有的那一家（改过名称的按全称认）；同名相距 2 km 的是连锁店的另一家，新加一家", () => {
+  assert.equal(storeOfPlace([MINE], east(POI, 20))?.id, "st1")
+  assert.equal(storeOfPlace([MINE], east(POI, 2000)), null)
+  assert.equal(storeOfPlace([MINE], { ...POI, name: "示例洗车" }), null)
+  const again = addStore([MINE], storeFromPoi(east(POI, 20)), () => "st2")
   assert.deepEqual([again.stores.length, again.store.id], [1, "st1"])
-  const other = addStore([s], { ...storeFromPoi(storePoi(AMAP_POI)), poi_id: "B0OTHER" }, () => "st2")
+  const other = addStore([MINE], storeFromPoi(east(POI, 2000)), () => "st2")
   assert.deepEqual([other.stores.length, other.store.id], [2, "st2"])
-  assert.equal(storeOfPoi([s], "B00155L3J1")?.id, "st1")
-  assert.equal(storeOfPoi([s], ""), null)
-  const moved = relocatedStore(s, { ...storePoi(AMAP_POI), poi_id: "B0NEW", name: "新地点", address: "新路1号" })
-  assert.deepEqual([moved.id, moved.name, moved.dealer, moved.poi_id, moved.full_name, moved.address], ["st1", "我起的名字", s.dealer, "B0NEW", "新地点", "新路1号"])
+})
+
+test("重新定位：id、名称、经销商代码不变，全称、地址、电话、位置换成新的；以前高德的营业时间和地点 id 清掉", () => {
+  const moved = relocatedStore(MINE, { ...east(POI, 500), name: "新地点", address: "新路1号", phone: "" })
+  assert.deepEqual([moved.id, moved.name, moved.dealer, moved.full_name, moved.address, moved.phone, moved.hours, moved.poi_id],
+    ["st1", "我起的名字", MINE.dealer, "新地点", "新路1号", "", "", ""])
+  assert.ok(moved.lng! > MINE.lng!)
 })
 
 test("用到这家店的费用和权益卡；读账本时给门店补上 2.1 的字段", () => {

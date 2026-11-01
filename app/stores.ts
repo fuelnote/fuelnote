@@ -1,36 +1,33 @@
-// 门店（2.1 设计第 10 节）：在高德里搜索门店（附近、关键字），记费用那时车停的地方。门店的存、改、删在 app/records.ts。
-// FuelNote Check 的数据文件夹里不读钥匙串，不能搜索。
+// 门店（2.1 设计第 10 节；2.2 起用系统地图，插件化设计 6.1 节）：搜索门店（附近、关键字），在系统地图里打开，记费用那时车停的地方。
+// 门店的存、改、删在 app/records.ts。系统地图不要 Key，FuelNote Check 的数据文件夹里也能搜。
 import { LngLat } from "../common/geo"
 import { AppData } from "../common/ledger"
 import { parkedAt } from "../common/stores"
-import { StorePoi, Vehicle } from "../common/types"
+import { Store, StorePoi, Vehicle } from "../common/types"
 import { Place } from "../providers/types"
-import { storesByKeyword, storesNearby } from "../stations/store_search"
-import { scriptingHttp } from "../platform/scripting_http"
-import { isMainDataRoot } from "../platform/storage"
-import { amapKey } from "./stations"
+import { mapStoresByKeyword, mapStoresNearby, toMap } from "../stations/map_search"
+import { locatePlaces } from "../platform/map_search"
+import { searchCenterFor } from "./stations"
 import { canReadTrips, stopsForPayment } from "./vehicle_data"
 
-const searchKey = (): string | null => (isMainDataRoot() ? amapKey() : null)
-
-/** 填了高德 Key 才能搜索、添加新的门店 */
-export const canSearchStores = (): boolean => !!searchKey()
-
-function key(): string {
-  const k = searchKey()
-  if (!k) throw new Error("还没有填高德 Key（设置 › 油站搜索）")
-  return k
+/** 搜索框：按输入的文字搜，以手机现在的位置为区域（取不到时用最近用过的油站） */
+export async function searchStores(data: AppData, keyword: string): Promise<StorePoi[]> {
+  return mapStoresByKeyword(locatePlaces, keyword, await searchCenterFor(data))
 }
 
-/** 关键字搜索：优先最近用过的油站所在的城市 */
-export function searchStores(data: AppData, keyword: string): Promise<StorePoi[]> {
-  const city = [...data.ledger.stations].sort((a, b) => b.last_used_ts - a.last_used_ts)[0]?.city ?? ""
-  return storesByKeyword(scriptingHttp, key(), keyword, city)
-}
-
-/** 一个点附近的汽车服务 */
+/** 一个点附近 1500 m 内的汽车服务，按距离排 */
 export function nearbyStores(p: LngLat): Promise<StorePoi[]> {
-  return storesNearby(scriptingHttp, key(), p)
+  return mapStoresNearby(locatePlaces, p)
+}
+
+/**
+ * 在系统地图里打开：按门店的全称在它的位置附近搜（网址的 sll 只是搜索的提示），打开的是地图上这家店的页面。
+ * 位置按系统地图的坐标给（国内是 GCJ-02）
+ */
+export function openStoreInMaps(store: Store): void {
+  if (store.lng == null || store.lat == null) return
+  const [lng, lat] = toMap([store.lng, store.lat])
+  void Safari.openURL(`https://maps.apple.com/?q=${encodeURIComponent(store.full_name || store.name)}&sll=${lat.toFixed(6)},${lng.toFixed(6)}`)
 }
 
 /** 记费用那时车停的地方（车辆数据的行程）；读不到行程、那时车不在停着时为 null */

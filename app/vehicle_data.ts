@@ -10,7 +10,7 @@ import { providerCredential, providerCtx } from "../platform/provider_ctx"
 import { providerSecretKey, providerSessionKey, removeSecret, setJsonSecret } from "../platform/secrets"
 import { readCache, readStatusCache, saveStatusSnapshot, writeCache } from "../platform/storage"
 import { cachedSpec, catalogSpec } from "./catalog"
-import { searcher } from "./stations"
+import { nearbyStations } from "./stations"
 import { commit, updateSettings } from "./store"
 
 // ---------- 提供方 ----------
@@ -132,8 +132,7 @@ async function fetchStops(data: AppData, vehicle: Vehicle, range: { from: number
   const cred = providerCredential(vehicle.provider.id)
   if (!p || !cred) throw new Error(`未连接${p ? p.name : "车辆数据"}，请在设置中连接`)
   const trips = await p.fetchTrips(providerCtx(vehicle.provider.id), cred, vehicle.provider.vehicle_id, range)
-  const s = searcher(data)
-  return findStops(trips, { stations: stationsFor(data, vehicle), fuel: fuelRecords(data, vehicle), nearby: s ? (pt, r) => s.nearby(pt, r) : null, now: range.to })
+  return findStops(trips, { stations: stationsFor(data, vehicle), fuel: fuelRecords(data, vehicle), nearby: nearbyStations, now: range.to })
 }
 
 // ---------- 车况（设计文档第 18 节） ----------

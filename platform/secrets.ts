@@ -4,7 +4,6 @@ import { ProviderId } from "../common/types"
 const PREFIX = "fuelnote."
 
 export const SECRET_XXYH_TOKEN = "xxyh.token"
-export const SECRET_AMAP_KEY = "amap.key"
 /** Azure OpenAI：终结点、部署名、key（JSON） */
 export const SECRET_AZURE = "azure"
 /** 备份密钥：打开「包含凭据」时由备份密码派生一次（common/backup.ts 的 BackupKey），只存在这台手机上，不进备份 */
