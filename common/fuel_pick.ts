@@ -1,6 +1,6 @@
 // 记加油从数据源选（插件化设计第 3、3.2、3.3 节，D9–D13）：要读的时间段、列表的顺序、几笔合成、整理成 ReceiptFill、
 // 油站按五步定、停车配错时的提醒。纯函数；我的油站、地图搜索由调用方传进来。
-import { ReceiptFill } from "./draft"
+import { FieldSource, ReceiptFill } from "./draft"
 import { round2 } from "./fuel"
 import { distanceText, LngLat, metres } from "./geo"
 import { FuelTxn, FuelTxnStation } from "./plugin"
@@ -65,6 +65,24 @@ export function groupByMonth(txns: FuelTxn[]): { month: string; items: FuelTxn[]
     else out.push({ month: m, items: [t] })
   }
   return out
+}
+
+/** 从 from 往前一个月一个月加载到 target：要读的月份，按读的顺序（from 已经列出，不在里面） */
+export function monthsDown(from: string, target: string): string[] {
+  const out: string[] = []
+  for (let m = prevMonth(from); m >= target; m = prevMonth(m)) out.push(m)
+  return out
+}
+
+/**
+ * 打开选交易页按什么列。表单的时间就是从这个插件选的交易给的、没手动改过时（「更换」，用户 2026-11-02），
+ * 按没有时间打开：加载到上次加载到的月份，勾上原来那几笔。时间来自截图、停车或手动填写时，列前后 1 天；新记录默认的现在不算。
+ * last：这个插件上次填入的（那时列到的最早月份、是哪几笔），换了插件或没填过时 null
+ */
+export function pickOpening(o: { ts: number; tsSource: FieldSource | undefined; tsTouched: boolean; last: { start: string | null; ids: string[] } | null }):
+  { at: number | null; back: string | null; selected: string[] } {
+  if (o.last && o.tsSource === "plugin" && !o.tsTouched) return { at: null, back: o.last.start, selected: o.last.ids }
+  return { at: o.tsSource || o.tsTouched ? o.ts : null, back: null, selected: [] }
 }
 
 /** 加载到更早一个月的交易：并进来，同一笔不重复 */

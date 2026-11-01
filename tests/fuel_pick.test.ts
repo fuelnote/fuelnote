@@ -3,7 +3,7 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
 import {
-  appendTxns, arrivalStop, fillFromTxn, firstMonth, gapText, groupByMonth, mergeTxns, monthRange, newStationNote, pickMonthTitle, pickRange, pickStation, prevMonth,
+  appendTxns, arrivalStop, fillFromTxn, firstMonth, gapText, groupByMonth, mergeTxns, monthRange, monthsDown, newStationNote, pickMonthTitle, pickOpening, pickRange, pickStation, prevMonth,
   replaceRecent, sortTxns, StationDeps, stopWarning,
 } from "../common/fuel_pick"
 import { LngLat, metres } from "../common/geo"
@@ -230,4 +230,22 @@ test("往前加载：并进来不重复；下拉刷新只换本月和上月，�
   assert.deepEqual(appendTxns([oct, sep], [sep, aug]).map(t => t.id), ["oct", "sep", "aug"])
   const fresh = [txn("oct-new", { ts: Date.parse("2026-10-20T08:00:00+08:00") }), oct]
   assert.deepEqual(replaceRecent([oct, sep, aug], fresh, "2026-09").map(t => t.id), ["oct-new", "oct", "aug"])
+})
+
+test("「更换」：时间就是这笔交易给的、没手动改过时按没有时间打开，加载到上次的月份、勾上原来那几笔；时间来自别处时列前后 1 天", () => {
+  const last = { start: "2026-05", ids: ["card:c1", "wallet:w1"] }
+  assert.deepEqual(pickOpening({ ts: T0, tsSource: "plugin", tsTouched: false, last }), { at: null, back: "2026-05", selected: ["card:c1", "wallet:w1"] })
+  assert.deepEqual(pickOpening({ ts: T0, tsSource: "plugin", tsTouched: false, last: { start: null, ids: ["card:c1"] } }), { at: null, back: null, selected: ["card:c1"] })
+  for (const [tsSource, tsTouched] of [["plugin", true], ["screenshot", false], ["trip", false], [undefined, true]] as const) {
+    assert.deepEqual(pickOpening({ ts: T0, tsSource, tsTouched, last }), { at: T0, back: null, selected: [] }, `${tsSource} ${tsTouched}`)
+  }
+  assert.deepEqual(pickOpening({ ts: T0, tsSource: "plugin", tsTouched: false, last: null }), { at: T0, back: null, selected: [] }, "别的插件给的时间")
+  assert.deepEqual(pickOpening({ ts: T0, tsSource: undefined, tsTouched: false, last: null }), { at: null, back: null, selected: [] }, "新记录默认的现在")
+})
+
+test("加载回上次的月份：一个月一个月地读，跨年照常", () => {
+  assert.deepEqual(monthsDown("2026-09", "2026-05"), ["2026-08", "2026-07", "2026-06", "2026-05"])
+  assert.deepEqual(monthsDown("2026-02", "2025-11"), ["2026-01", "2025-12", "2025-11"])
+  assert.deepEqual(monthsDown("2026-09", "2026-09"), [])
+  assert.deepEqual(monthsDown("2026-09", "2026-10"), [])
 })

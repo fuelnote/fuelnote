@@ -11,7 +11,7 @@ import {
 import {
   amountFixes, AppData, arrivalStop, cachedStops, canReadTrips, checkFuel, completeTriple, decideGrade, derivedEvidence, duplicateText, errorText, FieldSource,
   fillFromReceipt, fillFromTxn, fillWarnings, findDuplicate, fmtShort, FuelData, fuelRecords, FuelTxn, GradeDecision, gradeEvidence, GRADES, gradeText,
-  ImageOrigin, isInferred, keptNumber, MoneyField, newStationNote, numText, openStopIn, parseNum, PluginRef, pluginState, pluginStation, pluginsWith, priceCityFor,
+  ImageOrigin, isInferred, keptNumber, MoneyField, newStationNote, numText, openStopIn, parseNum, pickOpening, PluginRef, pluginState, pluginStation, pluginsWith, priceCityFor,
   priceRefFor, ReceiptFill, ReceiptResult, recognizeImage, SOURCE_TITLES, Station, stationsFor, Stop, StopChoice, stopForPayment, stopWarning, Triple, TripleField,
   usualGrade, Vehicle, stopsForPayment, vehicleStops,
 } from "../common/model"
@@ -95,7 +95,8 @@ function Tile({ title, systemImage, action }: { title: string; systemImage: stri
 const stopDetail = (s: Stop) => [stopWhere(s), km(Math.floor(s.odometer_km))].join(" · ")
 
 /** 从数据源填入的交易 */
-type Pick = { plugin: PluginRef; txn: FuelTxn; parts: FuelTxn[] }
+/** start：选的时候列到的最早月份，「更换」时加载回这里 */
+type Pick = { plugin: PluginRef; txn: FuelTxn; parts: FuelTxn[]; start: string | null }
 
 /** 「已填入<插件名>」的第二行：一笔写付款方式、升数和实付，几笔写是哪几笔 */
 function pickDetail(p: Pick): string {
@@ -287,7 +288,7 @@ export function FuelForm({ data, vehicle, record, initialStop, initialImage, ini
     setRecog(null)
     setNotes([])
     setStopNote(null)
-    const p: Pick = { plugin, txn: r.txn, parts: r.parts }
+    const p: Pick = { plugin, txn: r.txn, parts: r.parts, start: r.start ?? null }
     setPick(p)
     const f = fillFromTxn(r.txn)
     applyFill(f)
@@ -296,9 +297,11 @@ export function FuelForm({ data, vehicle, record, initialStop, initialImage, ini
   }
 
   async function openPick(plugin: PluginRef) {
-    // 表单里的时间是截图、停车、交易给的，或手动改过的，才按它去问；新记录默认的现在不算
-    const at = sources.ts || touched.current.has("ts") ? ts : null
-    const r = await Navigation.present<FuelPickResult | null>({ element: <FuelPick plugin={plugin} at={at} /> })
+    // 时间就是从这个插件选的交易给的、没手动改过时（「更换」），按没有时间打开，加载到上次的月份、勾上原来那几笔；
+    // 时间来自截图、停车或手动填写时，按它列前后 1 天；新记录默认的现在不算
+    const last = pick && pick.plugin.id === plugin.id ? { start: pick.start, ids: pick.parts.map(t => t.id) } : null
+    const o = pickOpening({ ts, tsSource: sources.ts, tsTouched: touched.current.has("ts"), last })
+    const r = await Navigation.present<FuelPickResult | null>({ element: <FuelPick plugin={plugin} at={o.at} back={o.back} selected={o.selected} /> })
     setTick(x => x + 1) // 选交易页里可能连接过，入口的状态跟着更新
     if (r) await applyPick(plugin, r)
   }

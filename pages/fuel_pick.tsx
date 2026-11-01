@@ -6,12 +6,13 @@ import {
   Button, ContentUnavailableView, HStack, Image, Label, List, Navigation, NavigationStack, ProgressView, Section, Spacer, Text, useEffect, useState, VirtualNode, VStack,
 } from "scripting"
 import {
-  appendTxns, connectPlugin, firstMonth, FuelTxn, gradeText, groupByMonth, mergeTxns, monthRange, pickMonthTitle, pickRange, pluginFuel, PluginError, PluginRef, prevMonth,
+  appendTxns, connectPlugin, firstMonth, FuelTxn, gradeText, groupByMonth, mergeTxns, monthRange, monthsDown, pickMonthTitle, pickRange, pluginFuel, PluginError, PluginRef, prevMonth,
   replaceRecent, sortTxns, TxnMerge,
 } from "../common/model"
 import { money, stopWhen } from "./components"
 
-export type FuelPickResult = { txn: FuelTxn; parts: FuelTxn[] }
+/** start：选的时候列到的最早月份（「更换」时加载回这里）；有时间时只列前后 1 天，是 null */
+export type FuelPickResult = { txn: FuelTxn; parts: FuelTxn[]; start?: string | null }
 
 const PICK_FOOT = "可以选一笔，也可以选几笔合成一次加油，例如油卡余额不足、再用钱包补足。"
 const MERGE_FOOT = "单价相同、在同一个油站的几笔才能合成：升数、机显金额和实付分别相加，时间取最早一笔；标号不同时不填。"
@@ -88,22 +89,37 @@ function errorTitle(e: PluginError, name: string): string {
 
 /**
  * plugin：提供加油交易的插件；at：表单里已有的时间（截图、停车、手动改过的才算，默认的现在不算），没有时 null。
- * selected：先选好的交易（FuelNote Check 截图用）。选好以后关闭并交回合成后的一笔和它是哪几笔
+ * back：没有时间时一开始就加载到的月份（「更换」时是上次加载到的，common/fuel_pick.ts 的 pickOpening），没有时只列本月和上月。
+ * selected：先勾上的交易（「更换」时是原来选的几笔；FuelNote Check 截图也用）。选好以后关闭并交回合成后的一笔、它是哪几笔、列到的最早月份
  */
-export function FuelPick({ plugin, at, selected: preset }: { plugin: PluginRef; at: number | null; selected?: string[] }) {
+export function FuelPick({ plugin, at, back, selected: preset }: { plugin: PluginRef; at: number | null; back?: string | null; selected?: string[] }) {
   const dismiss = Navigation.useDismiss()
   // start：没有时间时已经列出的最早一个月。一起变的放在一个状态里，await 之后一次更新
   const [state, setState] = useState<{ list: FuelTxn[] | null; error: PluginError | null; start: string | null; more: More }>(
     { list: null, error: null, start: null, more: MORE_IDLE })
   const [selected, setSelected] = useState<string[]>(preset ?? [])
 
-  /** 第一次读、重试、连接以后：有时间时读前后 1 天；没有时读本月和上月，加载过的更早月份清掉 */
+  /** 第一次读、重试、连接以后：有时间时读前后 1 天；没有时读本月和上月，再一个月一个月加载到 back */
   async function load(force: boolean) {
     const now = Date.now()
     const r = await pluginFuel(plugin, pickRange(at, now), force)
     setState(r.ok
       ? { list: sortTxns(r.value, at), error: null, start: at == null ? firstMonth(now) : null, more: MORE_IDLE }
       : { list: null, error: r.error, start: null, more: MORE_IDLE })
+    if (r.ok && at == null && back) await loadTo(firstMonth(now), back)
+  }
+
+  /** 从 from 往前一个月一个月加载到 target：每个月一次调用（当天读过的用缓存），出错就停在这一行 */
+  async function loadTo(from: string, target: string) {
+    for (const month of monthsDown(from, target)) {
+      setState(s => ({ ...s, more: { loading: true, error: null, empty: null } }))
+      const r = await pluginFuel(plugin, monthRange(month), false)
+      if (!r.ok) {
+        setState(s => ({ ...s, more: { loading: false, error: r.error, empty: null } }))
+        return
+      }
+      setState(s => ({ ...s, list: sortTxns(appendTxns(s.list ?? [], r.value), null), start: month, more: { loading: false, error: null, empty: r.value.length ? null : month } }))
+    }
   }
 
   /** 下拉刷新：有时间时重读前后 1 天；没有时只重读本月和上月，更早加载过的留着（一次重读很多个月会超时） */
@@ -121,12 +137,7 @@ export function FuelPick({ plugin, at, selected: preset }: { plugin: PluginRef; 
   async function loadMore() {
     const start = state.start
     if (!start || state.more.loading) return
-    const month = prevMonth(start)
-    setState(s => ({ ...s, more: { loading: true, error: null, empty: null } }))
-    const r = await pluginFuel(plugin, monthRange(month), false)
-    setState(s => (r.ok
-      ? { ...s, list: sortTxns(appendTxns(s.list ?? [], r.value), null), start: month, more: { loading: false, error: null, empty: r.value.length ? null : month } }
-      : { ...s, more: { loading: false, error: r.error, empty: null } }))
+    await loadTo(start, prevMonth(start))
   }
 
   useEffect(() => { void load(false) }, [])
@@ -220,7 +231,7 @@ export function FuelPick({ plugin, at, selected: preset }: { plugin: PluginRef; 
       refreshable={async () => { await refresh() }}
       toolbar={{
         cancellationAction: <Button title="取消" action={() => dismiss(null)} />,
-        confirmationAction: <Button title="填入" disabled={!ok} action={() => { if (ok) dismiss({ txn: ok.txn, parts: ok.parts } as FuelPickResult) }} />,
+        confirmationAction: <Button title="填入" disabled={!ok} action={() => { if (ok) dismiss({ txn: ok.txn, parts: ok.parts, start: state.start } as FuelPickResult) }} />,
       }}
       {...(overlay ? { overlay } : {})}
     >
