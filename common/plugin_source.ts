@@ -52,12 +52,14 @@ export function monthOf(ts: number): string {
   return new Date(ts + BJ_OFFSET).toISOString().slice(0, 7)
 }
 
-function monthStart(m: string): number {
+/** 这个月第一天 0 点（北京时间） */
+export function monthStart(m: string): number {
   const [y, mo] = m.split("-").map(Number)
   return Date.UTC(y, mo - 1, 1) - BJ_OFFSET
 }
 
-function monthEnd(m: string): number {
+/** 这个月最后 1 毫秒（北京时间） */
+export function monthEnd(m: string): number {
   const [y, mo] = m.split("-").map(Number)
   return Date.UTC(y, mo, 1) - BJ_OFFSET - 1
 }

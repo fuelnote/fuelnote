@@ -3,7 +3,8 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
 import {
-  arrivalStop, fillFromTxn, gapText, mergeTxns, newStationNote, pickRange, pickStation, sortTxns, StationDeps, stopWarning,
+  appendTxns, arrivalStop, fillFromTxn, firstMonth, gapText, groupByMonth, mergeTxns, monthRange, newStationNote, pickMonthTitle, pickRange, pickStation, prevMonth,
+  replaceRecent, sortTxns, StationDeps, stopWarning,
 } from "../common/fuel_pick"
 import { LngLat, metres } from "../common/geo"
 import { FuelTxn, FuelTxnStation } from "../common/plugin"
@@ -57,9 +58,14 @@ function deps(stations: Station[], pois: Poi[], fail = false): StationDeps & { c
   }
 }
 
-test("要读的时间段：有时间时前后 1 天，没有时最近 30 天；顺序：有时间时离它近的在前，没有时新的在前", () => {
+test("要读的时间段：有时间时前后 1 天，没有时从上个月 1 日（北京时间）到现在；顺序：有时间时离它近的在前，没有时新的在前", () => {
   assert.deepEqual(pickRange(T0, T0 + 5 * 86400e3), { from: T0 - 86400e3, to: T0 + 86400e3 })
-  assert.deepEqual(pickRange(null, T0), { from: T0 - 30 * 86400e3, to: T0 })
+  const now = Date.parse("2026-10-27T10:37:00+08:00")
+  assert.deepEqual(pickRange(null, now), { from: Date.parse("2026-09-01T00:00:00+08:00"), to: now })
+  // 北京时间 1 月 1 日 00:30（UTC 还是去年 12 月 31 日）：上个月是去年 12 月
+  const newYear = Date.parse("2027-01-01T00:30:00+08:00")
+  assert.equal(firstMonth(newYear), "2026-12")
+  assert.equal(pickRange(null, newYear).from, Date.parse("2026-12-01T00:00:00+08:00"))
   const list = [txn("a", { ts: T0 - 3 * 3600e3 }), txn("b", { ts: T0 + 3600e3 }), txn("c", { ts: T0 - 20 * 3600e3 })]
   assert.deepEqual(sortTxns(list, T0).map(t => t.id), ["b", "a", "c"])
   assert.deepEqual(sortTxns(list, null).map(t => t.id), ["b", "a", "c"])
@@ -198,4 +204,30 @@ test("停-1～停-6：停车离交易坐标超过 500 m 才提醒；停车在我
   assert.match(stopWarning(site("S1", at(C, 800)), stop(C), []) ?? "", /^停车位置距付款油站 (79\d|80\d) m，请核对里程$/, "停-5")
   assert.equal(stopWarning(site("S1", null), stop(far), []), null, "停-6：交易没有坐标")
   assert.equal(stopWarning(null, stop(far), []), null)
+})
+
+test("往前加载：一次一个月（北京时间），跨年写年份；按月分组，新的月份在前", () => {
+  assert.equal(prevMonth("2026-01"), "2025-12")
+  assert.equal(prevMonth("2026-03"), "2026-02")
+  assert.deepEqual(monthRange("2026-02"), { from: Date.parse("2026-02-01T00:00:00+08:00"), to: Date.parse("2026-03-01T00:00:00+08:00") - 1 })
+  const now = Date.parse("2026-10-27T10:37:00+08:00")
+  assert.equal(pickMonthTitle("2026-09", now), "9 月")
+  assert.equal(pickMonthTitle("2025-12", now), "2025 年 12 月")
+  const list = sortTxns([
+    txn("oct", { ts: Date.parse("2026-10-12T14:41:00+08:00") }),
+    txn("may-1", { ts: Date.parse("2026-05-09T09:54:00+08:00") }),
+    txn("may-2", { ts: Date.parse("2026-05-09T09:57:00+08:00") }),
+    txn("dec", { ts: Date.parse("2025-12-15T08:00:00+08:00") }),
+  ], null)
+  assert.deepEqual(groupByMonth(list).map(g => [g.month, g.items.map(t => t.id)]),
+    [["2026-10", ["oct"]], ["2026-05", ["may-2", "may-1"]], ["2025-12", ["dec"]]])
+})
+
+test("往前加载：并进来不重复；下拉刷新只换本月和上月，更早加载过的留着", () => {
+  const sep = txn("sep", { ts: Date.parse("2026-09-06T10:35:00+08:00") })
+  const aug = txn("aug", { ts: Date.parse("2026-08-12T13:59:00+08:00") })
+  const oct = txn("oct", { ts: Date.parse("2026-10-12T14:41:00+08:00") })
+  assert.deepEqual(appendTxns([oct, sep], [sep, aug]).map(t => t.id), ["oct", "sep", "aug"])
+  const fresh = [txn("oct-new", { ts: Date.parse("2026-10-20T08:00:00+08:00") }), oct]
+  assert.deepEqual(replaceRecent([oct, sep, aug], fresh, "2026-09").map(t => t.id), ["oct-new", "oct", "aug"])
 })

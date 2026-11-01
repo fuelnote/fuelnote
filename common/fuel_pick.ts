@@ -4,6 +4,7 @@ import { ReceiptFill } from "./draft"
 import { round2 } from "./fuel"
 import { distanceText, LngLat, metres } from "./geo"
 import { FuelTxn, FuelTxnStation } from "./plugin"
+import { monthEnd, monthOf, monthStart } from "./plugin_source"
 import { Stop } from "./stops"
 import { Poi, Station } from "./types"
 import { nearestStation, SAME_STATION_M, sameStationName, stationFromPoi, stationFromTxn } from "../stations/match"
@@ -11,8 +12,6 @@ import { nearestStation, SAME_STATION_M, sameStationName, stationFromPoi, statio
 const DAY = 86400e3
 /** 表单有时间时，列前后 1 天的交易 */
 export const PICK_NEAR_MS = DAY
-/** 表单没有时间时，列最近 30 天的交易 */
-export const PICK_RECENT_DAYS = 30
 /** 几笔首尾相隔超过 15 分钟时提醒（沿用截图识别合并两笔的规则） */
 export const MERGE_GAP_MS = 15 * 60e3
 /** 到站停车：熄火不早于付款前 10 分钟 */
@@ -26,9 +25,57 @@ export const STOP_FAR_M = 500
 /** 第 2 步按这个半径搜地图，和找加油停车的搜索共用缓存 */
 const STOP_SEARCH_M = 200
 
-/** 要读的时间段：表单有时间时前后 1 天，没有时最近 30 天 */
+/** 要读的时间段：表单有时间时前后 1 天；没有时一开始列本月和上月，再往前由「加载更早的交易」一个月一个月地加 */
 export function pickRange(at: number | null, now: number): { from: number; to: number } {
-  return at != null ? { from: at - PICK_NEAR_MS, to: at + PICK_NEAR_MS } : { from: now - PICK_RECENT_DAYS * DAY, to: now }
+  return at != null ? { from: at - PICK_NEAR_MS, to: at + PICK_NEAR_MS } : { from: monthStart(firstMonth(now)), to: now }
+}
+
+// ---------- 往前加载（画稿第十七轮 DsPickMore；用户 2026-11-02）----------
+// 每次一个月，按稳定性定：油记调一次插件最多等 20 秒，缺的几个月合成一次调用、成败一起，失败时一个月也不缓存；
+// 一个月正好是一次调用、一个缓存单位（common/plugin_source.ts 按北京时间的月份缓存），失败只影响这一个月。
+
+/** 表单没有时间时，一开始列出的最早一个月：上个月「2026-09」 */
+export function firstMonth(now: number): string {
+  return prevMonth(monthOf(now))
+}
+
+/** 「2026-01」的上一个月「2025-12」 */
+export function prevMonth(m: string): string {
+  return monthOf(monthStart(m) - 1)
+}
+
+/** 这个月的时间段（北京时间） */
+export function monthRange(m: string): { from: number; to: number } {
+  return { from: monthStart(m), to: monthEnd(m) }
+}
+
+/** 「9 月」；不是今年时「2025 年 12 月」 */
+export function pickMonthTitle(m: string, now: number): string {
+  const [y, mo] = m.split("-").map(Number)
+  return m.slice(0, 4) === monthOf(now).slice(0, 4) ? `${mo} 月` : `${y} 年 ${mo} 月`
+}
+
+/** 按月分组：组和组里的顺序都跟着传进来的顺序（新的在前时，新的月份在前） */
+export function groupByMonth(txns: FuelTxn[]): { month: string; items: FuelTxn[] }[] {
+  const out: { month: string; items: FuelTxn[] }[] = []
+  for (const t of txns) {
+    const m = monthOf(t.ts)
+    const last = out[out.length - 1]
+    if (last && last.month === m) last.items.push(t)
+    else out.push({ month: m, items: [t] })
+  }
+  return out
+}
+
+/** 加载到更早一个月的交易：并进来，同一笔不重复 */
+export function appendTxns(list: FuelTxn[], more: FuelTxn[]): FuelTxn[] {
+  const ids = new Set(list.map(t => t.id))
+  return [...list, ...more.filter(t => !ids.has(t.id))]
+}
+
+/** 下拉刷新只重读本月和上月：换掉 first 以后的，更早加载过的留着 */
+export function replaceRecent(list: FuelTxn[], fresh: FuelTxn[], first: string): FuelTxn[] {
+  return appendTxns(fresh, list.filter(t => monthOf(t.ts) < first))
 }
 
 /** 列表的顺序：有时间时离它近的在前，没有时新的在前 */
