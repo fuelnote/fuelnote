@@ -23,6 +23,12 @@ export function fmtDay(ts: number): string {
   return `${pad(d.getMonth() + 1)}/${pad(d.getDate())} 周${WEEKDAYS[d.getDay()]}`
 }
 
+/** 「10月12日」 */
+export function fmtMonthDay(ts: number): string {
+  const d = new Date(ts)
+  return `${d.getMonth() + 1}月${d.getDate()}日`
+}
+
 /** 「10-12 14:39」 */
 export function fmtShort(ts: number): string {
   const d = new Date(ts)

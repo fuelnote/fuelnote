@@ -25,6 +25,22 @@ export function stationFromPoi(poi: Poi, ts: number): Station {
   }
 }
 
+const MUNICIPALITY = /^(北京|上海|天津|重庆)市?$/
+
+/**
+ * 按数据源交易给的站点信息新建油站（插件化设计 3.2 节第 5 步）：名称、地址、省市区用交易的，位置用到站停车或交易坐标。
+ * 直辖市的城市同省名。不存站码
+ */
+export function stationFromTxn(
+  info: { name: string; address: string | null; province: string | null; city: string | null; district: string | null }, p: LngLat, ts: number,
+): Station {
+  const municipality = info.province && MUNICIPALITY.test(info.province) ? info.province.replace(/市?$/, "市") : null
+  return {
+    id: stationIdFor(p[0], p[1]), name: info.name, address: info.address ?? "", province: municipality ?? info.province ?? "",
+    city: info.city ?? municipality ?? "", district: info.district ?? "", lng: p[0], lat: p[1], last_used_ts: ts,
+  }
+}
+
 /** 搜索结果落在已有油站附近时用已有油站（地图与旧油站的坐标常差几米到几十米） */
 export function candidateFromPoi(poi: Poi, stations: Station[], from: LngLat | null, now: number): StationCandidate {
   const mine = nearestStation(stations, [poi.lng, poi.lat], SAME_STATION_M)

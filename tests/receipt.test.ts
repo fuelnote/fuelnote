@@ -5,7 +5,7 @@ import assert from "node:assert/strict"
 import { existsSync, readFileSync } from "node:fs"
 import { join } from "node:path"
 import {
-  amountFixes, decideGrade, fillFromReceipt, fillWarnings, findDuplicate, gradeEvidence, stopForPayment,
+  amountFixes, decideGrade, duplicateText, fillFromReceipt, fillWarnings, findDuplicate, gradeEvidence, stopForPayment,
 } from "../common/draft"
 import {
   amountConsistent, gradeByPrice, gradeFromText, mergeTransactions, parseReceiptTime, priceRefAt, ReceiptResult, ReceiptTransaction,
@@ -145,6 +145,8 @@ test("按付款时间匹配停车、标号、提醒", () => {
   assert.ok(warnings.some(w => /不一致/.test(w)), "油站名不一致")
   assert.ok(warnings.some(w => /近 7 天还有 1 次/.test(w)), "另有一次没记录的加油停车")
   assert.ok(warnings.some(w => /更接近当天 95#/.test(w)))
+  const plugin = fillWarnings({ fill: { ...f, source: "plugin" }, choice, stops: [older, refuel, later], tripsOn: true, stationName: "中国石化示例加油站", grade: printed })
+  assert.ok(!plugin.some(w => /不一致/.test(w)), "从插件填入时不比站名（站-17）")
   const none = fillWarnings({ fill: f, choice: null, stops: [], tripsOn: true, stationName: null, grade: byPrice })
   assert.ok(none.some(w => /还没有这次加油/.test(w)))
 })
@@ -155,9 +157,13 @@ test("金额改法与重复记录", () => {
   const t = CST(2026, 10, 12, 14, 39)
   const recs = [fuel("a", { ts: t, amount: 474.6 })]
   assert.equal(findDuplicate(recs, t + 5 * 60e3, 100)?.id, "a", "10 分钟内")
+  assert.equal(findDuplicate(recs, t - 50 * 60e3, 100)?.id, "a", "前后 1 小时内（插件化设计第 7 节）")
+  assert.equal(findDuplicate(recs, t + 70 * 60e3, 100), null)
   assert.equal(findDuplicate(recs, t + 3 * 3600e3, 474.6)?.id, "a", "同一天同金额")
   assert.equal(findDuplicate(recs, t + 3 * 3600e3, 300), null)
   assert.equal(findDuplicate(recs, t, 474.6, "a"), null, "编辑自己")
+  const local = new Date(2026, 9, 12, 14, 3).getTime()
+  assert.equal(duplicateText(fuel("b", { ts: local, liters: 42.68 })), "10月12日 14:03 已有一条 42.68 L 的加油，可能重复")
 })
 
 test("Azure：请求格式、识别结果、错误信息", async () => {

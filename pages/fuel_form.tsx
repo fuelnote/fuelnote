@@ -1,18 +1,22 @@
 // 记加油 / 编辑加油。最上面的「自动填写」组（设计文档第 16 节）：
 // - 选一张付款截图或拍一张小票：识别金额、油品和时间，再按付款时间匹配加油停车，填好里程和油站；
+// - 从数据源选一笔或几笔加油交易（插件化设计第 3 节，画稿 DsForm、DsFilled）：和截图识别走同一条路，油站按 3.2 节的五步定，
+//   停车离付款油站远时提醒核对里程（3.3 节）；从快捷指令进入时不显示（D10）；
 // - 不选图片时：从加油停车提示的「记一笔」进入直接用这次停车；其他入口只给建议，点「填入」才填。
-// 自动填的字段在字段名后面标出来源；手动改过的字段不再被自动覆盖。
+// 有付款时间（截图或交易）时，「更换」停车不改时间（D9）。自动填的字段在字段名后面标出来源；手动改过的字段不再被自动覆盖。
 import {
   Button, DatePicker, Form, HStack, Image, Navigation, NavigationStack, Picker, ProgressView, ScrollView, Section, Spacer, Text, TextField,
   Toggle, VirtualNode, VStack, useEffect, useMemo, useRef, useState,
 } from "scripting"
 import {
-  amountFixes, AppData, cachedStops, canReadTrips, checkFuel, completeTriple, decideGrade, derivedEvidence, errorText, FieldSource,
-  fillFromReceipt, fillWarnings, findDuplicate, fmtShort, FuelData, fuelRecords, GradeDecision, gradeEvidence, GRADES, gradeText,
-  ImageOrigin, isInferred, keptNumber, MoneyField, numText, openStopIn, parseNum, priceCityFor, priceRefFor, ReceiptFill, ReceiptResult, recognizeImage,
-  SOURCE_TITLES, Station, stationsFor, Stop, StopChoice, stopForPayment, Triple, TripleField, usualGrade, Vehicle, stopsForPayment, vehicleStops,
+  amountFixes, AppData, arrivalStop, cachedStops, canReadTrips, checkFuel, completeTriple, decideGrade, derivedEvidence, duplicateText, errorText, FieldSource,
+  fillFromReceipt, fillFromTxn, fillWarnings, findDuplicate, fmtShort, FuelData, fuelRecords, FuelTxn, GradeDecision, gradeEvidence, GRADES, gradeText,
+  ImageOrigin, isInferred, keptNumber, MoneyField, newStationNote, numText, openStopIn, parseNum, PluginRef, pluginState, pluginStation, pluginsWith, priceCityFor,
+  priceRefFor, ReceiptFill, ReceiptResult, recognizeImage, SOURCE_TITLES, Station, stationsFor, Stop, StopChoice, stopForPayment, stopWarning, Triple, TripleField,
+  usualGrade, Vehicle, stopsForPayment, vehicleStops,
 } from "../common/model"
 import { FieldLabel, FieldRow, joinWhen, km, money, showError, SourceTag, stopWhen, stopWhere } from "./components"
+import { FuelPick, FuelPickResult } from "./fuel_pick"
 import { StationPicker } from "./station_picker"
 import { StopPicker } from "./stop_picker"
 
@@ -27,6 +31,8 @@ export type FuelFormProps = {
   initialStop?: Stop | null
   /** 快捷指令、分享传入的图片：打开后直接识别（设计文档第 19 节） */
   initialImage?: UIImage | null
+  /** 已经选好的数据源交易：打开后直接填入（FuelNote Check 截图用） */
+  initialPick?: { plugin: PluginRef; result: FuelPickResult } | null
   /** 保存时先调它（写进账本、刷新列表），返回 false 时表单不关；不传时把结果交回去（2.1.0-beta.8） */
   onSave?: (r: FuelFormResult) => Promise<boolean>
 }
@@ -88,12 +94,21 @@ function Tile({ title, systemImage, action }: { title: string; systemImage: stri
 
 const stopDetail = (s: Stop) => [stopWhere(s), km(Math.floor(s.odometer_km))].join(" · ")
 
+/** 从数据源填入的交易 */
+type Pick = { plugin: PluginRef; txn: FuelTxn; parts: FuelTxn[] }
+
+/** 「已填入<插件名>」的第二行：一笔写付款方式、升数和实付，几笔写是哪几笔 */
+function pickDetail(p: Pick): string {
+  if (p.parts.length > 1) return p.parts.map(t => [t.channel, `${t.liters.toFixed(2)} L`].filter(Boolean).join(" ")).join(" + ")
+  return [[p.txn.channel, `${p.txn.liters.toFixed(2)} L`].filter(Boolean).join(" "), `实付 ${money(p.txn.paid)}`].join(" · ")
+}
+
 function docTitle(f: ReceiptFill, r: ReceiptResult): string {
   if (f.source === "screenshot") return "付款截图"
   return r.doc_type === "pump_display" ? "加油机照片" : "小票"
 }
 
-export function FuelForm({ data, vehicle, record, initialStop, initialImage, onSave }: FuelFormProps) {
+export function FuelForm({ data, vehicle, record, initialStop, initialImage, initialPick, onSave }: FuelFormProps) {
   const dismiss = Navigation.useDismiss()
   const others = useMemo(() => fuelRecords(data, vehicle).filter(r => !record || r.id !== record.id), [data, vehicle, record])
   const [tripsOn] = useState(() => canReadTrips(vehicle))
@@ -135,6 +150,13 @@ export function FuelForm({ data, vehicle, record, initialStop, initialImage, onS
   const [gradeInfo, setGradeInfo] = useState<GradeDecision | null>(null)
   const [notes, setNotes] = useState<string[]>([])
 
+  // 数据源：提供加油交易的插件（新记录、不是从快捷指令进入时才有），填入的交易，新油站从哪来，停车配错的提醒
+  const [fuelPlugins] = useState<PluginRef[]>(() => (!record && !initialImage ? pluginsWith(data, "fuel") : []))
+  const [pick, setPick] = useState<Pick | null>(null)
+  const [stationNote, setStationNote] = useState<string | null>(null)
+  const [stopNote, setStopNote] = useState<string | null>(null)
+  const [, setTick] = useState(0)
+
   /** 打开时各输入框的内容：编辑记录时，与它相同的字段算没改过 */
   const opened = useRef({ odometer, price, liters, amount, paid, grade, remark, station: station ? station.station.id : null })
 
@@ -161,6 +183,7 @@ export function FuelForm({ data, vehicle, record, initialStop, initialImage, onS
     Pasteboard.hasImages.then(v => { if (alive) setCanPaste(v) }).catch(() => undefined)
     // 截屏记加油：图片已经传进来，直接识别
     if (initialImage) recognizePhoto({ image: initialImage, thumb: thumbOf(initialImage) }, "library", null)
+    if (initialPick) void applyPick(initialPick.plugin, initialPick.result)
     return () => { alive = false }
   }, [])
 
@@ -238,6 +261,9 @@ export function FuelForm({ data, vehicle, record, initialStop, initialImage, onS
     setPicked(photo)
     setRecog({ state: "running", step: "正在识别…" })
     setNotes([])
+    setPick(null)
+    setStopNote(null)
+    setStationNote(null)
     const settings = data.ledger.settings
     setRecog({ state: "running", step: settings.ocr_engine === "local" ? "正在识别…" : "正在用大模型识别…" })
     const out = await recognizeImage(photo.image, settings)
@@ -254,8 +280,52 @@ export function FuelForm({ data, vehicle, record, initialStop, initialImage, onS
     await afterFill(f, id)
   }
 
-  /** 填入识别结果之后：有付款时间时匹配加油停车，判断标号，列出提醒 */
-  async function afterFill(f: ReceiptFill, id: number) {
+  /** 从数据源选好的交易：和识别结果一样填入，再配停车、定油站 */
+  async function applyPick(plugin: PluginRef, r: FuelPickResult) {
+    const id = ++run.current
+    setPicked(null)
+    setRecog(null)
+    setNotes([])
+    setStopNote(null)
+    const p: Pick = { plugin, txn: r.txn, parts: r.parts }
+    setPick(p)
+    const f = fillFromTxn(r.txn)
+    applyFill(f)
+    setFill(f)
+    await afterFill(f, id, p)
+  }
+
+  async function openPick(plugin: PluginRef) {
+    // 表单里的时间是截图、停车、交易给的，或手动改过的，才按它去问；新记录默认的现在不算
+    const at = sources.ts || touched.current.has("ts") ? ts : null
+    const r = await Navigation.present<FuelPickResult | null>({ element: <FuelPick plugin={plugin} at={at} /> })
+    setTick(x => x + 1) // 选交易页里可能连接过，入口的状态跟着更新
+    if (r) await applyPick(plugin, r)
+  }
+
+  /**
+   * 从数据源填入时的油站（插件化设计 3.2 节）和停车配错的提醒（3.3 节）。
+   * explicit：手动「更换」停车以后，按新的停车重新定（站-15）；自动配停车时不改手动选过的油站（站-16）
+   */
+  async function decidePickStation(p: Pick, stop: Stop | null, explicit: boolean, id: number): Promise<Station | null> {
+    setStopNote(stopWarning(p.txn.station, stop, stationsFor(data, vehicle)))
+    if (!explicit && touched.current.has("station")) return station?.station ?? null
+    const r = await pluginStation(data, vehicle, p.txn.station, stop, p.txn.ts)
+    if (run.current !== id) return null
+    setStation(r ? { station: r.station, isNew: r.isNew } : null)
+    setStationNote(r ? newStationNote(r, p.plugin.name, arrivalStop(stop, p.txn.ts)) : null)
+    touched.current.delete("station")
+    setSources(s => {
+      const n = { ...s }
+      if (r) n.station = r.via === "stop" ? "trip" : "plugin"
+      else delete n.station
+      return n
+    })
+    return r ? r.station : null
+  }
+
+  /** 填入识别结果或数据源的交易之后：有付款时间时匹配加油停车，定油站，判断标号，列出提醒 */
+  async function afterFill(f: ReceiptFill, id: number, p: Pick | null = null) {
     // 有付款时间：直接用付款前最近的一次加油停车（设计文档 16.5 节）
     let list = stops
     let choice: StopChoice = null
@@ -272,9 +342,12 @@ export function FuelForm({ data, vehicle, record, initialStop, initialImage, onS
       choice = list ? stopForPayment(list, f.payTs) : null
       if (choice) applyStop(choice.stop, { keepTime: f.tsSource != null, auto: true })
     }
+    // 从数据源填入：油站按 3.2 节定，不用停车自己认出的油站
+    const decided = p ? await decidePickStation(p, choice?.stop ?? applied, false, id) : null
+    if (run.current !== id) return
 
     // 标号：图上印的 → 当天油价 → 近期最常加的
-    const st = choice?.stop.candidate?.station ?? station?.station ?? null
+    const st = p ? decided : choice?.stop.candidate?.station ?? station?.station ?? null
     const { city, province } = priceCityFor(data, vehicle, st, choice?.stop ?? applied)
     const ref = f.price != null ? await priceRefFor(city, province, f.ts ?? Date.now()).catch(() => null) : null
     if (run.current !== id) return
@@ -380,7 +453,8 @@ export function FuelForm({ data, vehicle, record, initialStop, initialImage, onS
   const tag = (field: Field): VirtualNode | null => {
     const s = sources[field]
     if (!s) return null
-    return <SourceTag title={SOURCE_TITLES[s]} onInfo={isInferred(s) ? () => { void showInfo(field) } : undefined} />
+    const title = s === "plugin" && pick ? pick.plugin.name : SOURCE_TITLES[s]
+    return <SourceTag title={title} onInfo={isInferred(s) ? () => { void showInfo(field) } : undefined} />
   }
 
   // 编辑记录：没改过的字段用原值（输入框只显示两位小数；标号没填、油站已不在列表里时也照原样）
@@ -401,7 +475,9 @@ export function FuelForm({ data, vehicle, record, initialStop, initialImage, onS
     station_id: record && stationId === o.station ? record.station_id : stationId,
     remark: record && remark === o.remark ? record.remark : remark.trim(),
   }
-  const check = checkFuel(draft, others, record?.id)
+  // 新记录前后 1 小时内已有加油，或同一天同金额：可能重复（插件化设计第 7 节）。里程也和那一条冲突时是错误，否则保存时确认
+  const dup = record ? null : findDuplicate(others, draft.ts, draft.amount)
+  const check = checkFuel(draft, others, record?.id, dup ? { record: dup, text: duplicateText(dup) } : null)
   const fixes = amountFixes(draft.price, draft.liters, draft.amount)
   // 有改动时禁止下滑关闭，避免误操作丢掉已填的内容（编辑记录：与打开时比；新记录：填过内容）
   const dirty = record
@@ -418,7 +494,10 @@ export function FuelForm({ data, vehicle, record, initialStop, initialImage, onS
 
   async function pickStop() {
     const stop = await Navigation.present<Stop | null>({ element: <StopPicker data={data} vehicle={vehicle} /> })
-    if (stop) applyStop(stop)
+    if (!stop) return
+    // 有付款时间（截图或交易）时，换停车不改时间（D9）
+    applyStop(stop, { keepTime: fill?.payTs != null })
+    if (pick) await decidePickStation(pick, stop, true, run.current)
   }
 
   async function pickStation() {
@@ -427,6 +506,7 @@ export function FuelForm({ data, vehicle, record, initialStop, initialImage, onS
     })
     if (picked) {
       setStation(picked)
+      setStationNote(null)
       touched.current.add("station")
       drop("station")
     }
@@ -443,16 +523,9 @@ export function FuelForm({ data, vehicle, record, initialStop, initialImage, onS
       const ok = await Dialog.confirm({ title: "请确认", message: check.warnings.join("\n"), confirmLabel: "仍然保存", cancelLabel: "返回修改" })
       if (!ok) return
     }
-    if (!record) {
-      const dup = findDuplicate(others, draft.ts, draft.amount)
-      if (dup) {
-        const i = await Dialog.actionSheet({
-          title: "可能重复",
-          message: `已有 ${fmtShort(dup.ts)} ${money(dup.amount)} 的加油记录。`,
-          actions: [{ label: "仍然保存" }],
-        })
-        if (i !== 0) return
-      }
+    if (dup) {
+      const i = await Dialog.actionSheet({ title: "请确认", message: duplicateText(dup), actions: [{ label: "仍然保存" }] })
+      if (i !== 0) return
     }
     const result: FuelFormResult = { fuel: draft, newStation: station && station.isNew ? station.station : null }
     // 先写进账本、刷新列表再关表单：表单滑走时下面已经是新的
@@ -463,7 +536,18 @@ export function FuelForm({ data, vehicle, record, initialStop, initialImage, onS
   // ---------- 自动填写 ----------
 
   let imageRow: VirtualNode | null = null
-  if (!record) {
+  if (!record && pick) {
+    // 从数据源填入以后：这一行代替截图图块，「更换」重新打开选交易页
+    imageRow = <HStack spacing={12}>
+      <Image systemName="receipt" font="title3" foregroundStyle="accentColor" />
+      <VStack alignment="leading" spacing={2}>
+        <Text font="subheadline" fontWeight="semibold" lineLimit={2}>{`已填入${pick.plugin.name}${pick.parts.length > 1 ? ` · ${pick.parts.length} 笔合成` : ""}`}</Text>
+        <Text font="caption" foregroundStyle="secondaryLabel" lineLimit={1}>{pickDetail(pick)}</Text>
+      </VStack>
+      <Spacer />
+      <Button title="更换" action={() => { void openPick(pick.plugin) }} buttonStyle="bordered" controlSize="small" />
+    </HStack>
+  } else if (!record) {
     if (picked && recog) {
       const change = <Button title="更换" action={() => { run.current++; setPicked(null); setRecog(null); setNotes([]) }} buttonStyle="bordered" controlSize="small" />
       imageRow = recog.state === "running"
@@ -484,6 +568,23 @@ export function FuelForm({ data, vehicle, record, initialStop, initialImage, onS
       </ScrollView>
     }
   }
+
+  // 「从<插件名>选」：截图图块下面，每个插件一行；右边按上次调用的结果写「未连接」「已过期」，都可以点开，在选交易页里连接
+  const pluginRows = !pick && !picked ? fuelPlugins.map(p => {
+    const state = pluginState(p.id)
+    return <Button key={p.id} action={() => { void openPick(p) }}>
+      <HStack spacing={10}>
+        <Image systemName="receipt" foregroundStyle="accentColor" />
+        <Text foregroundStyle="accentColor">{`从${p.name}选`}</Text>
+        <Spacer />
+        {state === "not_connected" ? <Text foregroundStyle="secondaryLabel">未连接</Text> : null}
+        {state === "expired" ? <HStack spacing={4}>
+          <Image systemName="exclamationmark.triangle.fill" font="footnote" foregroundStyle="systemOrange" />
+          <Text foregroundStyle="systemOrange">已过期</Text>
+        </HStack> : null}
+      </HStack>
+    </Button>
+  }) : []
 
   // 读到的数字互相对不上（或缺少实付的依据）时，请用户对照图片
   const uncheckedRow = picked && recog && recog.state === "done" && !recog.checked
@@ -514,6 +615,7 @@ export function FuelForm({ data, vehicle, record, initialStop, initialImage, onS
   }
 
   const showAutofill = !record || tripsOn
+  const allNotes = stopNote ? [stopNote, ...notes] : notes
 
   return <NavigationStack interactiveDismissDisabled={dirty}>
     <Form
@@ -528,12 +630,13 @@ export function FuelForm({ data, vehicle, record, initialStop, initialImage, onS
     >
       {showAutofill ? <Section header={<Text>自动填写</Text>}>
         {imageRow}
+        {pluginRows}
         {!picked && recog && recog.state === "failed" ? <Text font="footnote" foregroundStyle="systemRed">{recog.error}</Text> : null}
         {uncheckedRow}
         {tripRow}
         {tripsOn && tripError && !applied ? <Text font="footnote" foregroundStyle="secondaryLabel" lineLimit={2}>{`读取行程失败：${tripError}`}</Text> : null}
         {tripsOn && (record || !applied) ? <Button title="从行程选择" systemImage="list.bullet" action={pickStop} /> : null}
-        {notes.map((n, i) => <HStack key={String(i)} spacing={6} alignment="top">
+        {allNotes.map((n, i) => <HStack key={String(i)} spacing={6} alignment="top">
           <Image systemName="exclamationmark.circle" font="footnote" foregroundStyle="systemOrange" />
           <Text font="footnote" foregroundStyle="secondaryLabel">{n}</Text>
         </HStack>)}
@@ -586,7 +689,7 @@ export function FuelForm({ data, vehicle, record, initialStop, initialImage, onS
         <Toggle title="上次加油漏记" value={missed} onChanged={setMissed} />
       </Section>
 
-      <Section title="油站">
+      <Section header={<Text>油站</Text>} {...(station?.isNew && stationNote ? { footer: <Text>{stationNote}</Text> } : {})}>
         <Button action={pickStation}>
           <HStack>
             <Text foregroundStyle={station ? "label" : "secondaryLabel"}>{station ? station.station.name : "选择油站"}</Text>
@@ -596,7 +699,7 @@ export function FuelForm({ data, vehicle, record, initialStop, initialImage, onS
             <Image systemName="chevron.right" font="footnote" foregroundStyle="tertiaryLabel" />
           </HStack>
         </Button>
-        {station ? <Button title="不填油站" role="destructive" action={() => { setStation(null); touched.current.add("station"); drop("station") }} /> : null}
+        {station ? <Button title="不填油站" role="destructive" action={() => { setStation(null); setStationNote(null); touched.current.add("station"); drop("station") }} /> : null}
       </Section>
 
       <Section title="备注">

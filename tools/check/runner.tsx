@@ -60,9 +60,15 @@ import { ServiceVisitsPage } from "../../pages/service_visits"
 import { ServiceForm } from "../../pages/expense_form"
 import { volvoCn } from "../../providers/volvo_cn"
 import { categoryName, entryTitle, oilChangeNumbers, saveServiceVisit, serviceForm, ServiceVisit, ServiceView, settlementRefs, visitState } from "../../common/model"
-import { addPlugin, EXAMPLE_PLUGIN, installedPlugins, pluginsOf, pluginState, pluginStatus, removePlugin } from "../../common/model"
+import { addPlugin, connectPlugin, EXAMPLE_PLUGIN, installedPlugins, pluginsOf, pluginState, pluginStatus, removePlugin } from "../../common/model"
 import { pluginFuel } from "../../app/plugins"
 import { PluginAdd } from "../../pages/plugin_add"
+import { FuelPick } from "../../pages/fuel_pick"
+import { FuelForm } from "../../pages/fuel_form"
+import {
+  checkFuel, duplicateText, fillFromTxn, findDuplicate, FuelData, FuelTxn, mergeTxns, pickRange, PluginRef, pluginStation, saveFuel, stationsFor, Stop,
+  stopWarning,
+} from "../../common/model"
 import { PluginDetail } from "../../pages/plugin_detail"
 import { SettingsPage } from "../../pages/settings"
 import { nearbyStores, searchStores, storeFromPoi, storeOfPlace, warmSearchCenter } from "../../common/model"
@@ -75,7 +81,7 @@ const SANDBOX = "FuelNoteCheck"
 setDataRoot(SANDBOX)
 
 /** 改了这个值，手机重新运行后报到的 STAMP 跟着变（确认跑的是新代码） */
-export const STAMP = "46"
+export const STAMP = "50"
 const PORT = 3200
 const DAY = 86400e3
 const BJ_OFFSET = 8 * 3600e3
@@ -971,7 +977,9 @@ async function runPlugin(): Promise<{ steps: Step[] }> {
   try { await addPlugin(getData, EXAMPLE_PLUGIN) } catch (e) { dup = errorText(e) }
   add(steps, "同一个插件再添加一次被拦下", dup.includes("已经添加过了"), dup)
 
-  const st = await pluginStatus(ref)
+  let st = await pluginStatus(ref)
+  // 手机验收时会把示例插件切到「已过期」「未连接」：打开它的连接页，在手机上切回「已连接」再点「完成」
+  if (st.ok && (!st.value.connected || st.value.expired)) st = await connectPlugin(ref)
   add(steps, "读状态：已连接，账号打码，记下上次的结果", st.ok && st.value.connected && !!st.value.account && pluginState(ref.id) === "connected",
     st.ok ? `${st.value.account ?? "没有账号"} · ${pluginState(ref.id)}` : st.error.message)
   const now = Date.now()
@@ -991,7 +999,95 @@ async function runPlugin(): Promise<{ steps: Step[] }> {
   data = removePlugin(data, ref.id)
   add(steps, "移除：设置里没有了，上次的结果一起清掉", !pluginsOf(data).length && pluginState(ref.id) == null)
   data = await addPlugin(getData, EXAMPLE_PLUGIN)
-  return { steps }
+  return { steps: [...steps, ...(await runPluginFuel(data))] }
+}
+
+/** 截图用：示例插件和分两笔付的那两笔合成的结果（/run/plugin 之后） */
+let pickShot: { plugin: PluginRef; txn: FuelTxn; parts: FuelTxn[] } | null = null
+
+/**
+ * 2.2.0-beta.3 记加油从数据源选（插件化设计第 3、3.2、3.3、7 节）：不能合成、合成、保存、再选同一笔是「可能重复」；
+ * 油站按停车认出、按交易坐标新建，停车离付款油站远时提醒。要在 split 之后（导入的车和油站）。保存的那一条最后删掉
+ */
+async function runPluginFuel(start: AppData): Promise<Step[]> {
+  const steps: Step[] = []
+  let data = start
+  const v = currentVehicle(data)
+  const ref = pluginsOf(data).find(p => p.script === EXAMPLE_PLUGIN)
+  if (!v || !ref) {
+    add(steps, "记加油：要先跑 split，并加好示例插件", false)
+    return steps
+  }
+  const read = await pluginFuel(ref, pickRange(null, Date.now()))
+  const byId = (id: string) => (read.ok ? read.value.find(t => t.id === id) ?? null : null)
+  const [s1, s2, op, os] = ["split-1", "split-2", "other-price", "other-station"].map(byId)
+  if (!s1 || !s2 || !op || !os) {
+    add(steps, "记加油：读到示例插件分两笔付的那组交易", false, read.ok ? `${read.value.length} 笔` : read.error.message)
+    return steps
+  }
+  const blocked = [mergeTxns([s1, op]), mergeTxns([s2, os])].map(m => (m.ok ? "能合成" : m.reason))
+  add(steps, "选单价不同、站码不同的两笔：不能合成，写明原因（「填入」不可用）",
+    blocked.join("；") === "单价不同，不是同一次加油；油站不同，不是同一次加油", blocked.join("；"))
+
+  const m = mergeTxns([s2, s1])
+  if (!m.ok) {
+    add(steps, "分两笔付的合成一条", false, m.reason)
+    return steps
+  }
+  pickShot = { plugin: ref, txn: m.txn, parts: m.parts }
+  const sum = (k: "liters" | "amount" | "paid") => Math.round((s1[k] + s2[k]) * 100) / 100
+  add(steps, "分两笔付的合成一条：升数、机显、实付相加，时间取最早一笔，单价不变",
+    m.txn.ts === s1.ts && m.txn.liters === sum("liters") && m.txn.amount === sum("amount") && m.txn.paid === sum("paid") && m.txn.price === s1.price && !m.warnings.length,
+    `${m.txn.liters.toFixed(2)} L · 实付 ${m.txn.paid.toFixed(2)}`)
+
+  // 保存：里程接在这辆车最近一次加油后面；没有停车，油站按交易定
+  const f = fillFromTxn(m.txn)
+  const others = fuelRecords(data, v)
+  const last = others.slice().sort((a, b) => b.ts - a.ts)[0]
+  const odometer = (last ? last.odometer : 0) + 400
+  const st = await pluginStation(data, v, m.txn.station, null, m.txn.ts)
+  const fuel: FuelData = {
+    ts: m.txn.ts, odometer, liters: m.txn.liters, price: m.txn.price, amount: m.txn.amount, paid: m.txn.paid, grade: f.printedGrade ?? 95,
+    full: true, light_on: false, missed_before: false, station_id: st ? st.station.id : null, remark: "检查：从示例插件填入",
+  }
+  const c1 = checkFuel(fuel, others)
+  data = saveFuel(data, v, null, fuel, st && st.isNew ? st.station : null)
+  const saved = fuelRecords(data, v).find(r => r.remark === fuel.remark && r.ts === fuel.ts)
+  add(steps, "合成后保存：核对通过，油站按交易的站点信息定（没有停车）", !c1.errors.length && !!saved && !!st && st.via === "txn",
+    st ? `${st.from === "mine" ? "我的油站" : st.from === "map" ? "地图" : "交易"} · ${st.station.name}` : "没有油站")
+
+  // 再选其中一笔：前后 1 小时内已有加油
+  const all = fuelRecords(data, v)
+  const dup = findDuplicate(all, s1.ts, s1.amount)
+  const draft: FuelData = { ...fuel, liters: s1.liters, amount: s1.amount, paid: s1.paid, remark: "" }
+  const dupArg = dup ? { record: dup, text: duplicateText(dup) } : null
+  const c2 = checkFuel(draft, all, undefined, dupArg)
+  add(steps, "再选其中一笔：配到同一个里程时报「可能重复」，不能保存", !!dup && dup.id === saved?.id && c2.errors.includes(duplicateText(dup)), c2.errors.join("；"))
+  const c3 = checkFuel({ ...draft, odometer: odometer + 30 }, all, undefined, dupArg)
+  add(steps, "里程不冲突时不是错误，保存时再确认", !!dup && !c3.errors.includes(duplicateText(dup)), c3.errors.join("；") || "没有错误")
+  if (saved) data = deleteRecord(data, saved)
+
+  // 油站：用 45 天前在「世纪公园」的那笔（示例插件里坐标偏几百米的站）。到站停车在我的油站（编一次停车）→ 按停车认出，并提醒核对里程
+  const older = await pluginFuel(ref, { from: Date.now() - 60 * DAY, to: Date.now() })
+  const far = older.ok ? older.value.find(t => t.id === "d45") ?? null : null
+  const home = stationsFor(data, v).slice().sort((a, b) => b.last_used_ts - a.last_used_ts)[0]
+  if (!home || !far || !far.station) {
+    add(steps, "油站：读到示例插件 45 天前那笔，账本里有我的油站", false, `${far ? "" : "没有那笔交易；"}${home ? "" : "没有我的油站"}`)
+  } else {
+    const stop: Stop = {
+      trip: { id: "check-stop", start_ts: far.ts - 30 * 60e3, end_ts: far.ts - 2 * 60e3, start_odometer_km: odometer - 10, end_odometer_km: odometer, distance_km: 10, fuel_l: null, start: null, end: null },
+      end_ts: far.ts - 2 * 60e3, place: { lng: home.lng, lat: home.lat, address: home.address, city: home.city, district: home.district },
+      odometer_km: odometer, stay_min: 6, candidate: null, refuel: true, recorded: null,
+    }
+    const byStop = await pluginStation(data, v, far.station, stop, far.ts)
+    add(steps, "到站停车 80 m 内有我的油站：用它，交易坐标远也不看", !!byStop && byStop.via === "stop" && byStop.station.id === home.id, byStop ? byStop.station.name : "没有")
+    const warn = stopWarning(far.station, stop, stationsFor(data, v))
+    add(steps, "停车离付款油站超过 500 m：提醒核对里程，写出停车的油站", !!warn && warn.startsWith(`停车在${home.name}，距付款油站`), warn ?? "没有提醒")
+    const byTxn = await pluginStation(data, v, far.station, null, far.ts)
+    add(steps, "没有停车、附近也没有我的油站：按交易坐标新建（地图上站名对得上的用地图的）", !!byTxn && byTxn.isNew && byTxn.via === "txn",
+      byTxn ? `${byTxn.from === "map" ? "地图" : "交易"} · ${byTxn.station.name}` : "没有")
+  }
+  return steps
 }
 
 // ---------- 2.2.0-beta.2 地图搜索（/run/map）：系统地图搜加油站和汽车服务，核对坐标换算、按距离筛、同一家门店不重复加 ----------
@@ -1076,6 +1172,14 @@ function pluginScreen(screen: string, data: AppData): VirtualNode | null {
   if (screen === "plugin-settings") return <SettingsPage data={data} app={app} />
   if (screen === "plugin-add") return <PluginAdd getData={() => data} onAdded={noop} />
   if (screen === "plugin-detail" && pluginsOf(data).length) return <NavigationStack><PluginDetail app={app} pluginId={pluginsOf(data)[0].id} /></NavigationStack>
+  // 2.2.0-beta.3：选交易（单选、合成、不能合成）、填好的表单
+  const ref = pluginsOf(data).find(p => p.script === EXAMPLE_PLUGIN)
+  const picks: Record<string, string[]> = { "plugin-pick-one": ["d6"], "plugin-pick-merge": ["split-1", "split-2"], "plugin-pick-block": ["split-1", "other-price"] }
+  if (ref && picks[screen]) return <FuelPick plugin={ref} at={null} selected={picks[screen]} />
+  const v = currentVehicle(data)
+  if (screen === "plugin-filled" && v && pickShot) {
+    return <FuelForm data={data} vehicle={v} record={null} initialPick={{ plugin: pickShot.plugin, result: { txn: pickShot.txn, parts: pickShot.parts } }} />
+  }
   return null
 }
 

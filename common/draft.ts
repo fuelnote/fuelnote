@@ -5,14 +5,17 @@ import {
   ReceiptResult, sameStationName,
 } from "./receipt"
 import { chooseStop, Stop } from "./stops"
-import { fmtShort } from "./time"
+import { fmtMonthDay, fmtShort, fmtTime } from "./time"
 import { FuelRecord } from "./types"
 
-/** 字段的来源。截图、照片、拍照、行程是直接读到的；油价、近期、推算是推断出来的，带 ⓘ */
-export type FieldSource = "screenshot" | "photo" | "camera" | "trip" | "price" | "usual" | "derived"
+/**
+ * 字段的来源。截图、照片、拍照、行程、插件是直接读到的；油价、近期、推算是推断出来的，带 ⓘ。
+ * 插件的字段旁写插件的名称（插件化设计第 3 节），这里的「插件」只是没有名称时的写法
+ */
+export type FieldSource = "screenshot" | "photo" | "camera" | "trip" | "plugin" | "price" | "usual" | "derived"
 
 export const SOURCE_TITLES: Record<FieldSource, string> = {
-  screenshot: "截图", photo: "照片", camera: "拍照", trip: "行程", price: "油价", usual: "近期", derived: "推算",
+  screenshot: "截图", photo: "照片", camera: "拍照", trip: "行程", plugin: "插件", price: "油价", usual: "近期", derived: "推算",
 }
 
 export const isInferred = (s: FieldSource) => s === "price" || s === "usual" || s === "derived"
@@ -127,13 +130,21 @@ export function amountFixes(price: number, liters: number, amount: number): { am
   return { amount: round2(price * liters), liters: round2(amount / price) }
 }
 
-/** 已有的相近记录：10 分钟内，或同一天同金额 */
+/** 前后这么久已有加油时算可能重复（插件化设计第 7 节）：账本时间和付款时间最多差 28 分钟，相邻两次加油最短隔 4.1 小时 */
+export const DUPLICATE_WINDOW_MS = 3600e3
+
+/** 已有的相近记录：前后 1 小时内，或同一天同金额 */
 export function findDuplicate(fuel: FuelRecord[], ts: number, amount: number | null, selfId?: string): FuelRecord | null {
   const day = new Date(ts).toDateString()
   return fuel.find(r => r.id !== selfId && (
-    Math.abs(r.ts - ts) <= 10 * 60e3
+    Math.abs(r.ts - ts) <= DUPLICATE_WINDOW_MS
     || (amount != null && new Date(r.ts).toDateString() === day && Math.abs(r.amount - amount) < 0.011)
   )) || null
+}
+
+/** 「10月12日 14:03 已有一条 42.68 L 的加油，可能重复」 */
+export function duplicateText(r: FuelRecord): string {
+  return `${fmtMonthDay(r.ts)} ${fmtTime(r.ts)} 已有一条 ${r.liters.toFixed(2)} L 的加油，可能重复`
 }
 
 /** 识别和匹配之后需要用户留意的地方（标橙，可以保存） */
@@ -151,7 +162,10 @@ export function fillWarnings(input: {
   if (fill.merged.unmerged) out.push(`图上有 ${fill.merged.parts.length} 笔交易，只用了第一笔`)
   if (grade.conflict && grade.byPrice) out.push(`图上印的是 ${grade.grade}#，但单价更接近当天 ${grade.byPrice.grade}# 的油价`)
   if (grade.source === "usual") out.push("未能判断标号，已按近期记录填写")
-  if (fill.station && stationName && !sameStationName(fill.station, stationName)) out.push(`图片上的油站「${fill.station}」与停车位置的油站不一致`)
+  // 从插件填入时不比站名：数据源的叫法常和我的油站不一样（插件化设计 3.2 节）
+  if (fill.source !== "plugin" && fill.station && stationName && !sameStationName(fill.station, stationName)) {
+    out.push(`图片上的油站「${fill.station}」与停车位置的油站不一致`)
+  }
   if (tripsOn && fill.payTs != null) {
     if (choice && choice.kind === "trip") out.push("付款前没有找到加油停车，已用最近一段行程，请核对里程")
     if (!choice && stops) out.push("行程里还没有这次加油（可能还没同步），请手动填写里程")

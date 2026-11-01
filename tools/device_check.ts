@@ -270,7 +270,10 @@ async function service(phone: string): Promise<number> {
   return bad
 }
 
-const SHOTS_PLUGIN: Array<[string, number]> = [["plugin-settings", 1900], ["plugin-add", 0], ["plugin-detail", 0]]
+const SHOTS_PLUGIN: Array<[string, number]> = [
+  ["plugin-settings", 1900], ["plugin-add", 0], ["plugin-detail", 0], ["plugin-pick-one", 1500], ["plugin-pick-merge", 1700], ["plugin-pick-block", 1700],
+  ["plugin-filled", 2300],
+]
 
 /** 数据源插件（2.2.0-beta.1）：在检查用的文件夹里添加示例插件、读状态和交易、移除，调别的脚本被拦下。要先装好示例插件（npm run check:install），在手机上同步过一次 */
 async function plugin(phone: string): Promise<number> {

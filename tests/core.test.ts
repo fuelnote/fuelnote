@@ -77,6 +77,18 @@ test("加油核对：里程前后、金额、油耗范围", () => {
   assert.match(checkFuel({ ...base, grade: null }, others).errors.join(), /标号/)
 })
 
+test("可能重复（插件化设计第 7 节）：里程和那一条冲突时，里程错误换成「可能重复」，仍是错误；那一条在前、在后都换", () => {
+  const before = fuel("a", { ts: 1000, odometer: 82912 })
+  const after = fuel("z", { ts: 9000, odometer: 83400 })
+  const base = { ts: 1200, odometer: 82912, liters: 42.68, price: 11.12, amount: 474.6, paid: 389.24, grade: 98, full: true, light_on: false, missed_before: false, station_id: null, remark: "" }
+  const dup = (r: typeof before) => ({ record: r, text: "已有一条，可能重复" })
+  assert.deepEqual(checkFuel(base, [before, after], undefined, dup(before)).errors, ["已有一条，可能重复"], "那一条在前")
+  const earlier = fuel("b", { ts: 1400, odometer: 82912 })
+  assert.deepEqual(checkFuel(base, [earlier, after], undefined, dup(earlier)).errors, ["已有一条，可能重复"], "那一条在后")
+  assert.deepEqual(checkFuel({ ...base, odometer: 82950 }, [before, after], undefined, dup(before)).errors, [], "里程不冲突：不是错误，保存时确认")
+  assert.match(checkFuel(base, [before, after]).errors.join(), /大于上一次/, "不是重复的那一条时照旧")
+})
+
 test("图表横轴：只有刻度写月份或年份，其他点看不见；每个点都能区分", async () => {
   const { monthCategories, timeCategories, YEAR_MONTHS } = await import("../common/chart_axis")
   const visible = (l: string) => l.replace(/​/g, "")

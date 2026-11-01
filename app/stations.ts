@@ -1,6 +1,8 @@
 // 油站搜索（设计文档第 9 节；2.2 起用系统地图，插件化设计 6.1 节）和按单价判断标号用的油价
 import { LngLat, metres } from "../common/geo"
+import { arrivalStop, pickStation, StationPick } from "../common/fuel_pick"
 import { AppData, fuelRecords, stationsFor } from "../common/ledger"
+import { FuelTxnStation } from "../common/plugin"
 import { CityPrices, PriceRef, priceRefAt } from "../common/receipt"
 import { Stop } from "../common/stops"
 import { Station, StationCandidate, Vehicle } from "../common/types"
@@ -30,6 +32,11 @@ const poiCache = createPoiCache({
 
 /** 地图上 p 附近 radiusM 内的加油站，按距离排；同一个地方 30 天内用缓存（找加油停车、选择油站的附近） */
 export const nearbyStations = poiCache.wrap("map", (p, r) => stationsNearby(locatePlaces, p, r))
+
+/** 从插件填入时的油站（插件化设计 3.2 节）：到站停车、交易的站点信息、我的油站、地图上的加油站，按五步定；都没有时 null */
+export function pluginStation(data: AppData, vehicle: Vehicle, txn: FuelTxnStation | null, stop: Stop | null, payTs: number): Promise<StationPick | null> {
+  return pickStation(txn, arrivalStop(stop, payTs), { mine: stationsFor(data, vehicle), nearby: nearbyStations, now: Date.now() })
+}
 
 /** 搜索时最多等手机的位置这么久，等不到就用最近用过的油站 */
 const POSITION_WAIT_MS = 3000

@@ -56,8 +56,9 @@ export type CheckResult = { errors: string[]; warnings: string[]; consumption: n
 /**
  * 核对一条加油记录。others 是同一辆车的其他加油记录（不含正在编辑的这条）。
  * 错误不能保存；警告需要确认。
+ * duplicate：新记录可能重复的那一条（`findDuplicate`）。里程正好和它冲突时（同一次加油记了两次），里程错误换成 duplicateText，仍是错误（插件化设计第 7 节）
  */
-export function checkFuel(data: FuelData, others: FuelRecord[], selfId = "__draft__"): CheckResult {
+export function checkFuel(data: FuelData, others: FuelRecord[], selfId = "__draft__", duplicate: { record: FuelRecord; text: string } | null = null): CheckResult {
   const errors: string[] = []
   const warnings: string[] = []
   if (!(data.odometer > 0)) errors.push("请填写里程")
@@ -72,8 +73,9 @@ export function checkFuel(data: FuelData, others: FuelRecord[], selfId = "__draf
   const prev = sorted.filter(r => r.ts <= data.ts).pop()
   const next = sorted.find(r => r.ts > data.ts)
   if (data.odometer > 0) {
-    if (prev && data.odometer <= prev.odometer) errors.push(`里程须大于上一次加油的 ${prev.odometer} 公里`)
-    if (next && data.odometer >= next.odometer) errors.push(`里程须小于下一次加油的 ${next.odometer} 公里`)
+    const dupId = duplicate ? duplicate.record.id : null
+    if (prev && data.odometer <= prev.odometer) errors.push(prev.id === dupId && duplicate ? duplicate.text : `里程须大于上一次加油的 ${prev.odometer} 公里`)
+    if (next && data.odometer >= next.odometer) errors.push(next.id === dupId && duplicate ? duplicate.text : `里程须小于下一次加油的 ${next.odometer} 公里`)
   }
   // 金额核对不通过不能保存（设计文档 16.7 节）：不知道是哪一项读错或填错，表单里给出两种改法
   if (data.price > 0 && data.liters > 0 && data.amount > 0) {
