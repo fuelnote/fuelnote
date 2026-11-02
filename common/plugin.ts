@@ -8,7 +8,7 @@ export const PLUGIN_MARKER = "fuelnote.json"
 
 export type PluginAction = "describe" | "status" | "connect" | "vehicles" | PluginCapability
 
-/** 油记等多久（第 4.3 节）；connect 打开插件自己的页面，不限 */
+/** 油记等多久（docs/plugins.md 第 4 节）；connect 打开插件自己的页面，不限 */
 export const PLUGIN_TIMEOUT_MS: Record<PluginAction, number | null> = {
   describe: 5000, status: 5000, connect: null, vehicles: 20000, fuel: 20000, trips: 20000, vehicle_status: 10000, service: 20000,
 }
@@ -104,7 +104,7 @@ export function parseStatus(raw: unknown): PluginResult<PluginStatus> {
   return { ok: true, value: { connected: r.connected === true, expired: r.expired === true, account: text(r.account) } }
 }
 
-/** 加油交易（第 4.4 节）。坐标是 WGS-84；金额、升数两位小数 */
+/** 加油交易（docs/plugins.md 第 5 节）。坐标是 WGS-84；金额、升数两位小数 */
 export type FuelTxnStation = {
   code: string | null
   name: string | null

@@ -355,7 +355,7 @@ export type Settings = {
   plugins: PluginRef[]
 }
 
-/** 数据源插件能提供的数据（插件化设计第 4.3 节） */
+/** 数据源插件能提供的数据（docs/plugins.md 第 4 节） */
 export type PluginCapability = "fuel" | "trips" | "vehicle_status" | "service"
 
 /** 添加的插件：脚本名（`Script.run` 用）、插件自己的 id、名称、提供的数据 */

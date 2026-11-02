@@ -1,4 +1,4 @@
-// 调用数据源插件（插件化设计第 4.3、5 节）：按月缓存加油交易、出错不缓存、下拉刷新、相同的请求共用、同一插件排队、超时、重新连接清缓存、上次的状态
+// 调用数据源插件（插件化设计 4.1、5 节；docs/plugins.md 第 4 节）：按月缓存加油交易、出错不缓存、下拉刷新、相同的请求共用、同一插件排队、超时、重新连接清缓存、上次的状态
 import { test } from "node:test"
 import assert from "node:assert/strict"
 import { createPluginSource, monthOf, monthsBetween, OLD_MONTH_TTL_MS, PluginCacheFile, RECENT_MONTH_TTL_MS } from "../common/plugin_source"

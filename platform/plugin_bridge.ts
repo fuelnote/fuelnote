@@ -1,4 +1,4 @@
-// 调用数据源插件：只有 Script.run 这一行（插件化设计第 4.1 节）。排队、超时和缓存在 common/plugin_source.ts。
+// 调用数据源插件：只有 Script.run 这一行（docs/plugins.md 第 2 节）。排队、超时和缓存在 common/plugin_source.ts。
 import { Script } from "scripting"
 import { PluginAction } from "../common/plugin"
 
