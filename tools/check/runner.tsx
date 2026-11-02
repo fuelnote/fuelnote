@@ -61,6 +61,7 @@ import { ServiceForm } from "../../pages/expense_form"
 import { volvoCn } from "../../providers/volvo_cn"
 import { categoryName, entryTitle, oilChangeNumbers, saveServiceVisit, serviceForm, ServiceVisit, ServiceView, settlementRefs, visitState } from "../../common/model"
 import { addPlugin, connectPlugin, EXAMPLE_PLUGIN, installedPlugins, pluginsOf, pluginState, pluginStatus, removePlugin } from "../../common/model"
+import { dataSourceById, readVehicleStatus, vehicleStops } from "../../common/model"
 import { pluginFuel } from "../../app/plugins"
 import { PluginAdd } from "../../pages/plugin_add"
 import { FuelPick } from "../../pages/fuel_pick"
@@ -746,7 +747,7 @@ function ShotHost({ scheme, page, height, ready }: { scheme: Scheme; page: Virtu
 
 const noop = () => undefined
 const vehicleStub = { switchVehicle: noop, addVehicle: noop, manageVehicles: noop }
-const fuelStub = { ...vehicleStub, addFuel: noop, edit: noop, remove: noop, refresh: async () => undefined, recordStop: noop, dismissStop: noop }
+const fuelStub = { ...vehicleStub, addFuel: noop, edit: noop, remove: noop, refresh: async () => undefined }
 const expenseStub = { ...vehicleStub, addExpense: noop, open: noop, remove: noop }
 const detailStub = { edit: async () => undefined, remove: async () => false }
 function benefitStub(data: AppData): BenefitActions {
@@ -971,7 +972,8 @@ async function runPlugin(): Promise<{ steps: Step[] }> {
 
   data = await addPlugin(getData, EXAMPLE_PLUGIN)
   const ref = pluginsOf(data).find(p => p.script === EXAMPLE_PLUGIN)
-  add(steps, "添加：调一次 describe，存进设置（id、名称、提供的数据）", !!ref && ref.id === "example" && ref.capabilities.join() === "fuel", ref ? JSON.stringify(ref) : "没有")
+  add(steps, "添加：调一次 describe，存进设置（id、名称、提供的数据）", !!ref && ref.id === "example" && ref.capabilities.join() === "fuel,vehicles,trips,vehicle_status",
+    ref ? JSON.stringify(ref) : "没有")
   if (!ref) return { steps }
   let dup = ""
   try { await addPlugin(getData, EXAMPLE_PLUGIN) } catch (e) { dup = errorText(e) }
@@ -991,6 +993,23 @@ async function runPlugin(): Promise<{ steps: Step[] }> {
   const second = Date.now() - t1
   add(steps, "读加油交易：最近 30 天 8 笔，新的在前；10 分钟内再读用缓存", fuel.ok && fuel.value.length === 8 && fuel.value[0].ts >= fuel.value[7].ts && again.ok && again.value.length === 8,
     fuel.ok ? `${fuel.value.length} 笔，第一次 ${first} ms，再读 ${second} ms` : fuel.error.message)
+
+  // 2.3.0-beta.1：车辆、行程、车况走契约（插件化设计第 5 节）。示例插件包成数据源，和内置的沃尔沃同一条路、同一份缓存
+  const src = dataSourceById(data, ref.id)
+  let cars: string | Array<{ id: string; name: string; detail: string }> = "没有这个数据源"
+  if (src) { try { cars = await src.vehicles() } catch (e) { cars = errorText(e) } }
+  add(steps, "数据源：示例插件提供车辆，账号下一辆示例车", Array.isArray(cars) && cars.length === 1 && cars[0].id === "example-car",
+    Array.isArray(cars) ? cars.map(c => `${c.name} · ${c.detail}`).join("；") : cars)
+  const car: Vehicle = { id: "check-plugin-car", name: "示例车（检查）", default_grade: 95, created_ts: now, xxyh_car: null, provider: { id: ref.id, vehicle_id: "example-car", name: "示例车" } }
+  let stops: string | Array<{ end_ts: number; odometer_km: number }> = []
+  try { stops = await vehicleStops(data, car, { force: true }) } catch (e) { stops = errorText(e) }
+  let snap: string | { status: { fuel_l: number | null; odometer_km: number | null } } | null = null
+  try { snap = await readVehicleStatus(data, car, true) } catch (e) { snap = errorText(e) }
+  const lastStop = Array.isArray(stops) && stops.length ? stops.reduce((a, b) => (b.end_ts > a.end_ts ? b : a)) : null
+  add(steps, "行程：最近 7 天的停车按时间配出来（示例插件每天一趟，加油前停在那个油站）", Array.isArray(stops) && stops.length >= 7,
+    Array.isArray(stops) ? `${stops.length} 次停车，最后一次 ${lastStop ? lastStop.odometer_km : "—"} km` : stops)
+  add(steps, "车况：剩余 32.5 L，里程是最后一趟熄火时的", !!snap && typeof snap === "object" && snap.status.fuel_l === 32.5 && !!lastStop && snap.status.odometer_km === lastStop.odometer_km,
+    snap && typeof snap === "object" ? `${snap.status.fuel_l} L · ${snap.status.odometer_km} km` : String(snap))
 
   let blocked = ""
   try { await addPlugin(getData, "FuelNote") } catch (e) { blocked = errorText(e) }
@@ -1247,7 +1266,7 @@ function screenElement(screen: string): VirtualNode | null {
     if (screen === "fuel-stats") return <NavigationStack><FuelStats data={data} nav={FUEL_STATS_NAV} /></NavigationStack>
     if (screen === "expense-stats") return <NavigationStack><ExpenseStats data={data} nav={EXPENSE_STATS_NAV} /></NavigationStack>
     return screen.startsWith("fuel-")
-      ? <FuelTab data={data} subtitle={cur.name} stop={null} status={null} openStatus={noop} actions={fuelStub} />
+      ? <FuelTab data={data} subtitle={cur.name} status={null} openStatus={noop} actions={fuelStub} />
       : <ExpenseTab data={data} subtitle={cur.name} actions={expenseStub} />
   }
   const v = data.ledger.vehicles.find(x => x.name === "检查用车")

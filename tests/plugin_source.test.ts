@@ -209,3 +209,32 @@ test("脚本不在（Script.run 返回 null）：插件不可用，不改上次�
   const d = await h.source.describe("不存在的脚本")
   assert.ok(!d.ok && d.error.kind === "unavailable")
 })
+
+test("车辆、行程、车况：不缓存，每次都调插件；参数带车辆 id 和时间；成功记「已连接」，出错记插件说的状态", async () => {
+  const ref: PluginRef = { script: "FuelNote 示例插件", id: "example", name: "示例", capabilities: ["vehicles", "trips", "vehicle_status"] }
+  let expired = false
+  const h = harness({
+    respond: (action, params) => {
+      if (expired) return { ok: false, error: "expired" }
+      if (action === "vehicles") return { ok: true, items: [{ id: "car-1", name: "示例车", detail: "" }] }
+      if (action === "trips") return { ok: true, items: [{ id: "t1", start_ts: Number(params.from), end_ts: Number(params.from) + 600e3, end_odometer_km: 100 }] }
+      return { ok: true, status: { ts: NOW, fuel_l: 30, range_km: 400, avg_consumption: 9.5, odometer_km: 100 } }
+    },
+  })
+  const cars = await h.source.vehicles(ref)
+  assert.ok(cars.ok && cars.value[0].id === "car-1")
+  const range = { from: NOW - DAY, to: NOW }
+  assert.ok((await h.source.trips(ref, "car-1", range)).ok)
+  assert.ok((await h.source.trips(ref, "car-1", range)).ok)
+  const st = await h.source.vehicleStatus(ref, "car-1")
+  assert.ok(st.ok && st.value.fuel_l === 30)
+  assert.deepEqual(h.calls.map(c => c.action), ["vehicles", "trips", "trips", "vehicle_status"])
+  assert.deepEqual(h.calls[1].params, { vehicle: "car-1", from: NOW - DAY, to: NOW })
+  assert.deepEqual(h.calls[3].params, { vehicle: "car-1" })
+  assert.equal(h.source.lastState("example"), "connected")
+  expired = true
+  const r = await h.source.vehicleStatus(ref, "car-1")
+  assert.ok(!r.ok && r.error.kind === "expired")
+  assert.equal(h.source.lastState("example"), "expired")
+  assert.deepEqual(h.file()?.months, {})
+})

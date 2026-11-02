@@ -1,12 +1,12 @@
 // 根页面：油耗、费用、保险、权益、设置五个标签（设计文档 21.2、22.3 节）。标签栏只做页面切换，「记加油」「记费用」「记保险」「添加权益」放在各自右上角的「+」。
-// 负责打开表单、保存，以及识别未记录的加油停车（显示在油耗 › 记录的顶部）。数据都存在油记里，不和小熊同步。
+// 负责打开表单、保存。数据都存在油记里，不和小熊同步。
 import { AppEvents, Navigation, Script, Tab, TabView, Widget, useEffect, useMemo, useObservable, useRef, useState } from "scripting"
 import {
   addVehicle, AppData, batchInfo, batchPerks, cachedStatus, canReadStatus, categoriesFor, categoryName, currentVehicle, defaultCategory, defaultUse,
-  deleteInsurance, deletePerks, deleteRecord, deleteStore, deleteUse, detectOpenStop, dismissRenewal, dismissStop, expenseEntries, ExpenseEntry,
+  deleteInsurance, deletePerks, deleteRecord, deleteStore, deleteUse, dismissRenewal, expenseEntries, ExpenseEntry,
   ExpenseRecord, expenseUses, finishAutoBackup, flushAutoBackup, fmtDate, fmtDateTime, insuranceForRecord, InsuranceYear, LedgerRecord, loadData, MAINTENANCE_CATEGORY, newId,
-  NewVehicle, openStopNow, Perk, perkBook, PerkUse, providerById, readVehicleStatus, remaining, sameName, saveBatch, saveExpense, saveFuel,
-  saveInsurance, savePerk, savePerks, saveStore, saveUse, saveWidgetSnapshot, scheduleAutoBackup, Stop, Store, toExpenseData, toFuelData, updateSettings,
+  NewVehicle, Perk, perkBook, PerkUse, providerById, readVehicleStatus, remaining, sameName, saveBatch, saveExpense, saveFuel,
+  saveInsurance, savePerk, savePerks, saveStore, saveUse, saveWidgetSnapshot, scheduleAutoBackup, sourceOf, Store, toExpenseData, toFuelData, updateSettings,
   maintenanceOf, usageLine, Use, usedOf, useText, Vehicle, vehicleById, vehicleRecords, vehicleTank, yearLabel, yuan,
   cachedService, canReadService, refreshService, saveServiceVisit, serviceCandidates, serviceForm, serviceOfExpense, ServiceVisit,
 } from "../common/model"
@@ -38,14 +38,10 @@ const TAB_SETTINGS = 4
 
 export function App({ action, image, notice }: { action: string | null; image: UIImage | null; notice: string | null }) {
   const [initial] = useState(() => loadData())
-  // 数据、标题下方的临时提示、油耗 › 记录顶部的加油停车提示放在一个状态里：保存时一起更新，只渲染一次（2.1.0-beta.8）。
-  // 加油停车提示先按上次缓存的行程显示，读到最新行程后更新
-  const [ui, setUi] = useState<{ data: AppData; message: string | null; openStop: Stop | null }>(() => ({
-    data: initial.data, message: null, openStop: openStopNow(initial.data, currentVehicle(initial.data)),
-  }))
-  const { data, message, openStop } = ui
+  // 数据和标题下方的临时提示放在一个状态里：保存时一起更新，只渲染一次（2.1.0-beta.8）
+  const [ui, setUi] = useState<{ data: AppData; message: string | null }>(() => ({ data: initial.data, message: null }))
+  const { data, message } = ui
   const setMessage = (m: string | null) => setUi(u => (u.message === m ? u : { ...u, message: m }))
-  const setOpenStop = (s: Stop | null) => setUi(u => (u.openStop === s ? u : { ...u, openStop: s }))
   const ref = useRef<AppData>(initial.data)
   // 选中的标签交给原生直接维护（Observable），不经过 React 状态回传，切换才不会被拉回；没有车辆时用它跳到设置
   const selection = useObservable<number>(TAB_FUEL)
@@ -59,8 +55,7 @@ export function App({ action, image, notice }: { action: string | null; image: U
   /** 数据放回去；label 不是 undefined 时标题下方的提示一起换（同一次渲染） */
   const setData = (d: AppData, label?: string | null) => {
     ref.current = d
-    const stop = openStopNow(d, currentVehicle(d))
-    setUi(u => ({ data: d, message: label === undefined ? u.message : label, openStop: stop }))
+    setUi(u => ({ data: d, message: label === undefined ? u.message : label }))
     saveWidgetSnapshot(d)
     Widget.reloadAll()
     // 改了数据就自动备份：1 分钟内没有新的修改再写（只是界面状态变了时不写）
@@ -107,20 +102,11 @@ export function App({ action, image, notice }: { action: string | null; image: U
     return null
   }
 
-  async function refreshOpenStop(force = false) {
-    try {
-      const d = getData()
-      setOpenStop(await detectOpenStop(d, currentVehicle(d), force))
-    } catch {
-      setOpenStop(null) // 读不到行程时不显示提示，不打扰
-    }
-  }
-
   /** 读车况，读到后更新小组件。自动读取失败时不提示（保留上次的结果）；轻点车况行、下拉刷新或还没有车况时才显示原因 */
   async function refreshStatus(force = false): Promise<string | null> {
     const d = getData()
     const v = currentVehicle(d)
-    if (!canReadStatus(v)) return null
+    if (!canReadStatus(d, v)) return null
     setStatusBusy(true)
     try {
       await readVehicleStatus(d, v, force)
@@ -130,7 +116,7 @@ export function App({ action, image, notice }: { action: string | null; image: U
       return null
     } catch (e) {
       const message = errorMessage(e)
-      setStatusError(force || !cachedStatus(v) ? message : null)
+      setStatusError(force || !cachedStatus(getData(), v) ? message : null)
       return message
     } finally {
       setStatusBusy(false)
@@ -141,8 +127,8 @@ export function App({ action, image, notice }: { action: string | null; image: U
   /** 车况的显示状态；当前车辆不能读车况时为 null（油耗 › 记录没有「当前」一组） */
   function statusView(d: AppData): StatusView | null {
     const v = currentVehicle(d)
-    if (!v || !v.provider || !canReadStatus(v)) return null
-    return { snapshot: cachedStatus(v), tank: vehicleTank(d, v), busy: statusBusy, error: statusError, source: providerById(v.provider.id)?.name || "车辆数据" }
+    if (!v || !v.provider || !canReadStatus(d, v)) return null
+    return { snapshot: cachedStatus(d, v), tank: vehicleTank(d, v), busy: statusBusy, error: statusError, source: sourceOf(d, v)?.name || "车辆数据" }
   }
 
   /** 车况详情：看完整数据、重新读取 */
@@ -170,9 +156,9 @@ export function App({ action, image, notice }: { action: string | null; image: U
     }
   }
 
-  /** 当前车辆的行程和车况 */
+  /** 当前车辆的车况（2.3 起打开油记时不再读行程：记录页没有加油停车提示了，插件化设计 D2） */
   function refreshVehicle(force = false) {
-    return Promise.all([refreshOpenStop(force), refreshStatus(force)])
+    return refreshStatus(force)
   }
 
   /** 添加车辆（设计文档 17.4 节）：从车辆菜单、设置、没有车辆时进入；添加后切换到它 */
@@ -195,13 +181,12 @@ export function App({ action, image, notice }: { action: string | null; image: U
 
   const app: AppActions = { getData, setData, addVehicle: openAddVehicle }
 
-  async function openFuel(vehicle: Vehicle, record: LedgerRecord | null, stop: Stop | null = null, image: UIImage | null = null) {
+  async function openFuel(vehicle: Vehicle, record: LedgerRecord | null, image: UIImage | null = null) {
     await Navigation.present<FuelFormResult | null>({
       element: <FuelForm
         data={getData()}
         vehicle={vehicle}
         record={record && record.kind === "fuel" ? { ...toFuelData(record), id: record.id } : null}
-        initialStop={stop}
         initialImage={image}
         onSave={res => saveFrom(() => mutate(saveFuel(getData(), vehicle, record ? record.id : null, res.fuel, res.newStation)))}
       />,
@@ -222,7 +207,7 @@ export function App({ action, image, notice }: { action: string | null; image: U
     const d = getData()
     // 带保养记录的费用（2.1）：保养和费用一起改；新记保养时里程默认取车况的里程表
     const maintenance = record && record.kind === "expense" ? maintenanceOf(d.ledger.records, record.id) : null
-    const odometer = vehicle.provider && canReadStatus(vehicle) ? cachedStatus(vehicle)?.status.odometer_km ?? null : null
+    const odometer = vehicle.provider && canReadStatus(d, vehicle) ? cachedStatus(d, vehicle)?.status.odometer_km ?? null : null
     // 关联了养修的费用（2.1.0-beta.5）：照从养修填写显示，金额是实付，沃尔沃结算取账本里存下的那份
     const linked = record && record.kind === "expense" ? serviceOfExpense(d.ledger, record.id) : null
     const view = linked ? cachedService(vehicle) : null
@@ -477,13 +462,10 @@ export function App({ action, image, notice }: { action: string | null; image: U
     if (r && v) openExpense(v, r)
   }
 
-  /**
-   * 记加油：没有车辆时先去设置添加。
-   * stop 只在加油停车提示里点「记一笔」时传入（直接填入）；其他入口不传，表单里只给建议（设计文档 16.5 节）。
-   */
-  function addFuel(stop: Stop | null = null, image: UIImage | null = null) {
+  /** 记加油：没有车辆时先去设置添加。image 是快捷指令、分享传入的截图 */
+  function addFuel(image: UIImage | null = null) {
     const v = requireVehicle()
-    if (v) openFuel(v, null, stop, image)
+    if (v) openFuel(v, null, image)
   }
 
   async function edit(record: LedgerRecord) {
@@ -533,7 +515,7 @@ export function App({ action, image, notice }: { action: string | null; image: U
       // 从小组件进入：等主界面出现后再弹表单，避免两个页面同时弹出
       // 截屏记加油（设计文档第 19 节）带着图片进来：表单打开后直接识别
       if (notice) await Dialog.alert({ title: "截屏记加油", message: notice })
-      if (action === "add_fuel") setTimeout(() => addFuel(null, image), 500)
+      if (action === "add_fuel") setTimeout(() => addFuel(image), 500)
     })()
     // 行程检测和车况同时开始：从小组件进入时，表单打开后可以直接等这次读取的结果
     refreshVehicle()
@@ -605,18 +587,16 @@ export function App({ action, image, notice }: { action: string | null; image: U
   const ben = viewOf(TAB_BENEFITS)
   const set = viewOf(TAB_SETTINGS)
 
-  const fuelTab = useMemo(() => <FuelTab data={fuel.data} subtitle={fuel.subtitle} stop={openStop} openStatus={openStatus}
+  const fuelTab = useMemo(() => <FuelTab data={fuel.data} subtitle={fuel.subtitle} openStatus={openStatus}
     // 车况在油耗 › 记录最上面的「当前」一组（设计文档 18.2 节）；不能读车况时没有这一组
     status={statusView(fuel.data)}
     actions={{
       addFuel: () => addFuel(),
-      recordStop: s => addFuel(s),
-      dismissStop: s => { setData(dismissStop(getData(), s)); setOpenStop(null) },
       edit,
       remove,
       ...vehicleActions,
       refresh: async () => { await refreshVehicle(true) },
-    }} />, [fuel.data, fuel.subtitle, openStop, statusBusy, statusError, statusVersion])
+    }} />, [fuel.data, fuel.subtitle, statusBusy, statusError, statusVersion])
 
   const expenseTab = useMemo(() => {
     // 费用页最上面的养修一组：当前车辆能读养修时才有（读缓存，不发请求）

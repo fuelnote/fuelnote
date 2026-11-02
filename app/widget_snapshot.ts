@@ -14,7 +14,7 @@ export function saveWidgetSnapshot(data: AppData, now = Date.now()): void {
   const sum = v ? summarize(fills, "all", now) : null
   const d = new Date(now)
   // 小组件可能刚写进更新的车况，以文件为准
-  const st = v && hasStatusSource(v) ? statusSource.latest(stopsKey(v)) : null
+  const st = v && hasStatusSource(data, v) ? statusSource.latest(stopsKey(v)) : null
   // 大号「最近加油」：最近 3 次加油的油站名和油耗（设计文档 18.2 节，1.4 起）
   const consumption = consumptionById(fills)
   const stationNames = new Map((v ? stationsFor(data, v) : []).map(s => [s.id, s.name]))
@@ -23,12 +23,12 @@ export function saveWidgetSnapshot(data: AppData, now = Date.now()): void {
     schema_version: 1,
     updated_at: now,
     vehicle: v ? v.name : null,
-    status_source: hasStatusSource(v),
+    status_source: hasStatusSource(data, v),
     status: v && st
       ? { ts: st.status.ts, fuel_l: st.status.fuel_l, range_km: st.status.range_km, tank_l: vehicleTank(data, v), odometer_km: st.status.odometer_km, read_at: st.read_at }
       : null,
     // 小组件自己读车况用（设计文档 18.3 节第 2 步）；凭据在钥匙串，不写进文件
-    status_link: v && v.provider && hasStatusSource(v)
+    status_link: v && v.provider && hasStatusSource(data, v)
       ? { key: stopsKey(v), provider: v.provider.id, vehicle_id: v.provider.vehicle_id, tank_l: vehicleTank(data, v) }
       : null,
     latest_consumption: sum ? sum.latest_consumption : null,

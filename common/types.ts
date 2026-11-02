@@ -1,10 +1,11 @@
 // 油记的领域类型。坐标一律 WGS-84，时间一律毫秒时间戳，里程单位公里。
 
-export type ProviderId = "volvo_cn"
+/** 数据源的 id：内置的沃尔沃是 volvo_cn，插件是它 describe 给的 id（插件化设计第 5 节） */
+export type ProviderId = string
 
 export type ProviderLink = {
   id: ProviderId
-  /** 提供方那边的车辆标识，例如沃尔沃的 VIN */
+  /** 数据源那边的车辆标识（`vehicles` 给的 id），例如沃尔沃的 VIN */
   vehicle_id: string
   name: string
 }
@@ -342,8 +343,6 @@ export type AssistantModel = { providerID: string; modelId: string; name: string
 export type Settings = {
   current_vehicle_id: string | null
   default_full: boolean
-  /** 记录页顶部提示里点了「×」的加油停车（熄火时间），只留最近 20 个 */
-  dismissed_stops: number[]
   ocr_engine: OcrEngine
   /** null：用 Scripting 的默认账号和模型 */
   ocr_assistant: AssistantModel | null
@@ -355,8 +354,8 @@ export type Settings = {
   plugins: PluginRef[]
 }
 
-/** 数据源插件能提供的数据（docs/plugins.md 第 4 节） */
-export type PluginCapability = "fuel" | "trips" | "vehicle_status" | "service"
+/** 数据源插件能提供的数据（docs/plugins.md 第 4 节）；提供 trips、vehicle_status、service 之一的必须提供 vehicles */
+export type PluginCapability = "fuel" | "vehicles" | "trips" | "vehicle_status" | "service"
 
 /** 添加的插件：脚本名（`Script.run` 用）、插件自己的 id、名称、提供的数据 */
 export type PluginRef = { script: string; id: string; name: string; capabilities: PluginCapability[] }
@@ -396,7 +395,7 @@ export function gradeText(grade: number | null): string {
 }
 
 export function defaultSettings(): Settings {
-  return { current_vehicle_id: null, default_full: true, dismissed_stops: [], ocr_engine: "local", ocr_assistant: null, dismissed_renewals: [], auto_backup: true, plugins: [] }
+  return { current_vehicle_id: null, default_full: true, ocr_engine: "local", ocr_assistant: null, dismissed_renewals: [], auto_backup: true, plugins: [] }
 }
 
 export function emptyLedger(): LedgerFile {

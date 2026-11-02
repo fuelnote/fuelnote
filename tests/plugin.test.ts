@@ -2,10 +2,11 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
 import {
-  addProblem, capabilityLine, parseDescribe, parseFuel, parseStatus, PLUGIN_TIMEOUT_MS, pluginRef, pluginStateText, stateOfError, stateOfStatus,
+  addProblem, capabilityLine, parseDescribe, parseFuel, parseStatus, parseTrips, parseVehicles, parseVehicleStatus, PLUGIN_TIMEOUT_MS, pluginRef,
+  pluginStateText, stateOfError, stateOfStatus,
 } from "../common/plugin"
 import { normalizeLedger } from "../common/ledger_file"
-import { emptyLedger, PluginRef } from "../common/types"
+import { emptyLedger, PluginCapability, PluginRef } from "../common/types"
 
 const T = Date.UTC(2026, 9, 12, 6, 3)
 
@@ -86,11 +87,14 @@ test("fuel：缺字段或类型不对的项丢掉；标号认不出时 null；�
   assert.ok(!bad.ok && bad.error.kind === "invalid")
 })
 
-test("添加前：没有提供数据、id 和内置的数据源或已添加的插件重复时不加", () => {
+test("添加前：没有提供数据、提供了车辆数据却没有车辆、id 和内置的数据源或已添加的插件重复时不加", () => {
   const added: PluginRef[] = [{ script: "FuelNoteEjoy", id: "ejoy", name: "易捷", capabilities: ["fuel"] }]
-  const info = (id: string, capabilities: Array<"fuel"> = ["fuel"]) => ({ id, name: "示例", version: "1.0.0", capabilities })
+  const info = (id: string, capabilities: PluginCapability[] = ["fuel"]) => ({ id, name: "示例", version: "1.0.0", capabilities })
   assert.equal(addProblem(info("example"), added, ["volvo_cn"]), null)
   assert.equal(addProblem(info("example", []), added, ["volvo_cn"]), "这个插件没有提供油记用得上的数据")
+  assert.equal(addProblem(info("example", ["vehicles"]), added, ["volvo_cn"]), "这个插件没有提供油记用得上的数据")
+  assert.equal(addProblem(info("example", ["trips", "vehicle_status"]), added, ["volvo_cn"]), "这个插件提供了行程、车况或养修，但没有提供车辆，关联不到车")
+  assert.equal(addProblem(info("example", ["vehicles", "trips", "vehicle_status"]), added, ["volvo_cn"]), null)
   assert.equal(addProblem(info("volvo_cn"), added, ["volvo_cn"]), "插件的 id「volvo_cn」和内置的数据源重复")
   assert.equal(addProblem(info("ejoy"), added, ["volvo_cn"]), "「易捷」已经添加过了")
   assert.deepEqual(pluginRef("FuelNote 示例插件", info("example")), { script: "FuelNote 示例插件", id: "example", name: "示例", capabilities: ["fuel"] })
@@ -115,4 +119,42 @@ test("账本的设置：没有插件列表时补上空的，不是数组时也�
   assert.deepEqual(normalizeLedger(raw).settings.plugins, [])
   raw.settings.plugins = "ejoy"
   assert.deepEqual(normalizeLedger(raw).settings.plugins, [])
+})
+
+test("vehicles：数字的 id 转成文字；没有名称时用 id；缺 id 的丢掉；items 不是数组是数据不对", () => {
+  const r = parseVehicles({ ok: true, items: [{ id: 7, name: " 示例车 ", detail: "车架号 ••••••" }, { id: "v2" }, { name: "没有 id" }, null] })
+  assert.ok(r.ok)
+  assert.deepEqual(r.value, [{ id: "7", name: "示例车", detail: "车架号 ••••••" }, { id: "v2", name: "v2", detail: "" }])
+  const bad = parseVehicles({ ok: true, items: {} })
+  assert.ok(!bad.ok && bad.error.kind === "invalid")
+  const expired = parseVehicles({ ok: false, error: "expired", message: "登录已过期" })
+  assert.ok(!expired.ok && expired.error.kind === "expired" && expired.error.message === "登录已过期")
+})
+
+test("trips：按开始时间从早到晚；缺时间或熄火里程、结束早于开始的丢掉；坐标缺了或超出范围时位置为空", () => {
+  const trip = (d: Record<string, unknown>) => ({
+    id: "t", start_ts: T, end_ts: T + 600e3, start_odometer_km: 100, end_odometer_km: 108.5, distance_km: 8.5, fuel_l: 0.9,
+    start: { lng: 121.4, lat: 31.2, address: "示例路 1 号", city: "上海市", district: "徐汇区" }, end: { lng: 121.5, lat: 31.3 }, ...d,
+  })
+  const r = parseTrips({ ok: true, items: [
+    trip({ id: "late", start_ts: T + 3600e3, end_ts: T + 4200e3 }),
+    trip({ id: 1 }),
+    trip({ id: "no-km", end_odometer_km: null }),
+    trip({ id: "back", end_ts: T - 1 }),
+    trip({ id: "far", start: { lng: 200, lat: 31 }, end: null }),
+  ] })
+  assert.ok(r.ok)
+  assert.deepEqual(r.value.map(t => t.id), ["1", "far", "late"])
+  assert.deepEqual(r.value[0].end, { lng: 121.5, lat: 31.3, address: "", city: "", district: "" })
+  assert.equal(r.value[1].start, null)
+  assert.equal(r.value[1].end, null)
+})
+
+test("vehicle_status：数字照用，缺的为空；没有 status 是数据不对", () => {
+  const r = parseVehicleStatus({ ok: true, status: { ts: T, fuel_l: 31.5, range_km: "420", odometer_km: 82912 } })
+  assert.ok(r.ok)
+  assert.deepEqual(r.value, { ts: T, fuel_l: 31.5, range_km: null, avg_consumption: null, odometer_km: 82912 })
+  const bad = parseVehicleStatus({ ok: true })
+  assert.ok(!bad.ok && bad.error.kind === "invalid")
+  assert.equal(capabilityLine(["vehicles", "trips", "vehicle_status", "service"]), "车辆、行程、车况、养修")
 })

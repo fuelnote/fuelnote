@@ -4,10 +4,13 @@ import { Button, EnvironmentValuesReader, HStack, Image, List, ProgressView, Sec
 import { CAPABILITY_TITLES, connectPlugin, PluginCapability, pluginsOf, pluginState, pluginStateText, pluginStatus, pluginVersion, removePlugin } from "../common/model"
 import { AppActions } from "./components"
 
-const ICONS: Record<PluginCapability, string> = { fuel: "doc.text", trips: "car", vehicle_status: "gauge.with.dots.needle.33percent", service: "wrench.and.screwdriver" }
+const ICONS: Record<PluginCapability, string> = {
+  fuel: "doc.text", vehicles: "car.2", trips: "car", vehicle_status: "gauge.with.dots.needle.33percent", service: "wrench.and.screwdriver",
+}
 
 function hint(cap: PluginCapability, name: string): string {
   if (cap === "fuel") return `记加油时从${name}选择一笔或几笔`
+  if (cap === "vehicles") return "在车辆的「车辆数据」里关联到车"
   if (cap === "trips") return "记加油时按时间配停车、填里程"
   if (cap === "vehicle_status") return "记录页「当前」的油量和里程"
   return "费用页的养修记录"

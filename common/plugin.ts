@@ -1,21 +1,24 @@
 // 数据源插件的契约（插件化设计第 4 节）：版本、标记文件、各动作的超时；返回值的校验和整理；添加前的检查；给用户看的错误和状态。
 // 纯逻辑：调用插件在 platform/plugin_bridge.ts，排队、超时和缓存在 common/plugin_source.ts。
+import { Place, RemoteVehicle, Trip, VehicleStatus } from "../providers/types"
 import { GRADES, PluginCapability, PluginRef } from "./types"
 
 export const PLUGIN_CONTRACT = 1
 /** 插件文件夹里的标记（D8）：只把带它的脚本列为可添加的插件，不运行其他脚本 */
 export const PLUGIN_MARKER = "fuelnote.json"
 
-export type PluginAction = "describe" | "status" | "connect" | "vehicles" | PluginCapability
+export type PluginAction = "describe" | "status" | "connect" | PluginCapability
 
 /** 油记等多久（docs/plugins.md 第 4 节）；connect 打开插件自己的页面，不限 */
 export const PLUGIN_TIMEOUT_MS: Record<PluginAction, number | null> = {
   describe: 5000, status: 5000, connect: null, vehicles: 20000, fuel: 20000, trips: 20000, vehicle_status: 10000, service: 20000,
 }
 
-const CAPABILITIES: PluginCapability[] = ["fuel", "trips", "vehicle_status", "service"]
+const CAPABILITIES: PluginCapability[] = ["fuel", "vehicles", "trips", "vehicle_status", "service"]
+/** 要关联到一辆车的数据：提供其中之一的插件必须提供 vehicles */
+export const VEHICLE_CAPABILITIES: PluginCapability[] = ["trips", "vehicle_status", "service"]
 
-export const CAPABILITY_TITLES: Record<PluginCapability, string> = { fuel: "加油交易", trips: "行程", vehicle_status: "车况", service: "养修" }
+export const CAPABILITY_TITLES: Record<PluginCapability, string> = { fuel: "加油交易", vehicles: "车辆", trips: "行程", vehicle_status: "车况", service: "养修" }
 
 /** 「加油交易、行程」 */
 export function capabilityLine(caps: PluginCapability[]): string {
@@ -164,11 +167,79 @@ export function parseFuel(raw: unknown): PluginResult<FuelTxn[]> {
   return { ok: true, value: e.value.items.map(fuelTxn).filter((t): t is FuelTxn => !!t) }
 }
 
+// ---------- 车辆、行程、车况（docs/plugins.md 第 6 节） ----------
+
+/** 数字的 id 也认（转成文字） */
+function idText(v: unknown): string | null {
+  return text(v) ?? (num(v) != null ? String(v) : null)
+}
+
+function remoteVehicle(raw: unknown): RemoteVehicle | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null
+  const r = raw as Record<string, unknown>
+  const id = idText(r.id)
+  return id ? { id, name: text(r.name) ?? id, detail: text(r.detail) ?? "" } : null
+}
+
+export function parseVehicles(raw: unknown): PluginResult<RemoteVehicle[]> {
+  const e = envelope(raw)
+  if (!e.ok) return e
+  if (!Array.isArray(e.value.items)) return fail("invalid")
+  return { ok: true, value: e.value.items.map(remoteVehicle).filter((v): v is RemoteVehicle => !!v) }
+}
+
+/** 位置：坐标缺了或超出范围时整个不要 */
+function place(raw: unknown): Place | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null
+  const r = raw as Record<string, unknown>
+  const lng = num(r.lng)
+  const lat = num(r.lat)
+  if (lng == null || lat == null || Math.abs(lng) > 180 || Math.abs(lat) > 90) return null
+  return { lng, lat, address: text(r.address) ?? "", city: text(r.city) ?? "", district: text(r.district) ?? "" }
+}
+
+function trip(raw: unknown): Trip | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null
+  const r = raw as Record<string, unknown>
+  const id = idText(r.id)
+  const start = num(r.start_ts)
+  const end = num(r.end_ts)
+  const endKm = num(r.end_odometer_km)
+  if (!id || start == null || end == null || endKm == null || end < start) return null
+  return {
+    id, start_ts: start, end_ts: end, start_odometer_km: num(r.start_odometer_km), end_odometer_km: endKm,
+    distance_km: num(r.distance_km), fuel_l: num(r.fuel_l), start: place(r.start), end: place(r.end),
+  }
+}
+
+/** 行程，按开始时间从早到晚 */
+export function parseTrips(raw: unknown): PluginResult<Trip[]> {
+  const e = envelope(raw)
+  if (!e.ok) return e
+  if (!Array.isArray(e.value.items)) return fail("invalid")
+  return { ok: true, value: e.value.items.map(trip).filter((t): t is Trip => !!t).sort((a, b) => a.start_ts - b.start_ts) }
+}
+
+export function parseVehicleStatus(raw: unknown): PluginResult<VehicleStatus> {
+  const e = envelope(raw)
+  if (!e.ok) return e
+  const s = e.value.status
+  if (!s || typeof s !== "object" || Array.isArray(s)) return fail("invalid")
+  const r = s as Record<string, unknown>
+  return { ok: true, value: { ts: num(r.ts), fuel_l: num(r.fuel_l), range_km: num(r.range_km), avg_consumption: num(r.avg_consumption), odometer_km: num(r.odometer_km) } }
+}
+
 // ---------- 添加 ----------
 
-/** 添加前的检查：没有提供油记用得上的数据、id 和内置的数据源或已添加的插件重复时不加；可以加时 null */
+/**
+ * 添加前的检查：没有提供油记用得上的数据、提供了要关联到车的数据却没有车辆、
+ * id 和内置的数据源或已添加的插件重复时不加；可以加时 null
+ */
 export function addProblem(info: PluginInfo, plugins: PluginRef[], builtinIds: string[]): string | null {
-  if (!info.capabilities.length) return "这个插件没有提供油记用得上的数据"
+  if (!info.capabilities.some(c => c !== "vehicles")) return "这个插件没有提供油记用得上的数据"
+  if (info.capabilities.some(c => VEHICLE_CAPABILITIES.includes(c)) && !info.capabilities.includes("vehicles")) {
+    return "这个插件提供了行程、车况或养修，但没有提供车辆，关联不到车"
+  }
   if (builtinIds.includes(info.id)) return `插件的 id「${info.id}」和内置的数据源重复`
   const same = plugins.find(p => p.id === info.id)
   if (same) return `「${same.name}」已经添加过了`

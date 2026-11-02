@@ -155,7 +155,7 @@ test("沃尔沃会话：冷启动用钥匙串里的缓存；换了凭据或快�
   const fp = (rt: string) => createHash("sha256").update(rt).digest("hex").slice(0, 16)
   const cached = (rt: string, expiresAt: number) => JSON.stringify({ accessToken: "a", jwtToken: "j", globalAccessToken: "g-cached", expiresAt, fp: fp(rt) })
   const run = (rt: string, store: SessionStore) =>
-    volvoCn.fetchTrips({ http, now: () => T0, sessionStore: store }, { refreshToken: rt }, "VIN", { from: T0 - 86400e3, to: T0 })
+    volvoCn.trips({ http, now: () => T0, sessionStore: store }, { refreshToken: rt }, "VIN", { from: T0 - 86400e3, to: T0 })
 
   // 每个用例用不同的 refresh token，内存里都没有会话，相当于冷启动
   // 1. 缓存属于同一凭据、没过期：不换会话

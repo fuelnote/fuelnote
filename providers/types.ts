@@ -80,9 +80,9 @@ export type VehicleDataProvider = {
   /** 整理用户粘贴的内容，例如从 BoxJS 的 JSON 里取出需要的字段；缺少必填项时抛错 */
   normalizeCredential(input: Credential): Credential
   /** 读取账号下的车辆，同时用来校验凭据 */
-  listVehicles(ctx: ProviderContext, cred: Credential): Promise<RemoteVehicle[]>
+  vehicles(ctx: ProviderContext, cred: Credential): Promise<RemoteVehicle[]>
   /** 时间范围内的行程，按开始时间升序 */
-  fetchTrips(ctx: ProviderContext, cred: Credential, vehicleId: string, range: { from: number; to: number }): Promise<Trip[]>
+  trips(ctx: ProviderContext, cred: Credential, vehicleId: string, range: { from: number; to: number }): Promise<Trip[]>
   /** 车况（剩余油量等）；不支持的提供方不实现 */
   vehicleStatus?(ctx: ProviderContext, cred: Credential, vehicleId: string): Promise<VehicleStatus>
   /** 养修（2.1.0-beta.5）：费用页那一组的标题（「沃尔沃养修」）；不支持养修的提供方不写，下面三个也不实现 */

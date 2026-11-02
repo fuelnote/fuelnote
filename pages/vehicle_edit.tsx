@@ -3,11 +3,12 @@ import {
   Button, DatePicker, EnvironmentValuesReader, HStack, List, Navigation, Picker, Section, Spacer, Text, TextField, useEffect, useState,
 } from "scripting"
 import {
-  AppData, CarSpec, catalogSpec, deleteVehicle, fmtDate, gradeOf, GRADES, gradeText, newExportCarUuid, profileFromSpec, providerById, setVehicleHidden,
+  AppData, CarSpec, catalogSpec, deleteVehicle, fmtDate, gradeOf, GRADES, gradeText, newExportCarUuid, profileFromSpec, RemoteVehicle, setVehicleHidden, sourceOf, vehicleSources,
   snapshotCars, updateVehicle, vehicleById, vehicleDeletionCounts, vehicleProfile, vehicleRecords,
 } from "../common/model"
 import { ModelPicker } from "./model_picker"
 import { AppActions, showError } from "./components"
+import { ProviderChoice } from "./vehicle_add"
 
 const dayMs = (d: string) => {
   const [y, m, day] = d.split("-").map(Number)
@@ -95,7 +96,17 @@ export function VehicleEdit({ data, app, vehicleId }: { data: AppData; app: AppA
     }
   }
 
-  const provider = vehicle.provider ? providerById(vehicle.provider.id) : null
+  const provider = sourceOf(data, vehicle)
+  // 关联到一个数据源的一辆车；这辆远端车原来关联别的车时，那辆车解除关联（一辆远端车只关联一辆车）
+  const link = (sourceId: string, rv: RemoteVehicle | null) => {
+    if (!rv) return
+    let next = app.getData()
+    for (const v of next.ledger.vehicles) {
+      if (v.id !== vehicle.id && v.provider?.id === sourceId && v.provider.vehicle_id === rv.id) next = updateVehicle(next, { ...v, provider: null })
+    }
+    app.setData(updateVehicle(next, { ...vehicle, provider: { id: sourceId, vehicle_id: rv.id, name: rv.name } }))
+  }
+  const sources = vehicleSources(data).filter(s => s.readable())
 
   return <EnvironmentValuesReader keys={["dismiss"]}>{env => <List navigationTitle={vehicle.name} navigationBarTitleDisplayMode="inline">
     <Section title="基本信息">
@@ -133,13 +144,17 @@ export function VehicleEdit({ data, app, vehicleId }: { data: AppData; app: AppA
       </Picker>
     </Section>
 
-    <Section header={<Text>车辆数据</Text>} footer={<Text>在「设置 › 车辆数据」中连接并选择要关联的车辆。</Text>}>
+    <Section header={<Text>车辆数据</Text>} footer={<Text>{vehicle.provider
+      ? "关联后，记加油时可以按时间配停车、填里程，记录页显示当前油量。"
+      : sources.length ? "选一个数据源里的车关联到这辆车。" : "先在「设置 › 数据源」中连接提供车辆数据的数据源。"}</Text>}>
       {vehicle.provider
         ? <>
-          <HStack><Text>{provider ? provider.name : vehicle.provider.id}</Text><Spacer /><Text foregroundStyle="secondaryLabel">{vehicle.provider.name}</Text></HStack>
+          <HStack><Text>{provider ? provider.name : `${vehicle.provider.id}（数据源还没添加）`}</Text><Spacer /><Text foregroundStyle="secondaryLabel">{vehicle.provider.name}</Text></HStack>
           <Button title="解除关联" role="destructive" action={() => app.setData(updateVehicle(app.getData(), { ...vehicle, provider: null }))} />
         </>
-        : <Text foregroundStyle="secondaryLabel">未关联</Text>}
+        : sources.length
+          ? sources.map(s => <ProviderChoice key={s.id} data={data} providerId={s.id} value="" onChanged={rv => link(s.id, rv)} />)
+          : <Text foregroundStyle="secondaryLabel">未关联</Text>}
     </Section>
 
     <Section footer={<Text>{vehicle.hidden ? "取消隐藏后，这辆车重新出现在车辆菜单、统计和小组件里。" : "隐藏后不出现在车辆菜单、统计和小组件里，记录照常保留；在「设置 › 车辆 › 已隐藏」里恢复。"}</Text>}>

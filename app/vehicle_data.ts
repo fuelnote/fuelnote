@@ -1,4 +1,5 @@
-// 车辆数据提供方（设计文档第 8 节）：连接、行程与加油停车（16.6 节，记录页提示、记加油表单、从行程选择共用一份缓存）、车况（第 18 节）
+// 车辆数据（设计文档第 8 节；插件化设计第 5 节）：内置数据源的连接；行程与加油停车（16.6 节，记加油表单、从行程选择共用一份缓存）、车况（第 18 节）。
+// 读车辆、行程、车况都经过 app/data_sources.ts，内置的数据源和插件同一条路，缓存也共用。
 import { AppData, fuelRecords, stationsFor } from "../common/ledger"
 import { findStops, openRefuelStop, rankStops, refreshStops, Stop } from "../common/stops"
 import { createStopSource, paymentStopsRange, StopGetOptions, StopsSnapshot } from "../common/stop_source"
@@ -10,22 +11,23 @@ import { providerCredential, providerCtx } from "../platform/provider_ctx"
 import { providerSecretKey, providerSessionKey, removeSecret, setJsonSecret } from "../platform/secrets"
 import { readCache, readStatusCache, saveStatusSnapshot, writeCache } from "../platform/storage"
 import { cachedSpec, catalogSpec } from "./catalog"
+import { sourceOf } from "./data_sources"
 import { nearbyStations } from "./stations"
-import { commit, updateSettings } from "./store"
+import { commit } from "./store"
 
-// ---------- 提供方 ----------
+// ---------- 内置数据源的连接（插件的连接在插件自己的页面里） ----------
 
 /** 校验并保存凭据，返回账号下的车辆 */
 export async function connectProvider(id: ProviderId, input: Credential): Promise<RemoteVehicle[]> {
   const p = providerById(id)
   if (!p) throw new Error("未知的车辆数据提供方")
   const cred = p.normalizeCredential(input)
-  const vehicles = await p.listVehicles(providerCtx(id), cred)
+  const vehicles = await p.vehicles(providerCtx(id), cred)
   setJsonSecret(providerSecretKey(id), cred)
   return vehicles
 }
 
-/** 读车况（剩余油量等，设计文档 18.1 节）；提供方不支持时返回 null */
+/** 内置数据源的凭据页里看一眼车况（设计文档 18.1 节）；提供方不支持时返回 null */
 export async function providerVehicleStatus(id: ProviderId, vehicleId: string): Promise<VehicleStatus | null> {
   const p = providerById(id)
   const cred = providerCredential(id)
@@ -33,14 +35,7 @@ export async function providerVehicleStatus(id: ProviderId, vehicleId: string): 
   return p.vehicleStatus(providerCtx(id), cred, vehicleId)
 }
 
-export async function providerVehicles(id: ProviderId): Promise<RemoteVehicle[]> {
-  const p = providerById(id)
-  const cred = providerCredential(id)
-  if (!p || !cred) return []
-  return p.listVehicles(providerCtx(id), cred)
-}
-
-/** 断开提供方：删除凭据和会话缓存，并解除所有车辆的关联 */
+/** 断开内置的数据源：删除凭据和会话缓存，并解除所有车辆的关联 */
 export function disconnectProvider(data: AppData, id: ProviderId): AppData {
   removeSecret(providerSecretKey(id))
   removeSecret(providerSessionKey(id))
@@ -57,7 +52,7 @@ function readTripsCache(): Record<string, StopsSnapshot> {
   return f && f.schema_version === 1 && f.entries ? f.entries : {}
 }
 
-/** 最近 7 天的停车：记录页提示、记加油表单、从行程选择共用一份，缓存 10 分钟（cache/trips_cache.json） */
+/** 最近 7 天的停车：记加油表单、从行程选择共用一份，缓存 10 分钟（cache/trips_cache.json） */
 const stopSource = createStopSource({
   load: key => readTripsCache()[key] || null,
   save: snap => writeCache(TRIPS_CACHE_FILE, { schema_version: 1, entries: { ...readTripsCache(), [snap.key]: snap } }),
@@ -67,14 +62,15 @@ const stopSource = createStopSource({
 /** 行程、车况缓存的键：车辆和它关联的远端车 */
 export const stopsKey = (v: Vehicle) => `${v.id}|${v.provider?.id}|${v.provider?.vehicle_id}`
 
-/** 这辆车能不能读行程：关联了车辆数据，并且凭据还在 */
-export function canReadTrips(vehicle: Vehicle | null): boolean {
-  return !!(vehicle && vehicle.provider && providerCredential(vehicle.provider.id))
+/** 这辆车能不能读行程：关联的数据源提供行程、已经添加，并且能读（内置的凭据还在，插件不是「未连接」） */
+export function canReadTrips(data: AppData, vehicle: Vehicle | null): boolean {
+  const s = sourceOf(data, vehicle)
+  return !!(s && s.capabilities.includes("trips") && s.readable())
 }
 
 /** 最近 7 天的停车。「已记录」和我的油站按当前数据重新判断 */
 export async function vehicleStops(data: AppData, vehicle: Vehicle, opts: StopGetOptions = {}): Promise<Stop[]> {
-  if (!canReadTrips(vehicle)) return []
+  if (!canReadTrips(data, vehicle)) return []
   const snap = await stopSource.get(stopsKey(vehicle), range => fetchStops(data, vehicle, range), opts)
   return refreshStops(snap.stops, stationsFor(data, vehicle), fuelRecords(data, vehicle))
 }
@@ -93,7 +89,7 @@ export function cachedStops(data: AppData, vehicle: Vehicle | null): Stop[] | nu
 export async function stopsForPayment(data: AppData, vehicle: Vehicle, payTs: number): Promise<{ stops: Stop[]; shared: boolean }> {
   const range = paymentStopsRange(payTs, Date.now())
   if (!range) return { stops: await vehicleStops(data, vehicle, { needAfter: payTs }), shared: true }
-  if (!canReadTrips(vehicle)) return { stops: [], shared: false }
+  if (!canReadTrips(data, vehicle)) return { stops: [], shared: false }
   const stops = await fetchStops(data, vehicle, range)
   return { stops: refreshStops(stops, stationsFor(data, vehicle), fuelRecords(data, vehicle)), shared: false }
 }
@@ -103,35 +99,16 @@ export async function recentStops(data: AppData, vehicle: Vehicle, force = false
   return rankStops(await vehicleStops(data, vehicle, { force }))
 }
 
-/** 最近 2 天里还没记录、没被忽略的加油停车（最新的一次） */
+/** 记加油「自动填写」：最近 2 天里还没记录的加油停车（最新的一次） */
 export function openStopIn(data: AppData, vehicle: Vehicle, stops: Stop[]): Stop | null {
-  return openRefuelStop(stops, fuelRecords(data, vehicle), data.ledger.settings.dismissed_stops, Date.now())
-}
-
-/** 记录页顶部提示。刚保存的记录会让提示立即消失（「已记录」按当前数据判断） */
-export async function detectOpenStop(data: AppData, vehicle: Vehicle | null, force = false): Promise<Stop | null> {
-  if (!vehicle || !canReadTrips(vehicle)) return null
-  return openStopIn(data, vehicle, await vehicleStops(data, vehicle, { force }))
-}
-
-/** 不发请求：按缓存判断（启动时立刻显示上次的结果，之后再刷新） */
-export function openStopNow(data: AppData, vehicle: Vehicle | null): Stop | null {
-  if (!vehicle || !canReadTrips(vehicle)) return null
-  const stops = cachedStops(data, vehicle)
-  return stops ? openStopIn(data, vehicle, stops) : null
-}
-
-export function dismissStop(data: AppData, stop: Stop): AppData {
-  const list = [stop.end_ts, ...data.ledger.settings.dismissed_stops.filter(t => t !== stop.end_ts)].slice(0, 20)
-  return updateSettings(data, { dismissed_stops: list })
+  return openRefuelStop(stops, fuelRecords(data, vehicle), Date.now())
 }
 
 async function fetchStops(data: AppData, vehicle: Vehicle, range: { from: number; to: number }): Promise<Stop[]> {
   if (!vehicle.provider) throw new Error("这辆车没有关联车辆数据")
-  const p = providerById(vehicle.provider.id)
-  const cred = providerCredential(vehicle.provider.id)
-  if (!p || !cred) throw new Error(`未连接${p ? p.name : "车辆数据"}，请在设置中连接`)
-  const trips = await p.fetchTrips(providerCtx(vehicle.provider.id), cred, vehicle.provider.vehicle_id, range)
+  const s = sourceOf(data, vehicle)
+  if (!s) throw new Error("这辆车关联的数据源还没添加，请在设置 › 数据源中添加")
+  const trips = await s.trips(vehicle.provider.vehicle_id, range)
   return findStops(trips, { stations: stationsFor(data, vehicle), fuel: fuelRecords(data, vehicle), nearby: nearbyStations, now: range.to })
 }
 
@@ -144,15 +121,16 @@ export const statusSource = createStatusSource({
   now: () => Date.now(),
 })
 
-/** 这辆车关联的车辆数据能读车况（不看凭据） */
-export function hasStatusSource(vehicle: Vehicle | null): boolean {
-  const p = vehicle && vehicle.provider ? providerById(vehicle.provider.id) : null
-  return !!(p && p.vehicleStatus)
+/** 这辆车关联的数据源提供车况，并且已经添加（不看能不能读） */
+export function hasStatusSource(data: AppData, vehicle: Vehicle | null): boolean {
+  const s = sourceOf(data, vehicle)
+  return !!(s && s.capabilities.includes("vehicle_status"))
 }
 
-/** 能读车况：能读车况的车辆数据，并且凭据还在 */
-export function canReadStatus(vehicle: Vehicle | null): boolean {
-  return hasStatusSource(vehicle) && canReadTrips(vehicle)
+/** 能读车况：数据源提供车况，并且能读（内置的凭据还在，插件不是「未连接」） */
+export function canReadStatus(data: AppData, vehicle: Vehicle | null): boolean {
+  const s = sourceOf(data, vehicle)
+  return !!(s && s.capabilities.includes("vehicle_status") && s.readable())
 }
 
 /** 油箱容量（升）：车型参数里的 tank，只读缓存的车型参数 */
@@ -169,19 +147,16 @@ export function vehicleTank(_data: AppData, vehicle: Vehicle): number | null {
 }
 
 /** 上次读到的车况（可能已过期），不发请求 */
-export function cachedStatus(vehicle: Vehicle | null): StatusSnapshot | null {
-  return vehicle && hasStatusSource(vehicle) ? statusSource.peek(stopsKey(vehicle)) : null
+export function cachedStatus(data: AppData, vehicle: Vehicle | null): StatusSnapshot | null {
+  return vehicle && hasStatusSource(data, vehicle) ? statusSource.peek(stopsKey(vehicle)) : null
 }
 
 /** 读车况（10 分钟内用缓存；force 时重新读）。第一次用到油箱容量时顺便查车型参数 */
 export async function readVehicleStatus(data: AppData, vehicle: Vehicle | null, force = false): Promise<StatusSnapshot | null> {
-  if (!vehicle || !vehicle.provider || !canReadStatus(vehicle)) return null
-  const link = vehicle.provider
-  const snap = await statusSource.get(stopsKey(vehicle), async () => {
-    const st = await providerVehicleStatus(link.id, link.vehicle_id)
-    if (!st) throw new Error("这个车辆数据提供方不支持车况")
-    return st
-  }, { force })
+  const s = sourceOf(data, vehicle)
+  if (!vehicle || !vehicle.provider || !s || !canReadStatus(data, vehicle)) return null
+  const remoteId = vehicle.provider.vehicle_id
+  const snap = await statusSource.get(stopsKey(vehicle), () => s.vehicleStatus(remoteId), { force })
   const model = vehicle.profile?.model
   if (model && model > 0 && vehicleTank(data, vehicle) == null) {
     try { await catalogSpec(model) } catch { /* 没有油箱容量时只显示升数 */ }

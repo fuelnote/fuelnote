@@ -8,7 +8,7 @@ import { PluginCapability, PluginRef } from "../common/types"
 import { callPlugin } from "../platform/plugin_bridge"
 import { isMainDataRoot, readCache, writeCache } from "../platform/storage"
 import { PROVIDERS } from "../providers/registry"
-import { VehicleDataProvider } from "../providers/types"
+import { RemoteVehicle, Trip, VehicleDataProvider, VehicleStatus } from "../providers/types"
 import { updateSettings } from "./store"
 
 /** 示例插件的脚本名（tools/plugin_example）：Check 的数据文件夹里只调它 */
@@ -65,9 +65,9 @@ export function pluginsWith(data: AppData, cap: PluginCapability): PluginRef[] {
   return pluginsOf(data).filter(p => p.capabilities.includes(cap))
 }
 
-/** 内置数据源提供的数据：行程都有，车况、养修看提供方实现了没有 */
+/** 内置数据源提供的数据：车辆、行程都有，车况、养修看提供方实现了没有 */
 export function providerCapabilities(p: VehicleDataProvider): PluginCapability[] {
-  const caps: PluginCapability[] = ["trips"]
+  const caps: PluginCapability[] = ["vehicles", "trips"]
   if (p.vehicleStatus) caps.push("vehicle_status")
   if (p.serviceVisits) caps.push("service")
   return caps
@@ -96,3 +96,11 @@ export const pluginState = (id: string): PluginState | null => source.lastState(
 export function pluginFuel(ref: PluginRef, range: { from: number; to: number }, force = false): Promise<PluginResult<FuelTxn[]>> {
   return source.fuel(ref, range, { force })
 }
+
+export const pluginVehicles = (ref: PluginRef): Promise<PluginResult<RemoteVehicle[]>> => source.vehicles(ref)
+
+export function pluginTrips(ref: PluginRef, vehicle: string, range: { from: number; to: number }): Promise<PluginResult<Trip[]>> {
+  return source.trips(ref, vehicle, range)
+}
+
+export const pluginVehicleStatus = (ref: PluginRef, vehicle: string): Promise<PluginResult<VehicleStatus>> => source.vehicleStatus(ref, vehicle)

@@ -111,7 +111,7 @@ test("图表横轴：只有刻度写月份或年份，其他点看不见；每�
   assert.equal(new Set(YEAR_MONTHS).size, 12)
 })
 
-test("加油停车提示：只提示最近 2 天、未记录、未忽略的加油停车", async () => {
+test("记加油「自动填写」的加油停车：只给最近 2 天、未记录的", async () => {
   const { openRefuelStop } = await import("../common/stops")
   const now = Date.UTC(2026, 9, 18, 2, 0)
   const stop = (end_ts: number, refuel = true) => ({
@@ -121,13 +121,11 @@ test("加油停车提示：只提示最近 2 天、未记录、未忽略的加�
   const recent = stop(now - 3600e3)
   const old = stop(now - 3 * 86400e3)
   const notRefuel = stop(now - 1800e3, false)
-  assert.equal(openRefuelStop([old, recent, notRefuel], [], [], now)?.end_ts, recent.end_ts)
-  // 停车后加了记录：不再提示
-  assert.equal(openRefuelStop([recent], [fuel("r", { ts: recent.end_ts + 10 * 60e3 })], [], now), null)
-  // 点了忽略
-  assert.equal(openRefuelStop([recent], [], [recent.end_ts], now), null)
+  assert.equal(openRefuelStop([old, recent, notRefuel], [], now)?.end_ts, recent.end_ts)
+  // 停车后加了记录：不再给
+  assert.equal(openRefuelStop([recent], [fuel("r", { ts: recent.end_ts + 10 * 60e3 })], now), null)
   // 太久以前
-  assert.equal(openRefuelStop([old], [], [], now), null)
+  assert.equal(openRefuelStop([old], [], now), null)
 })
 
 test("小熊签名 key：常量与 md5(盐) 一致", async () => {

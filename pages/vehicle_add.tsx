@@ -4,8 +4,8 @@ import {
   Button, DatePicker, HStack, List, Navigation, NavigationStack, Picker, ProgressView, Section, Spacer, Text, TextField, useEffect, useState,
 } from "scripting"
 import {
-  AppData, CarSpec, errorText, fmtDate, gradeOf, GRADES, gradeText, NewVehicle, profileFromSpec, ProviderId, PROVIDERS, providerCredential,
-  providerVehicles, RemoteVehicle,
+  AppData, CarSpec, dataSourceById, errorText, fmtDate, gradeOf, GRADES, gradeText, NewVehicle, profileFromSpec, ProviderId, RemoteVehicle, sourceVehicles,
+  vehicleSources,
 } from "../common/model"
 import { FieldRow } from "./components"
 import { ModelPicker } from "./model_picker"
@@ -18,16 +18,16 @@ function Info({ title, value }: { title: string; value: string }) {
   </HStack>
 }
 
-/** 车辆数据：每个已连接的提供方一项，可以选一辆远端车辆或不关联 */
-function ProviderChoice({ data, providerId, value, onChanged }: {
+/** 车辆数据：每个能关联到车、能读的数据源一项（内置的和插件），可以选一辆远端车辆或不关联 */
+export function ProviderChoice({ data, providerId, value, onChanged }: {
   data: AppData; providerId: ProviderId; value: string; onChanged: (rv: RemoteVehicle | null) => void
 }) {
-  const provider = PROVIDERS.find(p => p.id === providerId)!
+  const provider = dataSourceById(data, providerId)!
   const [list, setList] = useState<RemoteVehicle[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   useEffect(() => {
     let alive = true
-    providerVehicles(provider.id).then(v => { if (alive) setList(v) }, e => { if (alive) setError(errorText(e)) })
+    sourceVehicles(data, provider.id).then(v => { if (alive) setList(v) }, e => { if (alive) setError(errorText(e)) })
     return () => { alive = false }
   }, [])
   if (error) return <Info title={provider.name} value={`读取失败：${error}`} />
@@ -50,7 +50,7 @@ export function VehicleAdd({ data }: { data: AppData }) {
   const [gradeTouched, setGradeTouched] = useState(false)
   const [buyTs, setBuyTs] = useState(Date.now())
   // 一辆车只能关联一辆远端车辆
-  const connected = PROVIDERS.filter(p => providerCredential(p.id))
+  const connected = vehicleSources(data).filter(s => s.readable())
   const [link, setLink] = useState<{ providerId: ProviderId; rv: RemoteVehicle } | null>(null)
 
   async function chooseModel() {

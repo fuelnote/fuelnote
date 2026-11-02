@@ -32,7 +32,7 @@ export function openStoreInMaps(store: Store): void {
 
 /** 记费用那时车停的地方（车辆数据的行程）；读不到行程、那时车不在停着时为 null */
 export async function parkedPlace(data: AppData, vehicle: Vehicle, ts: number): Promise<Place | null> {
-  if (!canReadTrips(vehicle)) return null
+  if (!canReadTrips(data, vehicle)) return null
   const { stops } = await stopsForPayment(data, vehicle, ts)
   return parkedAt(stops, ts)?.place ?? null
 }

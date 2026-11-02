@@ -20,6 +20,8 @@ export function normalizeLedger(raw: Record<string, unknown>): LedgerFile {
   l.expense_categories = cats.length ? cats : DEFAULT_EXPENSE_CATEGORIES.map(c => ({ ...c }))
   const settings = { ...defaultSettings(), ...((l.settings as Partial<Settings>) || {}) } as Settings & Record<string, unknown>
   settings.plugins = arr(settings.plugins)
+  // 2.3 去掉了记录页的加油停车提示（插件化设计 D2），点过「×」的记录不再用
+  delete settings.dismissed_stops
   l.settings = settings
   return l as unknown as LedgerFile
 }

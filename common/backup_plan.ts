@@ -150,7 +150,7 @@ export const emptyAutoBackupState = (): AutoBackupState =>
 
 /** 数据的指纹：不算当前车辆、点过「×」的提醒这类界面状态（它们变了不用再备份一份） */
 export function ledgerHash(ledger: LedgerFile): string {
-  const { current_vehicle_id: _c, dismissed_stops: _s, dismissed_renewals: _r, ...settings } = ledger.settings
+  const { current_vehicle_id: _c, dismissed_renewals: _r, ...settings } = ledger.settings
   return md5(JSON.stringify({ ...ledger, settings }))
 }
 

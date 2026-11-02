@@ -63,7 +63,7 @@ test("恢复前的副本留最近 5 份；恢复列表分组、从新到旧", ()
 
 test("数据的指纹：换当前车辆、点「×」不算变化；记录、别的设置变了算", () => {
   const a = emptyLedger()
-  const b = { ...a, settings: { ...a.settings, current_vehicle_id: "v2", dismissed_stops: [1], dismissed_renewals: ["y1"] } }
+  const b = { ...a, settings: { ...a.settings, current_vehicle_id: "v2", dismissed_renewals: ["y1"] } }
   assert.equal(ledgerHash(b), ledgerHash(a))
   const c = { ...a, stations: [{ id: "s1", name: "示例站", address: "", province: "", city: "", district: "", lng: 121, lat: 31, last_used_ts: 0 }] }
   assert.notEqual(ledgerHash(c), ledgerHash(a))

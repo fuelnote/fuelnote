@@ -1,7 +1,7 @@
 // 设置 › 车辆数据（按提供方的定义生成，不认识具体品牌）
 import { Button, HStack, List, Menu, ProgressView, Section, Spacer, Text, TextField, VStack, useEffect, useState } from "scripting"
 import {
-  AppData, connectProvider, disconnectProvider, fmtDateTime, providerCredential, providerVehicles, providerVehicleStatus, RemoteVehicle,
+  AppData, connectProvider, disconnectProvider, fmtDateTime, providerCredential, providerVehicleStatus, RemoteVehicle, sourceVehicles,
   updateVehicle,
   VehicleDataProvider, VehicleStatus,
 } from "../common/model"
@@ -17,7 +17,7 @@ export function ProviderSettings({ data, app, provider }: { data: AppData; app: 
   useEffect(() => {
     if (!connected) return
     setBusy(true)
-    providerVehicles(provider.id).then(setRemote, e => setError(errorMessage(e))).finally(() => setBusy(false))
+    sourceVehicles(app.getData(), provider.id).then(setRemote, e => setError(errorMessage(e))).finally(() => setBusy(false))
   }, [connected])
 
   async function connect() {

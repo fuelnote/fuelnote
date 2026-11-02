@@ -2,7 +2,7 @@
 // - 选一张付款截图或拍一张小票：识别金额、油品和时间，再按付款时间匹配加油停车，填好里程和油站；
 // - 从数据源选一笔或几笔加油交易（插件化设计第 3 节，画稿 DsForm、DsFilled）：和截图识别走同一条路，油站按 3.2 节的五步定，
 //   停车离付款油站远时提醒核对里程（3.3 节）；从快捷指令进入时不显示（D10）；
-// - 不选图片时：从加油停车提示的「记一笔」进入直接用这次停车；其他入口只给建议，点「填入」才填。
+// - 不选图片时：只给最近 2 天没记的加油停车作建议，点「填入」才填（2.3 起记录页没有加油停车提示，插件化设计 D2）。
 // 有付款时间（截图或交易）时，「更换」停车不改时间（D9）。自动填的字段在字段名后面标出来源；手动改过的字段不再被自动覆盖。
 import {
   Button, DatePicker, Form, HStack, Image, Navigation, NavigationStack, Picker, ProgressView, ScrollView, Section, Spacer, Text, TextField,
@@ -27,8 +27,6 @@ export type FuelFormProps = {
   vehicle: Vehicle
   /** 编辑时的原记录 */
   record: (FuelData & { id: string }) | null
-  /** 从加油停车提示的「记一笔」进入时，直接用这次停车填入里程、时间和油站 */
-  initialStop?: Stop | null
   /** 快捷指令、分享传入的图片：打开后直接识别（设计文档第 19 节） */
   initialImage?: UIImage | null
   /** 已经选好的数据源交易：打开后直接填入（FuelNote Check 截图用） */
@@ -109,14 +107,13 @@ function docTitle(f: ReceiptFill, r: ReceiptResult): string {
   return r.doc_type === "pump_display" ? "加油机照片" : "小票"
 }
 
-export function FuelForm({ data, vehicle, record, initialStop, initialImage, initialPick, onSave }: FuelFormProps) {
+export function FuelForm({ data, vehicle, record, initialImage, initialPick, onSave }: FuelFormProps) {
   const dismiss = Navigation.useDismiss()
   const others = useMemo(() => fuelRecords(data, vehicle).filter(r => !record || r.id !== record.id), [data, vehicle, record])
-  const [tripsOn] = useState(() => canReadTrips(vehicle))
-  const fromStop = !record && initialStop ? initialStop : null
+  const [tripsOn] = useState(() => canReadTrips(data, vehicle))
 
-  const [ts, setTs] = useState(record?.ts ?? fromStop?.end_ts ?? Date.now())
-  const [odometer, setOdometer] = useState(record ? String(record.odometer) : fromStop ? String(Math.floor(fromStop.odometer_km)) : "")
+  const [ts, setTs] = useState(record?.ts ?? Date.now())
+  const [odometer, setOdometer] = useState(record ? String(record.odometer) : "")
   const [price, setPrice] = useState(text(record?.price))
   const [liters, setLiters] = useState(text(record?.liters))
   const [amount, setAmount] = useState(text(record?.amount))
@@ -128,19 +125,18 @@ export function FuelForm({ data, vehicle, record, initialStop, initialImage, ini
   const [lightOn, setLightOn] = useState(record?.light_on ?? false)
   const [missed, setMissed] = useState(record?.missed_before ?? false)
   const [station, setStation] = useState<{ station: Station; isNew: boolean } | null>(() => {
-    if (fromStop?.candidate) return { station: fromStop.candidate.station, isNew: fromStop.candidate.kind === "new" }
     if (!record?.station_id) return null
     const s = stationsFor(data, vehicle).find(x => x.id === record.station_id)
     return s ? { station: s, isNew: false } : null
   })
   const [remark, setRemark] = useState(record?.remark ?? "")
-  const [stopPoint, setStopPoint] = useState<[number, number] | null>(fromStop?.place ? [fromStop.place.lng, fromStop.place.lat] : null)
+  const [stopPoint, setStopPoint] = useState<[number, number] | null>(null)
 
   // 行程：已填入的停车、读到的停车（先用缓存，再用最新的）、读取失败的原因
-  const [applied, setApplied] = useState<Stop | null>(fromStop)
+  const [applied, setApplied] = useState<Stop | null>(null)
   const [stops, setStops] = useState<Stop[] | null>(() => (!record && tripsOn ? cachedStops(data, vehicle) : null))
   const [tripError, setTripError] = useState<string | null>(null)
-  const [sources, setSources] = useState<Sources>(() => (fromStop ? { ts: "trip", odometer: "trip", ...(fromStop.candidate ? { station: "trip" as const } : {}) } : {}))
+  const [sources, setSources] = useState<Sources>({})
 
   // 图片：最近的照片、能不能粘贴、选中的图片、识别状态和结果
   const [recent, setRecent] = useState<Photo[] | null>(null)
@@ -164,7 +160,7 @@ export function FuelForm({ data, vehicle, record, initialStop, initialImage, ini
   /** 手动改过的字段：之后的自动填写不覆盖 */
   const touched = useRef(new Set<Field>())
   /** 程序填入的值：输入框回调同样的值时不算手动修改 */
-  const filled = useRef<Partial<Record<Field, string | number>>>(fromStop ? { ts: fromStop.end_ts, odometer: String(Math.floor(fromStop.odometer_km)) } : {})
+  const filled = useRef<Partial<Record<Field, string | number>>>({})
   /** 识别的序号：换了图片后，旧的识别结果不再使用 */
   const run = useRef(0)
 
