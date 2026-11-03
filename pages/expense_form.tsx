@@ -339,7 +339,7 @@ export function ExpenseForm({ getData, vehicle, record, maintenance, odometer: d
           <TextField title="里程" value={odometer} onChanged={setOdometer} prompt="0" keyboardType="numberPad" multilineTextAlignment="trailing" />
         </FieldRow>
         <NavigationLink destination={<MaintenanceItems items={items} used={used} onChange={setItems}
-          {...(draft ? { sources: Object.fromEntries(draft.main.items.map(i => [i.name, i.from])), notes, onNote: noteToItem } : {})} />}>
+          {...(draft ? { sources: Object.fromEntries(draft.main.items.map(i => [i.name, i.from])), sourceName, notes, onNote: noteToItem } : {})} />}>
           <HStack>
             <Text>项目</Text>
             <Spacer />

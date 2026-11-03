@@ -80,7 +80,7 @@ const SANDBOX = "FuelNoteCheck"
 setDataRoot(SANDBOX)
 
 /** 改了这个值，手机重新运行后报到的 STAMP 跟着变（确认跑的是新代码） */
-export const STAMP = "54"
+export const STAMP = "55"
 const PORT = 3200
 const DAY = 86400e3
 const BJ_OFFSET = 8 * 3600e3
@@ -976,7 +976,7 @@ function serviceScreen(screen: string, data: AppData): VirtualNode | null {
   if (screen === "service-items" && v0403) {
     const d = serviceForm(data, v, source, v0403)
     return <NavigationStack><MaintenanceItems items={d.main.items.map(i => i.name)} used={usedItems(data.ledger.records, v.id)} onChange={noop}
-      sources={Object.fromEntries(d.main.items.map(i => [i.name, i.from]))} notes={d.main.notes} onNote={noop} /></NavigationStack>
+      sources={Object.fromEntries(d.main.items.map(i => [i.name, i.from]))} sourceName="沃尔沃" notes={d.main.notes} onNote={noop} /></NavigationStack>
   }
   const store = data.ledger.stores[0]
   if (screen === "service-store" && store) return <NavigationStack><StoreDetail getData={() => data} storeId={store.id} stores={stores} close={noop} /></NavigationStack>

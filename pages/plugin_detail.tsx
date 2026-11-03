@@ -13,7 +13,7 @@ function hint(cap: PluginCapability, name: string): string {
   if (cap === "vehicles") return "在车辆的「车辆数据」里关联到车"
   if (cap === "trips") return "记加油时按时间配停车、填里程"
   if (cap === "vehicle_status") return "记录页「当前」的油量和里程"
-  return "费用页的养修记录"
+  return `记费用时从${name}选一次进店，要记的几笔一起填好`
 }
 
 export function PluginDetail({ app, pluginId }: { app: AppActions; pluginId: string }) {
