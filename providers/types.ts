@@ -1,6 +1,6 @@
-// 车辆数据提供方接口。界面和停车识别只通过这个接口使用各品牌，不认识具体品牌。
-import { ProviderId, Settlement } from "../common/types"
-import { Http } from "../platform/http"
+// 数据源插件交给油记的车辆数据（docs/plugins.md 第 6、7 节）：车辆、行程、车况、养修。坐标 WGS-84，时间毫秒，里程公里。
+// 界面和停车识别只认这些类型，不认识具体品牌。
+import { Settlement } from "../common/types"
 
 export type Place = {
   /** WGS-84 */
@@ -23,7 +23,7 @@ export type Trip = {
   end: Place | null
 }
 
-/** 车况（设计文档 18.1 节）：车上报的最后状态，通常是停车熄火时 */
+/** 车况（设计文档第 18 节）：车上报的最后状态，通常是停车熄火时 */
 export type VehicleStatus = {
   /** 车况时间（毫秒） */
   ts: number | null
@@ -37,31 +37,8 @@ export type VehicleStatus = {
   odometer_km: number | null
 }
 
-export type CredentialField = {
-  key: string
-  label: string
-  placeholder?: string
-  hint?: string
-  multiline?: boolean
-}
-
+/** 数据源账号下的车辆：detail 是名称下面的一行，例如打码的车架号 */
 export type RemoteVehicle = { id: string; name: string; detail: string }
-
-/** 提供方的会话缓存（一段文本），应用层存进钥匙串，冷启动时少换一次会话 */
-export type SessionStore = { get(): string | null; set(value: string | null): void }
-
-export type ProviderContext = { http: Http; now: () => number; sessionStore?: SessionStore }
-
-export type Credential = Record<string, string>
-
-export class ProviderError extends Error {
-  kind: "auth" | "network" | "server"
-  constructor(kind: ProviderError["kind"], message: string) {
-    super(message)
-    this.name = "ProviderError"
-    this.kind = kind
-  }
-}
 
 /** 先勾哪张卡的提示（docs/plugins.md 第 7 节）：储值的找那一期车险赠送的储值卡，次数的找名字带 name 的次数卡 */
 export type PerkHint =
@@ -95,24 +72,4 @@ export type ServiceVisit = {
   dealer: { name: string | null; short: string | null; lng: number | null; lat: number | null } | null
   /** 要记的几笔，至少一笔 */
   expenses: ServiceExpense[]
-}
-
-/** 养修明细的存取（内置的数据源用）：已结算的明细存下来，以后只读列表和新结算的；不进备份 */
-export type ServiceStore = { load(): unknown; save(value: unknown): void }
-
-export type VehicleDataProvider = {
-  id: ProviderId
-  name: string
-  description: string
-  credentialFields: CredentialField[]
-  /** 整理用户粘贴的内容，例如从 BoxJS 的 JSON 里取出需要的字段；缺少必填项时抛错 */
-  normalizeCredential(input: Credential): Credential
-  /** 读取账号下的车辆，同时用来校验凭据 */
-  vehicles(ctx: ProviderContext, cred: Credential): Promise<RemoteVehicle[]>
-  /** 时间范围内的行程，按开始时间升序 */
-  trips(ctx: ProviderContext, cred: Credential, vehicleId: string, range: { from: number; to: number }): Promise<Trip[]>
-  /** 车况（剩余油量等）；不支持的提供方不实现 */
-  vehicleStatus?(ctx: ProviderContext, cred: Credential, vehicleId: string): Promise<VehicleStatus>
-  /** 养修：已结算的进店和要记的几笔费用，新的在前；不支持养修的提供方不实现 */
-  service?(ctx: ProviderContext, cred: Credential, vehicleId: string, store: ServiceStore): Promise<ServiceVisit[]>
 }

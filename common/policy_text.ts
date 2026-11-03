@@ -263,7 +263,7 @@ export function toPolicy(p: ParsedPolicy, file: string | null): Policy {
   return { ...rest, file }
 }
 
-/** 保单上的车架号与车辆数据提供方的车（沃尔沃的 VIN）不同时的提示；没有关联提供方或没读出车架号时不提示 */
+/** 保单上的车架号与关联的数据源给的车（车架号）不同时的提示；没有关联数据源或没读出车架号时不提示 */
 export function vinWarning(vin: string | null, providerVehicleId: string | null | undefined): string | null {
   if (!vin || !providerVehicleId || !/^[A-HJ-NPR-Z0-9]{17}$/i.test(providerVehicleId)) return null
   return vin.toUpperCase() === providerVehicleId.toUpperCase() ? null : "保单上的车架号与这辆车不符，请确认没有选错车或选错文件"

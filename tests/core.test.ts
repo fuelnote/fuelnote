@@ -1,7 +1,7 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
-import { createHash, createHmac } from "node:crypto"
-import { hmacSha256, md5, sha256 } from "../common/hash"
+import { createHash } from "node:crypto"
+import { md5 } from "../common/hash"
 import { bd09ToWgs84, gcj02ToBd09, gcj02ToWgs84, metres, wgs84ToGcj02 } from "../common/geo"
 import { averageConsumption, consumptionById, fuelSegments } from "../common/fuel"
 import { checkExpense, checkFuel, completeTriple, expenseDuplicateText, findExpenseDuplicate, parseNum } from "../common/form"
@@ -11,8 +11,6 @@ import { fuel } from "./helpers"
 test("哈希与 Node crypto 一致", () => {
   for (const s of ["", "abc", "小熊油耗", "x".repeat(200), "🚗 emoji"]) {
     assert.equal(md5(s), createHash("md5").update(s).digest("hex"))
-    assert.equal(sha256(s), createHash("sha256").update(s).digest("hex"))
-    assert.equal(hmacSha256("key", s), createHmac("sha256", "key").update(s).digest("hex"))
   }
   assert.equal(md5("051f51b60f2611e491910800200c9a66"), "281c678f8e7b5b88b3bfcbbdf52775c1")
 })

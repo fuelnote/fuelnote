@@ -1,4 +1,4 @@
-// 与真实数据核对（只读）。需要 XXYH_ROOT=E:\GitHub\xxyh；没有时跳过。
+// 与真实数据核对（只读）。需要 XXYH_ROOT=E:\GitHub\xxyh；没有时跳过。行程、养修读数据源插件导出的通用数据（out/plugin_data，契约的 Trip[]、ServiceVisit[]）。
 import { test } from "node:test"
 import assert from "node:assert/strict"
 import { existsSync } from "node:fs"
@@ -9,8 +9,7 @@ import { emptyLedger, FuelRecord, LedgerFile, LocalRecord } from "../common/type
 import { summarize } from "../common/fuel_stats"
 import { expenseEntries, expenseSummary, expenseYears, MAINTENANCE_CATEGORY, withoutCarInsurance } from "../common/expense_stats"
 import { amountOnlyExpenses, INSURANCE_CATEGORY } from "../common/insurance"
-import { mapVolvoTrip, volvoCn } from "../providers/volvo_cn"
-import { Trip } from "../providers/types"
+import { ServiceVisit, Trip } from "../providers/types"
 import { ledgerProblems, normalizeLedger } from "../common/ledger_file"
 import { buildExport, canon, changeCount } from "../sync/xxyh/export"
 import { importCars, recordsFromCar } from "../sync/xxyh/import"
@@ -20,9 +19,9 @@ import { latestBackupFile, readJson, XXYH_ROOT } from "./helpers"
 import { perkBook } from "../common/perks"
 import { serviceDraft } from "../common/service"
 import { BJ_OFFSET } from "../common/format"
-import { parseVisit, parseVisitList, serviceVisitsOf, ticketTitle, VolvoVisit } from "../providers/volvo_service"
 
 const file = latestBackupFile()
+const pluginData = (name: string) => (XXYH_ROOT ? join(XXYH_ROOT, "out/plugin_data", name) : "")
 const skip = file ? false : "需要 XXYH_ROOT 和 out/xxyh_backup_v*.json"
 
 function load(): { doc: XxyhBackup; car: string; recs: LocalRecord[]; fuel: FuelRecord[] } {
@@ -99,10 +98,10 @@ test("真实备份：导入全部的车，记录条数与小熊里的一致（�
   assert.equal(new Set(r.ledger.records.map(x => x.id)).size, want, "id 不重复")
 })
 
-test("真实行程：加油停车回放（只用我的油站）", { skip: skip || (existsSync(join(XXYH_ROOT, "out/volvo_trips_archive.json")) ? false : "缺少行程存档") }, async () => {
+test("真实行程（插件导出的 trips.json）：加油停车回放（只用我的油站）", { skip: skip || (existsSync(pluginData("trips.json")) ? false : "缺少 out/plugin_data/trips.json（沃尔沃插件的 tools/export.ts）") }, async () => {
   const { doc, fuel } = load()
   const stations = (doc.myStations?.stations || []).map(stationFromXxyh)
-  const trips: Trip[] = (readJson(join(XXYH_ROOT, "out/volvo_trips_archive.json")) as any[]).map(mapVolvoTrip).filter((t): t is Trip => !!t).sort((a, b) => a.start_ts - b.start_ts)
+  const trips = readJson(pluginData("trips.json")) as Trip[]
   const recs = fuel.filter(r => r.ts >= trips[0].start_ts).sort((a, b) => a.ts - b.ts)
   let okA = 0
   let okB = 0
@@ -148,24 +147,11 @@ test("真实数据：7 笔导入的保养改过以后（费用备注换成保养
   assert.equal(JSON.stringify(plan.doc), JSON.stringify(expected))
 })
 
-const probe = XXYH_ROOT ? join(XXYH_ROOT, "out/volvo_probe") : ""
-test("真实养修（out/volvo_probe）：内置沃尔沃按契约给的 10 次已结算的进店；每一笔的结算明细加起来是自付；2026/4/3 的项目、说明、先勾好的卡和 2.2 相同；另记一笔的标题（插件化设计 D19）", {
-  skip: probe && existsSync(join(probe, "list.json")) && converted && existsSync(converted) ? false : "需要 XXYH_ROOT/out/volvo_probe 和 out/fuelnote/backup-v2.json",
+test("真实养修（插件导出的 service.json）：2026/4/3 那次填进表单：项目、说明、实付、到店里程、标题空着（换了机油），先勾好车险送的基础保养和维修保养券（插件化设计 3.4 节）", {
+  skip: existsSync(pluginData("service.json")) && converted && existsSync(converted) ? false : "需要 out/plugin_data/service.json（沃尔沃插件的 tools/export.ts）和 out/fuelnote/backup-v2.json",
 }, () => {
-  const heads = parseVisitList(readJson(join(probe, "list.json")))
-  const raw: VolvoVisit[] = heads.filter(h => !h.cancelled && existsSync(join(probe, `${h.order_id}.json`))).map(h => {
-    const o = readJson(join(probe, `${h.order_id}.json`))
-    return parseVisit(h, o.info?.data, o.tickets?.data?.list, o.balance?.data?.list)
-  })
-  for (const v of raw) for (const t of v.tickets) assert.ok(Math.abs(t.total - t.labour_discount - t.discounts.reduce((s, d) => s + d.amount, 0) - t.prefs.reduce((s, p) => s + p.amount, 0) - t.rounding - t.own) < 0.005)
-  const visits = serviceVisitsOf(raw)
+  const visits = readJson(pluginData("service.json")) as ServiceVisit[]
   assert.equal(visits.length, 10)
-  for (const v of visits) {
-    assert.ok(v.expenses.length >= 1 && v.expenses.slice(1).every(e => !e.maintenance))
-    for (const e of v.expenses) assert.ok(Math.abs(e.settlement.lines.reduce((s, l) => s + l.amount, 0) - e.own) < 0.005, `${v.title} ${e.title}`)
-  }
-  // 每一笔：保养工单合成一笔，其余每张工单一笔
-  assert.equal(visits.reduce((n, v) => n + v.expenses.length, 0), raw.filter(v => v.tickets.length).reduce((n, v) => n + Math.max(1, v.tickets.length - Math.max(0, v.tickets.filter(t => t.type === "保养").length - 1)), 0))
   const backup = readJson(converted!)
   const ledger = normalizeLedger(backup.ledger)
   const vehicle = ledger.vehicles[0]
@@ -173,15 +159,5 @@ test("真实养修（out/volvo_probe）：内置沃尔沃按契约给的 10 次�
   const v0403 = visits.find(v => day(v) === "2026-04-03")!
   const d = serviceDraft(ledger.stores, perkBook(ledger), vehicle.id, { id: "volvo_cn", name: "沃尔沃" }, v0403)
   assert.deepEqual([d.main.items.map(i => i.name), d.main.notes, d.main.amount, d.main.odometer, d.main.title], [["机油 0W20", "机油滤清器", "火花塞", "燃油滤清器"], ["检查空调不制冷"], 0, 79471, ""])
-  // 2026 车险送的基础保养（只有基础保养那张工单）和维修保养券（「续保代金券」）
   assert.deepEqual(d.main.uses.map(u => [ledger.perks.find(p => p.id === u.perk_id)!.name, u.used]), [["基础保养", 1], ["维修保养券", 1297]])
-  assert.equal(v0403.title, "保养")
-  // 2024/10/11：保养一笔、两张补漆各一笔，标题和 2.2 费用页的一样（按工单的部位写）
-  const r1011 = raw.find(v => day(v) === "2024-10-11")!
-  const v1011 = visits.find(v => day(v) === "2024-10-11")!
-  assert.deepEqual(v1011.expenses.slice(1).map(e => e.title), r1011.tickets.filter(t => t.type !== "保养").map(ticketTitle))
-  assert.ok(v1011.expenses.slice(1).every(e => e.title.startsWith("补漆")))
-  // 别名从全部养修记录收集：「更换乘客室空气滤清器」记成「空调滤芯」
-  const all = new Set(visits.flatMap(v => v.expenses.flatMap(e => (e.maintenance?.items ?? []).map(i => i.name))))
-  assert.ok(all.has("空调滤芯") && !all.has("乘客室空气滤清器"))
 })

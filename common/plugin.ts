@@ -325,12 +325,11 @@ export function parseService(raw: unknown): PluginResult<ServiceVisit[]> {
  * 添加前的检查：没有提供油记用得上的数据、提供了要关联到车的数据却没有车辆、
  * id 和内置的数据源或已添加的插件重复时不加；可以加时 null
  */
-export function addProblem(info: PluginInfo, plugins: PluginRef[], builtinIds: string[]): string | null {
+export function addProblem(info: PluginInfo, plugins: PluginRef[]): string | null {
   if (!info.capabilities.some(c => c !== "vehicles")) return "这个插件没有提供油记用得上的数据"
   if (info.capabilities.some(c => VEHICLE_CAPABILITIES.includes(c)) && !info.capabilities.includes("vehicles")) {
     return "这个插件提供了行程、车况或养修，但没有提供车辆，关联不到车"
   }
-  if (builtinIds.includes(info.id)) return `插件的 id「${info.id}」和内置的数据源重复`
   const same = plugins.find(p => p.id === info.id)
   if (same) return `「${same.name}」已经添加过了`
   return null

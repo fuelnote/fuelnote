@@ -1,46 +1,14 @@
-// 车辆数据（设计文档第 8 节；插件化设计第 5 节）：内置数据源的连接；行程与加油停车（16.6 节，记加油表单、从行程选择共用一份缓存）、车况（第 18 节）。
-// 读车辆、行程、车况都经过 app/data_sources.ts，内置的数据源和插件同一条路，缓存也共用。
+// 车辆数据（设计文档第 8 节；插件化设计第 5 节）：行程与加油停车（16.6 节，记加油表单、从行程选择共用一份缓存）、车况（第 18 节）。
+// 读行程、车况都经过 app/data_sources.ts（数据源插件）。
 import { AppData, fuelRecords, stationsFor } from "../common/ledger"
 import { findStops, openRefuelStop, rankStops, refreshStops, Stop } from "../common/stops"
 import { createStopSource, paymentStopsRange, StopGetOptions, StopsSnapshot } from "../common/stop_source"
 import { createStatusSource, StatusSnapshot } from "../common/status_source"
-import { ProviderId, Vehicle } from "../common/types"
-import { providerById } from "../providers/registry"
-import { Credential, RemoteVehicle, VehicleStatus } from "../providers/types"
-import { providerCredential, providerCtx } from "../platform/provider_ctx"
-import { providerSecretKey, providerSessionKey, removeSecret, setJsonSecret } from "../platform/secrets"
+import { Vehicle } from "../common/types"
 import { readCache, readStatusCache, saveStatusSnapshot, writeCache } from "../platform/storage"
 import { cachedSpec, catalogSpec } from "./catalog"
 import { sourceOf } from "./data_sources"
 import { nearbyStations } from "./stations"
-import { commit } from "./store"
-
-// ---------- 内置数据源的连接（插件的连接在插件自己的页面里） ----------
-
-/** 校验并保存凭据，返回账号下的车辆 */
-export async function connectProvider(id: ProviderId, input: Credential): Promise<RemoteVehicle[]> {
-  const p = providerById(id)
-  if (!p) throw new Error("未知的车辆数据提供方")
-  const cred = p.normalizeCredential(input)
-  const vehicles = await p.vehicles(providerCtx(id), cred)
-  setJsonSecret(providerSecretKey(id), cred)
-  return vehicles
-}
-
-/** 内置数据源的凭据页里看一眼车况（设计文档 18.1 节）；提供方不支持时返回 null */
-export async function providerVehicleStatus(id: ProviderId, vehicleId: string): Promise<VehicleStatus | null> {
-  const p = providerById(id)
-  const cred = providerCredential(id)
-  if (!p || !cred || !p.vehicleStatus) return null
-  return p.vehicleStatus(providerCtx(id), cred, vehicleId)
-}
-
-/** 断开内置的数据源：删除凭据和会话缓存，并解除所有车辆的关联 */
-export function disconnectProvider(data: AppData, id: ProviderId): AppData {
-  removeSecret(providerSecretKey(id))
-  removeSecret(providerSessionKey(id))
-  return commit(data, { ...data.ledger, vehicles: data.ledger.vehicles.map(v => (v.provider?.id === id ? { ...v, provider: null } : v)) })
-}
 
 // ---------- 行程与加油停车（设计文档 16.6 节） ----------
 
@@ -62,7 +30,7 @@ const stopSource = createStopSource({
 /** 行程、车况缓存的键：车辆和它关联的远端车 */
 export const stopsKey = (v: Vehicle) => `${v.id}|${v.provider?.id}|${v.provider?.vehicle_id}`
 
-/** 这辆车能不能读行程：关联的数据源提供行程、已经添加，并且能读（内置的凭据还在，插件不是「未连接」） */
+/** 这辆车能不能读行程：关联的数据源提供行程、已经添加，并且能读（插件不是「未连接」） */
 export function canReadTrips(data: AppData, vehicle: Vehicle | null): boolean {
   const s = sourceOf(data, vehicle)
   return !!(s && s.capabilities.includes("trips") && s.readable())
@@ -127,7 +95,7 @@ export function hasStatusSource(data: AppData, vehicle: Vehicle | null): boolean
   return !!(s && s.capabilities.includes("vehicle_status"))
 }
 
-/** 能读车况：数据源提供车况，并且能读（内置的凭据还在，插件不是「未连接」） */
+/** 能读车况：数据源提供车况，并且能读（插件不是「未连接」） */
 export function canReadStatus(data: AppData, vehicle: Vehicle | null): boolean {
   const s = sourceOf(data, vehicle)
   return !!(s && s.capabilities.includes("vehicle_status") && s.readable())

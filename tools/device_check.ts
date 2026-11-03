@@ -15,7 +15,6 @@ import { buildExport } from "../sync/xxyh/export"
 import { recordsFromCar } from "../sync/xxyh/import"
 import { carKey } from "../sync/xxyh/mapping"
 import { XxyhBackup } from "../sync/xxyh/types"
-import { parseVisit, parseVisitList, serviceVisitsOf } from "../providers/volvo_service"
 import { latestBackupFile, readJson } from "../tests/helpers"
 import { checkMark, compareExpected, Expected } from "../tests/insurance_expected"
 
@@ -251,17 +250,11 @@ const SHOTS_SERVICE: Array<[string, number]> = [
   ["service-store", 1100],
 ]
 
-/** 养修（2.3.0-beta.2 起）：把 out/volvo_probe 按契约整理成要记的几笔费用发给手机（结算备注里的电话先去掉），在检查用的文件夹里从沃尔沃选、记下、删除，再截图 */
+/** 养修（2.3.0-beta.2 起）：把沃尔沃插件导出的进店（out/plugin_data/service.json，契约的格式，电话已去掉）发给手机，在检查用的文件夹里从沃尔沃选、记下、删除，再截图 */
 async function service(phone: string): Promise<number> {
-  const dir = join(ROOT, "out/volvo_probe")
-  if (!existsSync(join(dir, "list.json"))) throw new Error(`没有 ${dir}`)
-  const heads = parseVisitList(readJson(join(dir, "list.json")))
-  const raw = heads.filter(h => !h.cancelled && existsSync(join(dir, `${h.order_id}.json`))).map(h => {
-    const o = readJson(join(dir, `${h.order_id}.json`))
-    return parseVisit(h, o.info?.data, o.tickets?.data?.list, o.balance?.data?.list)
-  }).filter(v => v.tickets.length)
-  for (const v of raw) for (const t of v.tickets) t.remark = t.remark.replace(/\d{7,}/g, "…")
-  const visits = serviceVisitsOf(raw)
+  const file = join(ROOT, "out/plugin_data/service.json")
+  if (!existsSync(file)) throw new Error(`没有 ${file}：先在沃尔沃插件里跑 tools/export.ts`)
+  const visits = readJson(file) as Array<{ expenses: unknown[] }>
   console.log(`养修：${visits.length} 次结算过的进店，要记 ${visits.reduce((n, v) => n + v.expenses.length, 0)} 笔`)
   const r = await post<{ steps: Step[] }>(`${phone}/run/service`, { visits })
   writeFileSync(join(OUT, "service.json"), JSON.stringify(r, null, 1))
@@ -283,6 +276,18 @@ async function plugin(phone: string): Promise<number> {
   for (const s of r.steps) console.log(`  ${s.ok ? "✓" : "✗"} ${s.name}${s.detail ? `（${s.detail}）` : ""}`)
   const bad = r.steps.filter(s => !s.ok).length
   console.log(`数据源插件：${r.steps.length} 项，${bad ? `${bad} 项不对` : "全部通过"}`)
+  return bad
+}
+
+const SHOTS_BARE: Array<[string, number]> = [["bare-fuel", 1300], ["bare-settings", 1700], ["bare-expense-form", 1700]]
+
+/** 什么都不接（2.3.0-beta.3，插件化设计第 8 节）：清空检查用的文件夹（新装），不添加插件，记加油、费用和保养、保险、权益。跑完要重新跑 split */
+async function bare(phone: string): Promise<number> {
+  const r = await post<{ steps: Step[] }>(`${phone}/run/bare`, {})
+  writeFileSync(join(OUT, "bare.json"), JSON.stringify(r, null, 1))
+  for (const s of r.steps) console.log(`  ${s.ok ? "✓" : "✗"} ${s.name}${s.detail ? `（${s.detail}）` : ""}`)
+  const bad = r.steps.filter(s => !s.ok).length
+  console.log(`什么都不接：${r.steps.length} 项，${bad ? `${bad} 项不对` : "全部通过"}`)
   return bad
 }
 
@@ -328,6 +333,11 @@ async function main() {
   const run = (name: string) => !want.length || want.includes(name)
   let bad = 0
   if (run("recognize")) bad += await recognize(phone)
+  // 清空检查用的文件夹（新装）：之后的分组要重新跑 split
+  if (run("bare")) {
+    bad += await bare(phone)
+    bad += await shots(phone, SHOTS_BARE)
+  }
   if (run("ledger")) bad += await ledger(phone)
   if (run("shots")) bad += await shots(phone, SHOTS_LEDGER)
   if (run("split")) {

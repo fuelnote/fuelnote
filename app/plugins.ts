@@ -7,8 +7,7 @@ import { createPluginSource, PluginCacheFile } from "../common/plugin_source"
 import { PluginCapability, PluginRef } from "../common/types"
 import { callPlugin } from "../platform/plugin_bridge"
 import { isMainDataRoot, readCache, writeCache } from "../platform/storage"
-import { PROVIDERS } from "../providers/registry"
-import { RemoteVehicle, ServiceVisit, Trip, VehicleDataProvider, VehicleStatus } from "../providers/types"
+import { RemoteVehicle, ServiceVisit, Trip, VehicleStatus } from "../providers/types"
 import { updateSettings } from "./store"
 
 /** 示例插件的脚本名（tools/plugin_example）：Check 的数据文件夹里只调它 */
@@ -65,20 +64,12 @@ export function pluginsWith(data: AppData, cap: PluginCapability): PluginRef[] {
   return pluginsOf(data).filter(p => p.capabilities.includes(cap))
 }
 
-/** 内置数据源提供的数据：车辆、行程都有，车况、养修看提供方实现了没有 */
-export function providerCapabilities(p: VehicleDataProvider): PluginCapability[] {
-  const caps: PluginCapability[] = ["vehicles", "trips"]
-  if (p.vehicleStatus) caps.push("vehicle_status")
-  if (p.service) caps.push("service")
-  return caps
-}
-
 /** 添加：先调 describe 确认版本和提供的数据，再检查 id；不能加时抛出给用户看的原因 */
 export async function addPlugin(getData: () => AppData, script: string): Promise<AppData> {
   const r = await source.describe(script)
   if (!r.ok) throw new Error(r.error.message)
   const data = getData()
-  const problem = addProblem(r.value, pluginsOf(data), PROVIDERS.map(p => p.id))
+  const problem = addProblem(r.value, pluginsOf(data))
   if (problem) throw new Error(problem)
   return updateSettings(data, { plugins: [...pluginsOf(data), pluginRef(script, r.value)] })
 }

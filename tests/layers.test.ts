@@ -81,13 +81,15 @@ test("源码之间没有循环导入", () => {
   assert.deepEqual(cycles, [])
 })
 
-test("沃尔沃的代码只在 providers/ 里，别处经过 providers/registry.ts 用；common/ 的代码里没有沃尔沃的规则（插件化设计 D19，2.3.0-beta.2）", () => {
+/** 2.3.0-beta.3 的清理一次（删掉内置数据源留在钥匙串里的凭据），发 2.3.0 前随它删掉 */
+const CLEANUP = ["app/store.ts"]
+
+test("油记里没有品牌的代码：沃尔沃是数据源插件（插件化设计第 2 节，2.3.0-beta.3）；providers/ 只有契约的类型", () => {
   const graph = importGraph()
-  const bad = [...graph].flatMap(([f, deps]) => deps.filter(d => d.startsWith("providers/volvo_") && !f.startsWith("providers/")).map(d => `${f} → ${d}`))
-  assert.deepEqual(bad, [])
-  const mentions = readdirSync(join(ROOT, "common")).filter(n => n.endsWith(".ts")).filter(n => {
-    const code = readFileSync(join(ROOT, "common", n), "utf8").replace(/\/\*[\s\S]*?\*\//g, "").split(/\r?\n/).map(l => l.replace(/\/\/.*$/, "")).join("\n")
-    return /沃尔沃|volvo/i.test(code)
+  assert.deepEqual([...graph.keys()].filter(f => f.startsWith("providers/")), ["providers/types.ts"])
+  const mentions = [...graph.keys()].filter(f => !CLEANUP.includes(f)).filter(f => {
+    const code = readFileSync(join(ROOT, f), "utf8").replace(/\/\*[\s\S]*?\*\//g, "").split(/\r?\n/).map(l => l.replace(/\/\/.*$/, "")).join("\n")
+    return /volvo|grpc/i.test(code)
   })
   assert.deepEqual(mentions, [])
 })

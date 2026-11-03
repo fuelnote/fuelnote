@@ -1,14 +1,10 @@
-// 共用行程检测（设计文档 16.6 节）：停车缓存、按当前数据重新判断、附近油站缓存、沃尔沃会话缓存
+// 共用行程检测（设计文档 16.6 节）：停车缓存、按当前数据重新判断、附近油站缓存
 import { test } from "node:test"
 import assert from "node:assert/strict"
-import { createHash } from "node:crypto"
 import { createStopSource, paymentStopsRange, StopsSnapshot } from "../common/stop_source"
-import { SessionStore } from "../providers/types"
 import { refreshStops, Stop } from "../common/stops"
 import { Station } from "../common/types"
 import { createPoiCache, poiCacheKey, POI_TTL_MS, prunePoiCache, PoiCacheEntries } from "../stations/poi_cache"
-import { volvoCn } from "../providers/volvo_cn"
-import { HttpRequest } from "../platform/http"
 import { fuel } from "./helpers"
 
 const MIN = 60e3
@@ -138,42 +134,6 @@ test("附近油站缓存：同一网格 30 天内不重复查询；出错不缓�
 
   const pruned = prunePoiCache({ a: { at: now, pois: [] }, b: { at: now - POI_TTL_MS - 1, pois: [] }, c: { at: now - 1, pois: [] } }, now, 1)
   assert.deepEqual(Object.keys(pruned), ["a"])
-})
-
-test("沃尔沃会话：冷启动用钥匙串里的缓存；换了凭据或快过期时重新换", async () => {
-  const urls: string[] = []
-  let lastAuth = ""
-  const http = async (req: HttpRequest) => {
-    urls.push(req.url)
-    if (req.url.includes("/refreshToken")) {
-      return { status: 200, text: JSON.stringify({ code: 200, data: { accessToken: "a", jwtToken: "j", globalAccessToken: "g-new", expiresIn: 1800 } }) }
-    }
-    lastAuth = String(req.headers?.authorization)
-    return { status: 200, text: JSON.stringify({ trips: [] }) }
-  }
-  const refreshes = () => urls.filter(u => u.includes("/refreshToken")).length
-  const fp = (rt: string) => createHash("sha256").update(rt).digest("hex").slice(0, 16)
-  const cached = (rt: string, expiresAt: number) => JSON.stringify({ accessToken: "a", jwtToken: "j", globalAccessToken: "g-cached", expiresAt, fp: fp(rt) })
-  const run = (rt: string, store: SessionStore) =>
-    volvoCn.trips({ http, now: () => T0, sessionStore: store }, { refreshToken: rt }, "VIN", { from: T0 - 86400e3, to: T0 })
-
-  // 每个用例用不同的 refresh token，内存里都没有会话，相当于冷启动
-  // 1. 缓存属于同一凭据、没过期：不换会话
-  await run("rt-a", { get: () => cached("rt-a", T0 + 20 * MIN), set: () => undefined })
-  assert.equal(refreshes(), 0)
-  assert.equal(lastAuth, "Bearer g-cached")
-
-  // 2. 缓存属于别的凭据：重新换，并写入新的缓存（只存指纹，不存 refresh token）
-  let stored: string | null = cached("rt-other", T0 + 20 * MIN)
-  await run("rt-b", { get: () => stored, set: v => { stored = v } })
-  assert.equal(refreshes(), 1)
-  assert.equal(lastAuth, "Bearer g-new")
-  assert.equal(JSON.parse(stored!).fp, fp("rt-b"))
-  assert.ok(!stored!.includes("rt-b"))
-
-  // 3. 不到 2 分钟就过期：重新换
-  await run("rt-c", { get: () => cached("rt-c", T0 + 60e3), set: () => undefined })
-  assert.equal(refreshes(), 2)
 })
 
 test("更早的账单（设计文档 19.2 节）：付款时间在最近 7 天内用共用的行程；更早时单独读付款前后各 1 天", () => {

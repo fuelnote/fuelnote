@@ -1,15 +1,13 @@
 // 设置
-import { Button, Capsule, HStack, List, Navigation, NavigationLink, NavigationStack, Script, Section, Spacer, Text, Toggle, useState, VStack } from "scripting"
+import { Button, Capsule, HStack, Image, List, Navigation, NavigationLink, NavigationStack, Script, Section, Spacer, Text, Toggle, useState, VStack } from "scripting"
 import {
-  AppData, capabilityLine, currentVehicle, OCR_ENGINE_TITLES, pluginsOf, pluginState, pluginStateText, pluginStatus, providerCapabilities, PROVIDERS,
-  providerCredential, updateSettings, Vehicle,
+  AppData, capabilityLine, currentVehicle, missingSources, OCR_ENGINE_TITLES, pluginsOf, pluginState, pluginStateText, pluginStatus, updateSettings, Vehicle,
 } from "../common/model"
 import { CaptureSettings } from "./capture_settings"
 import { BackupRowLabel, BackupSettings } from "./backup_settings"
 import { AppActions } from "./components"
 import { PluginAdd } from "./plugin_add"
 import { PluginDetail } from "./plugin_detail"
-import { ProviderSettings } from "./provider_settings"
 import { RecognizeSettings } from "./recognize_settings"
 import { VehicleEdit } from "./vehicle_edit"
 import { xxyhRowDetail, XxyhSettings } from "./xxyh_settings"
@@ -22,7 +20,7 @@ function Detail({ title, detail }: { title: string; detail: string }) {
   </HStack>
 }
 
-/** 数据源一行（画稿 DsSettings）：名称，下面写内置或插件、提供的数据；右边是连接状态 */
+/** 数据源一行（画稿 DsSettings）：名称，下面写「插件」和提供的数据；右边是连接状态 */
 function SourceRow({ title, detail, state, warn }: { title: string; detail: string; state: string; warn: boolean }) {
   return <HStack foregroundStyle="label">
     <VStack alignment="leading" spacing={3}>
@@ -32,6 +30,21 @@ function SourceRow({ title, detail, state, warn }: { title: string; detail: stri
     <Spacer />
     <Text foregroundStyle={warn ? "systemOrange" : "secondaryLabel"}>{state}</Text>
   </HStack>
+}
+
+/** 车关联的数据源还没添加（插件化设计第 5 节，D24，画稿 VoMissingA）：轻点打开添加插件 */
+function MissingSourceRow({ vehicle, onAdd }: { vehicle: Vehicle; onAdd: () => void }) {
+  return <Button action={onAdd}>
+    <HStack spacing={12} foregroundStyle="label">
+      <Image systemName="exclamationmark.triangle.fill" foregroundStyle="systemOrange" />
+      <VStack alignment="leading" spacing={3}>
+        <Text>{`${vehicle.name}关联的数据源还没添加`}</Text>
+        <Text font="caption" foregroundStyle="secondaryLabel">添加以后，记录页显示当前油量，记加油配停车，记费用可以从养修选。</Text>
+      </VStack>
+      <Spacer />
+      <Image systemName="chevron.right" font="footnote" foregroundStyle="tertiaryLabel" />
+    </HStack>
+  </Button>
 }
 
 function VehicleRow({ data, app, vehicle, current }: { data: AppData; app: AppActions; vehicle: Vehicle; current: boolean }) {
@@ -77,9 +90,7 @@ export function SettingsPage({ data, app }: { data: AppData; app: AppActions }) 
       </Section>
 
       <Section header={<Text>数据源</Text>} footer={<Text>插件是独立的 Scripting 脚本，只提供数据；记账和核对都在油记中完成。插件的凭据保存在插件中，不在油记的备份里。</Text>}>
-        {PROVIDERS.map(p => <NavigationLink key={p.id} destination={<ProviderSettings data={data} app={app} provider={p} />}>
-          <SourceRow title={p.name} detail={`内置 · ${capabilityLine(providerCapabilities(p))}`} state={providerCredential(p.id) ? "已连接" : "未连接"} warn={false} />
-        </NavigationLink>)}
+        {missingSources(data).map(v => <MissingSourceRow key={`missing-${v.id}`} vehicle={v} onAdd={() => { void openAdd() }} />)}
         {plugins.map(p => {
           const state = pluginState(p.id)
           return <NavigationLink key={p.id} destination={<PluginDetail app={app} pluginId={p.id} />}>

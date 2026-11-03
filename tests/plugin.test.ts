@@ -87,16 +87,16 @@ test("fuel：缺字段或类型不对的项丢掉；标号认不出时 null；�
   assert.ok(!bad.ok && bad.error.kind === "invalid")
 })
 
-test("添加前：没有提供数据、提供了车辆数据却没有车辆、id 和内置的数据源或已添加的插件重复时不加", () => {
+test("添加前：没有提供数据、提供了车辆数据却没有车辆、id 和已添加的插件重复时不加；2.2 内置数据源的 id（volvo_cn）可以用", () => {
   const added: PluginRef[] = [{ script: "FuelNoteEjoy", id: "ejoy", name: "易捷", capabilities: ["fuel"] }]
   const info = (id: string, capabilities: PluginCapability[] = ["fuel"]) => ({ id, name: "示例", version: "1.0.0", capabilities })
-  assert.equal(addProblem(info("example"), added, ["volvo_cn"]), null)
-  assert.equal(addProblem(info("example", []), added, ["volvo_cn"]), "这个插件没有提供油记用得上的数据")
-  assert.equal(addProblem(info("example", ["vehicles"]), added, ["volvo_cn"]), "这个插件没有提供油记用得上的数据")
-  assert.equal(addProblem(info("example", ["trips", "vehicle_status"]), added, ["volvo_cn"]), "这个插件提供了行程、车况或养修，但没有提供车辆，关联不到车")
-  assert.equal(addProblem(info("example", ["vehicles", "trips", "vehicle_status"]), added, ["volvo_cn"]), null)
-  assert.equal(addProblem(info("volvo_cn"), added, ["volvo_cn"]), "插件的 id「volvo_cn」和内置的数据源重复")
-  assert.equal(addProblem(info("ejoy"), added, ["volvo_cn"]), "「易捷」已经添加过了")
+  assert.equal(addProblem(info("example"), added), null)
+  assert.equal(addProblem(info("example", []), added), "这个插件没有提供油记用得上的数据")
+  assert.equal(addProblem(info("example", ["vehicles"]), added), "这个插件没有提供油记用得上的数据")
+  assert.equal(addProblem(info("example", ["trips", "vehicle_status"]), added), "这个插件提供了行程、车况或养修，但没有提供车辆，关联不到车")
+  assert.equal(addProblem(info("example", ["vehicles", "trips", "vehicle_status"]), added), null)
+  assert.equal(addProblem(info("volvo_cn", ["vehicles", "trips", "vehicle_status", "service"]), added), null)
+  assert.equal(addProblem(info("ejoy"), added), "「易捷」已经添加过了")
   assert.deepEqual(pluginRef("FuelNote 示例插件", info("example")), { script: "FuelNote 示例插件", id: "example", name: "示例", capabilities: ["fuel"] })
 })
 

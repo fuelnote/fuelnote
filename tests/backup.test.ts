@@ -9,7 +9,7 @@ import {
 import { emptyLedger, LedgerFile } from "../common/types"
 import { emptyXxyhState, XxyhBackup, XxyhState } from "../sync/xxyh/types"
 
-const SECRETS = { "xxyh.token": "token-abc", "provider.volvo_cn": "{\"refresh_token\":\"rt\"}", "azure": "{\"key\":\"azure-key-0001\"}" }
+const SECRETS = { "xxyh.token": "token-abc", "azure": "{\"key\":\"azure-key-0001\"}" }
 
 test("备份密码：至少 6 位，两次一致", () => {
   assert.equal(passwordProblem("12345", "12345"), "密码至少 6 位")
@@ -19,14 +19,14 @@ test("备份密码：至少 6 位，两次一致", () => {
 
 test("凭据加密：密码对时原样解出，并拿回同一个备份密钥；密码不对或文件被改过时报「密码不正确」；文件里没有明文", async () => {
   const key = await makeBackupKey("correct horse", { iterations: 1000 })
-  const e = encryptSecrets(SECRETS, ["小熊油耗", "沃尔沃（中国）", "Azure OpenAI"], key)
+  const e = encryptSecrets(SECRETS, ["小熊油耗", "Azure OpenAI"], key)
   assert.deepEqual(await decryptSecrets(e, "correct horse"), { values: SECRETS, key })
   await assert.rejects(decryptSecrets(e, "wrong horse"), /密码不正确/)
   const tampered = { ...e, data: Buffer.from(Buffer.from(e.data, "base64").map((b, i) => (i === 0 ? b ^ 1 : b))).toString("base64") }
   await assert.rejects(decryptSecrets(tampered, "correct horse"), /密码不正确/)
   const text = JSON.stringify(e)
   for (const v of Object.values(SECRETS)) assert.ok(!text.includes(v))
-  assert.deepEqual(e.labels, ["小熊油耗", "沃尔沃（中国）", "Azure OpenAI"])
+  assert.deepEqual(e.labels, ["小熊油耗", "Azure OpenAI"])
   // 同一个密钥每次加密的 IV 不同，盐和次数相同；重新设密码换盐
   const again = encryptSecrets(SECRETS, [], key)
   assert.notEqual(again.iv, e.iv)

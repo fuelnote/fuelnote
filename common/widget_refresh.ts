@@ -12,7 +12,7 @@ export const WIDGET_LOCK_MS = 60e3
 
 export type WidgetRefreshDeps = {
   now(): number
-  /** 用油记的凭据读车况；没有凭据或提供方不支持时为 null */
+  /** 调数据源插件读车况；读不了时为 null */
   reader(link: StatusLink): (() => Promise<VehicleStatus>) | null
   loadStatus(key: string): StatusSnapshot | null
   saveStatus(snap: StatusSnapshot): void

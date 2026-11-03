@@ -1,11 +1,11 @@
 // 油记的领域类型。坐标一律 WGS-84，时间一律毫秒时间戳，里程单位公里。
 
-/** 数据源的 id：内置的沃尔沃是 volvo_cn，插件是它 describe 给的 id（插件化设计第 5 节） */
+/** 数据源的 id：插件 describe 给的 id（插件化设计第 5 节） */
 export type ProviderId = string
 
 export type ProviderLink = {
   id: ProviderId
-  /** 数据源那边的车辆标识（`vehicles` 给的 id），例如沃尔沃的 VIN */
+  /** 数据源那边的车辆标识（`vehicles` 给的 id），例如车架号 */
   vehicle_id: string
   name: string
 }

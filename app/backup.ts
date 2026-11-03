@@ -11,9 +11,8 @@ import {
 import { joinPath } from "../common/files"
 import { yearFiles, yearLabel } from "../common/insurance"
 import { AppData } from "../common/ledger"
-import { PROVIDERS } from "../providers/registry"
 import {
-  getSecret, providerSecretKey, providerSessionKey, removeSecret, SECRET_AZURE, SECRET_BACKUP_KEY, SECRET_XXYH_TOKEN, setSecret,
+  getSecret, removeSecret, SECRET_AZURE, SECRET_BACKUP_KEY, SECRET_XXYH_TOKEN, setSecret,
 } from "../platform/secrets"
 import {
   backupDirectory, isMainDataRoot, listBackupNames, policyDirectory, policyFilePath, readAutoBackupState, readLatestSnapshot, saveAutoBackupState, saveLedger,
@@ -23,11 +22,10 @@ import { nativePbkdf2 } from "../platform/kdf"
 import { errorText } from "./errors"
 import { loadData } from "./store"
 
-/** 备份里的凭据：钥匙串里的原文（JSON 凭据也是字符串）。车辆数据的会话只是缓存，备份密码本身也不放进去 */
+/** 备份里的凭据：钥匙串里的原文（JSON 凭据也是字符串）。备份密码本身不放进去；数据源插件的凭据在插件里，不在油记的备份里 */
 function secretItems(): Array<{ key: string; label: string }> {
   return [
     { key: SECRET_XXYH_TOKEN, label: "小熊油耗" },
-    ...PROVIDERS.map(p => ({ key: providerSecretKey(p.id), label: p.name })),
     { key: SECRET_AZURE, label: "Azure OpenAI" },
   ]
 }
@@ -239,7 +237,6 @@ export async function restoreBackup(picked: PickedBackup, opts: { password: stri
         setSecret(i.key, unlocked.values[i.key])
         restored.push(i.label)
       }
-      for (const p of PROVIDERS) removeSecret(providerSessionKey(p.id)) // 会话按新凭据重新换
       setSecret(SECRET_BACKUP_KEY, JSON.stringify(unlocked.key)) // 之后的备份接着用这个密码的密钥（「包含凭据」打开）
     }
     const data = loadData().data

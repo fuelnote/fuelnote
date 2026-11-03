@@ -1,7 +1,7 @@
 // 手机上的自动检查（开发用，不随油记发布）。电脑端是 tools/device_check.ts，说明见 tools/check/README.md。
 // 启动时把数据文件夹换成 FuelNoteCheck：账本、保单原件、小组件文件都在那里，不碰油记的真实数据；
 // 不读写钥匙串、不连小熊，只向电脑上的采样服务（tools/ocr_bridge.mjs）取保单文件；数据源插件只调示例插件。
-// 在 3200 端口等电脑的请求：/ping、/run/recognize、/run/ledger、/run/split、/run/benefits、/run/export、/run/service、/run/plugin、/run/map、/shot。识别扫描件要用这一页上的 WebView，所以这一页要留在屏幕上。
+// 在 3200 端口等电脑的请求：/ping、/run/recognize、/run/ledger、/run/split、/run/benefits、/run/export、/run/service、/run/plugin、/run/map、/run/bare、/shot。识别扫描件要用这一页上的 WebView，所以这一页要留在屏幕上。
 import {
   Button, fetch, List, Navigation, NavigationStack, ScreenshotMaker, ScrollView, Section, Text, TextField, VirtualNode, WebView, ZStack, useEffect, useRef,
   useState,
@@ -59,7 +59,7 @@ import { StoreDetail } from "../../pages/store_detail"
 import { ServicePick } from "../../pages/service_pick"
 import { autoTitle, categoryName, DataSource, entryTitle, expenseDuplicateText, findExpenseDuplicate, oilChangeNumbers, saveServiceVisit, serviceForm, ServiceVisit, toExpenseData, toFuelData } from "../../common/model"
 import { addPlugin, connectPlugin, EXAMPLE_PLUGIN, installedPlugins, pluginsOf, pluginState, pluginStatus, removePlugin } from "../../common/model"
-import { dataSourceById, readVehicleStatus, vehicleStops } from "../../common/model"
+import { dataSourceById, missingSources, readVehicleStatus, savePerk, serviceSourceOf, vehicleStops } from "../../common/model"
 import { pluginFuel } from "../../app/plugins"
 import { PluginAdd } from "../../pages/plugin_add"
 import { FuelPick } from "../../pages/fuel_pick"
@@ -80,7 +80,7 @@ const SANDBOX = "FuelNoteCheck"
 setDataRoot(SANDBOX)
 
 /** 改了这个值，手机重新运行后报到的 STAMP 跟着变（确认跑的是新代码） */
-export const STAMP = "56"
+export const STAMP = "57"
 const PORT = 3200
 const DAY = 86400e3
 const BJ_OFFSET = 8 * 3600e3
@@ -818,7 +818,7 @@ function benefitScreen(screen: string, data: AppData): VirtualNode | null {
   return null
 }
 
-// ---------- 养修（/run/service，2.3.0-beta.2 起）：电脑把沃尔沃的探测数据（真实数据，结算备注里的电话已去掉）按契约整理成要记的几笔费用发来，
+// ---------- 养修（/run/service，2.3.0-beta.2 起）：电脑把沃尔沃插件导出的进店（真实数据，契约的格式，结算备注里的电话已去掉）发来，
 // 在这里当作沃尔沃这个数据源；不联网、不读钥匙串 ----------
 
 type ServiceBody = { visits: ServiceVisit[] }
@@ -828,10 +828,10 @@ function readServiceVisits(): ServiceVisit[] {
   try { return JSON.parse(FileManager.readAsStringSync(serviceFile())) as ServiceVisit[] } catch { return [] }
 }
 
-/** 检查用的沃尔沃：养修是电脑发来的探测数据，别的都不读 */
+/** 检查用的沃尔沃插件（不调真实插件）：养修是电脑发来的、插件导出的数据，别的都不读 */
 function checkSource(visits: ServiceVisit[]): DataSource {
   return {
-    id: "volvo_cn", name: "沃尔沃", builtin: true, capabilities: ["vehicles", "trips", "vehicle_status", "service"],
+    id: "volvo_cn", name: "沃尔沃", script: "FuelNoteVolvo", capabilities: ["vehicles", "trips", "vehicle_status", "service"],
     readable: () => true, state: () => "connected",
     vehicles: async () => [], trips: async () => [],
     vehicleStatus: async () => { throw new Error("检查里不读车况") },
@@ -1022,7 +1022,7 @@ async function runPlugin(): Promise<{ steps: Step[] }> {
   add(steps, "读加油交易：最近 30 天 8 笔，新的在前；10 分钟内再读用缓存", fuel.ok && fuel.value.length === 8 && fuel.value[0].ts >= fuel.value[7].ts && again.ok && again.value.length === 8,
     fuel.ok ? `${fuel.value.length} 笔，第一次 ${first} ms，再读 ${second} ms` : fuel.error.message)
 
-  // 2.3.0-beta.1：车辆、行程、车况走契约（插件化设计第 5 节）。示例插件包成数据源，和内置的沃尔沃同一条路、同一份缓存
+  // 2.3.0-beta.1：车辆、行程、车况走契约（插件化设计第 5 节）。示例插件包成数据源，和别的插件同一条路、同一份缓存
   const src = dataSourceById(data, ref.id)
   let cars: string | Array<{ id: string; name: string; detail: string }> = "没有这个数据源"
   if (src) { try { cars = await src.vehicles() } catch (e) { cars = errorText(e) } }
@@ -1142,6 +1142,83 @@ async function runPluginFuel(start: AppData): Promise<Step[]> {
       byTxn ? `${byTxn.from === "map" ? "地图" : "交易"} · ${byTxn.station.name}` : "没有")
   }
   return steps
+}
+
+// ---------- 2.3.0-beta.3 什么都不接（/run/bare，插件化设计第 8 节）：新装、不添加插件、不填凭据，记加油、费用和保养、保险、权益 ----------
+
+/** 清空检查用的文件夹（新装），加一辆不选车型的车，各记一笔；数据源一处都不调。跑完要重新跑 split */
+async function runBare(): Promise<{ steps: Step[] }> {
+  const steps: Step[] = []
+  resetSandbox()
+  let data = loadData().data
+  add(steps, "新装：没有车，没有插件", !data.ledger.vehicles.length && !pluginsOf(data).length)
+  data = addVehicle(data, { name: "检查用车（不接数据源）", grade: 95, profile: null, provider: null })
+  const v = data.ledger.vehicles[data.ledger.vehicles.length - 1]
+  add(steps, "加车：不选车型，不关联数据源", !!v && !v.profile && !v.provider, v ? v.name : "没有")
+  if (!v) return { steps }
+  const now = Date.now()
+  const ago = (days: number) => now - days * DAY
+  const near = (a: number, b: number) => Math.abs(a - b) < 0.005
+
+  // 记加油：手填两次，都加满，第二次算出油耗
+  const fill = (ts: number, odometer: number, liters: number): FuelData => ({
+    ts, odometer, liters, price: 7.5, amount: liters * 7.5, paid: liters * 7.5, grade: 95, full: true, light_on: false, missed_before: false, station_id: null, remark: "",
+  })
+  data = saveFuel(data, v, null, fill(ago(10), 10000, 45), null)
+  data = saveFuel(data, v, null, fill(ago(3), 10500, 40), null)
+  const fills = fuelRecords(data, v)
+  const sum = summarize(fills, "all", now)
+  add(steps, "记加油：手填的两次都存下来，算出油耗；没有来源", fills.length === 2 && sum.latest_consumption != null && near(sum.latest_consumption, 8) && fills.every(f => !f.data_source),
+    `${fills.length} 次 · ${sum.latest_consumption ?? "—"} L/100km`)
+
+  // 记费用：停车费一笔；记保养：维修保养填了项目，另存一条保养记录
+  data = saveExpense(data, v, null, { ts: ago(2), category_id: 100000, amount: 20, remark: "停车费" })
+  data = saveExpense(data, v, null, { ts: ago(1), category_id: MAINTENANCE_CATEGORY, amount: 800, remark: "小保养" }, { uses: [], store: null },
+    { odometer: 10600, items: ["机油", "机油滤清器"], remark: "小保养" })
+  const maint = expenses(data, v).find(e => e.category_id === MAINTENANCE_CATEGORY)
+  const record = maint ? maintenanceOf(data.ledger.records, maint.id) : null
+  add(steps, "记费用和保养：停车费一笔；保养那笔另存一条保养记录（里程、项目）", expenses(data, v).length === 2 && !!record && record.odometer === 10600 && record.items.join("、") === "机油、机油滤清器",
+    record ? `${record.items.join("、")} · ${record.odometer} km` : "没有保养记录")
+
+  // 保险：手动填一份交强险（不读原件），同时记一笔保险费用
+  const year: InsuranceYear = { id: newId("i"), vehicle_id: v.id, policies: [manualPolicy(dayEndFromNow(now, -31) + 1, dayEndFromNow(now, 334), null)], discount: 0, paid_ts: ago(31), expense_id: null, remark: "" }
+  data = saveInsurance(data, v, year, "total").data
+  const years = insuranceYears(data.ledger.insurance, v.id)
+  const paid = expenses(data, v).find(e => e.category_id === INSURANCE_CATEGORY)
+  add(steps, "保险：手动填的保单存下来，同时记一笔保险费用", years.length === 1 && !!paid && near(paid.amount, 950 + 360), paid ? money(paid.amount) : "没有保险费用")
+
+  // 权益：手动加一张洗车次数卡，记一笔用了 1 次的洗车（实付 0）
+  const perk: Perk = {
+    id: newId("p"), vehicle_id: v.id, name: "洗车", kind: "count", total: 5, unit: "次", end_ts: null, source: "手动添加", insurance_id: null, origin: "other", raw: "", note: "", created_ts: ago(5),
+  }
+  data = savePerk(data, v, perk)
+  data = saveExpense(data, v, null, { ts: ago(0.5), category_id: MAINTENANCE_CATEGORY, amount: 0, remark: "洗车" }, { uses: [{ perk_id: perk.id, used: 1, deduct: 0 }], store: null })
+  const left = remaining(perkBook(data.ledger), perk)
+  add(steps, "权益：手动加的洗车卡，记一笔用了 1 次的洗车，剩 4 次", left === 4, `剩 ${left} 次`)
+
+  // 数据源一处都不调：设置里没有插件、没有「关联的数据源还没添加」；读停车、车况直接为空；记费用没有「从<名称>选」；小组件没有车况
+  let stops: number | string = 0
+  try { stops = (await vehicleStops(data, v, { force: true })).length } catch (e) { stops = errorText(e) }
+  const status = await readVehicleStatus(data, v, true)
+  saveWidgetSnapshot(data)
+  const widget = JSON.parse(FileManager.readAsStringSync(`${dataDirectory()}/widget.json`))
+  add(steps, "数据源：没有插件，没有「还没添加」的提示；读停车、车况直接是空的，记费用没有「从<名称>选」，小组件没有车况",
+    !pluginsOf(data).length && !missingSources(data).length && stops === 0 && status == null && !serviceSourceOf(data, v) && widget.status_link == null && widget.status_source === false,
+    `停车 ${stops} · 车况 ${status ? "有" : "无"} · 小组件 ${widget.status_source ? "有车况" : "没有车况"}`)
+  return { steps }
+}
+
+/** 什么都不接的截图（/run/bare 之后）：记录页、设置页（数据源只有「添加插件」）、记费用（没有「从<名称>选」） */
+function bareScreen(screen: string, data: AppData): VirtualNode | null {
+  const v = currentVehicle(data)
+  if (!v) return null
+  const app = { getData: () => data, setData: noop, addVehicle: async () => undefined }
+  if (screen === "bare-fuel") return <FuelTab data={data} subtitle={v.name} status={null} openStatus={noop} actions={fuelStub} />
+  if (screen === "bare-settings") return <SettingsPage data={data} app={app} />
+  if (screen === "bare-expense-form") {
+    return <ExpenseForm getData={() => data} vehicle={v} record={null} maintenance={null} odometer={null} initialCategory={MAINTENANCE_CATEGORY} preset={null} stores={benefitStub(data).stores} />
+  }
+  return null
 }
 
 // ---------- 2.2.0-beta.2 地图搜索（/run/map）：系统地图搜加油站和汽车服务，核对坐标换算、按距离筛、同一家门店不重复加 ----------
@@ -1272,6 +1349,7 @@ function screenElement(screen: string): VirtualNode | null {
   if (screen.startsWith("service-")) return serviceScreen(screen, data)
   if (screen.startsWith("plugin-")) return pluginScreen(screen, data)
   if (screen.startsWith("map-")) return mapScreen(screen, data)
+  if (screen.startsWith("bare-")) return bareScreen(screen, data)
   // 2.0.0-beta.4：备份与恢复、恢复列表、看一眼再恢复（最新的一份恢复前副本）、备份密码；用记账留下的「恢复前」副本
   if (screen.startsWith("backup-")) {
     const app = { getData: () => data, setData: noop, addVehicle: async () => undefined }
@@ -1390,6 +1468,7 @@ export function CheckPage() {
     server.registerAsyncHandler("/run/service", guarded("养修", async req => jsonResponse(await runService(bodyJson<ServiceBody>(req)))))
     server.registerAsyncHandler("/run/plugin", guarded("数据源插件", async () => jsonResponse(await runPlugin())))
     server.registerAsyncHandler("/run/map", guarded("地图搜索", async () => jsonResponse(await runMap())))
+    server.registerAsyncHandler("/run/bare", guarded("什么都不接", async () => jsonResponse(await runBare())))
     server.registerAsyncHandler("/shot", guarded("截图", async req =>
       pngResponse(await takeShot(query(req, "screen"), query(req, "scheme") === "dark" ? "dark" : "light", Number(query(req, "height")) || 0))))
     const error = server.start({ port: PORT, forceIPv4: true })

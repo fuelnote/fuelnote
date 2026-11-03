@@ -42,7 +42,8 @@ test("小组件只从 common/widget_runtime 导入；导入链没有循环，不
     assert.ok(!loaded.includes(heavy), `小组件不应加载 ${heavy}`)
   }
   assert.deepEqual(loaded.filter(f => f.startsWith("app/") || f === "sync/xxyh/import.ts"), [], "小组件不加载应用层和导入")
-  assert.ok(loaded.includes("providers/volvo_cn.ts"))
+  // 车况调数据源插件（2.3.0-beta.3 起），小组件里没有品牌的代码
+  assert.ok(loaded.includes("platform/plugin_bridge.ts"))
 })
 
 test("快捷指令入口 intent.tsx 与 index.tsx 一样只从 pages/app 导入（设计文档 9.4 节）", () => {

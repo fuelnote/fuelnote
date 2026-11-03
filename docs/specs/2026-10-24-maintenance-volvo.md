@@ -35,71 +35,13 @@
 
 ## 3. 养修接口（车辆数据提供方，沃尔沃先做）
 
-和行程、车况一样放在 `VehicleDataProvider` 后面：提供方可选地实现 `serviceVisits`（进店列表）和 `serviceVisit`（一次进店的明细），返回第 4 节的通用结构；页面、账本只认通用结构，标题用提供方的名称（「沃尔沃养修」）。工时到项目的对照表、优惠种类的归类都在 `providers/volvo_cn.ts` 里。只有绑定了支持养修的提供方的车辆才有这一组。
-
-沃尔沃的实现走车况已经登录的账号（`volvoGateway`，签名照 App；POST 的签名方法写 POST）。前缀 `<已移除：沃尔沃接口路径>`，都是读取：
-
-| 接口 | 取什么 |
-|---|---|
-| `queryReservationLogByQuery`（GET，`pageIndex=0`、`pageSize=100`，`data` 直接是数组） | 进店列表：`orderId`、`dealerCode`、`reservationDate`（进店时间）、`stateName` |
-| `repairing/getMaintenanceOrderDetail` | 这次进店的工单号 `cardInfo.word006.roNos` |
-| `repairing/getMaintenanceOrderInfo` | 经销商 `dealerInfo`：简称、全称、地址、电话、经纬度、营业时间 |
-| `repairing/queryRepairTicketList` | 每张委托单：`roNo`、`roCreateDate`、`repairTypeCodeName`、`inMileage`（「12345KM」） |
-| `repairing/queryRepairBalanceList`（POST） | 每张工单的结算：`repairTypeName`、`balanceTime`、`totalAmount`（原价）、`ownAmount`（自付）、`discountList`（含「工时：」开头的工时优惠）、`roPreferentialVoList`（券和活动优惠，带 `preferentialType`）、`balanceRemark`（结算备注）、`handRepairProjectList`（项目、工时 `roLabourList`、零件 `repairPartList`） |
-
-- 金额关系：原价 − 工时优惠 − 其他减免 − 券和活动优惠 − 抹零 = 自付。其他减免是 `discountList` 里不以「工时：」开头、也不在 `roPreferentialVoList` 里的（上门取车、送车上门）；抹零按差额算，不单独返回，可能是负数（向上取整）。
-- 优惠名去掉车牌和券号前缀（「<车牌>;优惠名称续保代金券」→「续保代金券」），车牌不显示、不存。
-- `stateName` 是「已取消」的进店不显示，不读明细。
-- 2024 年 10 月以前的工单没有券和活动优惠的明细，赠送只写在项目名或结算备注里（「国寿赠送」「平安车商X2」）。
-- **自付不一定是实付**（用户 2026-10-24 逐张核对）：套餐、赠送、延保付的工单，自付照样写全额。2024 年 10 月以前的旧工单没有券和活动优惠的明细，只在结算备注里有时写一句；新工单会把一部分套餐、券列成优惠，但同一次进店里付了钱的和没付钱的工单，结算备注都写着「赠送」。工时、零件的 `accountsType` 都是客户（3），分不出来；保修（2）、保险（8）付的工单自付是 0。
-- 2021 年 1 月及更早的工单沃尔沃已不保留（返回 500），当作没有。
-- 开发时用 `tools/volvo_service_probe.ts` 在电脑上探测（只读，原始返回存在仓库外）。
+养修由关联的数据源提供（2.3 起是插件的 `service`，`docs/plugins.md` 第 7 节；插件化设计 3.4 节、D19）。2.1–2.2 内置沃尔沃时的接口、字段和金额关系（原价、工时优惠、其他减免、券和活动优惠、抹零与自付；自付不一定是实付）搬进了沃尔沃插件，不在本仓库。
 
 ## 4. 数据
 
 ```ts
-/** 一次进店（缓存，不进备份；提供方从接口整理，原始返回不存） */
-type ServiceVisit = {
-  provider: string                // 提供方 id（volvo_cn）
-  order_id: string
-  dealer_code: string
-  arrive_ts: number               // 进店时间 reservationDate
-  state: string                   // stateName，原样显示
-  settled_ts: number | null       // 最晚的 balanceTime；还没结算为 null
-  odometer: number | null         // 委托单 inMileage 的最大值
-  dealer: { short: string; name: string; address: string; phone: string; lng: number | null; lat: number | null; hours: string } | null
-  tickets: ServiceTicket[]        // 没结算时为空
-}
-
-/** 一张工单 */
-type ServiceTicket = {
-  ro_no: string
-  type: string                    // repairTypeName：保养、机电维修、零售、事故、保修
-  created_ts: number              // roCreateDate；没有委托单时同结算时间
-  settled_ts: number              // balanceTime
-  projects: string[]              // handRepairProjectName
-  labours: string[]; parts: string[]   // 工时去掉「工时：」，零件去掉「材料：」
-  total: number; own: number      // 原价、自付
-  labour_discount: number         // discountList 里「工时：」开头的合计
-  discounts: { name: string; amount: number }[]   // 其他减免（上门取车、送车上门），金额 > 0 的
-  prefs: { name: string; type: string; amount: number }[]   // 券和活动优惠，金额 > 0 的；type 是沃尔沃的 preferentialType，只显示，不用来判断是哪项权益（2026-10-26 用真实数据核对过，靠不住）
-  rounding: number                // 抹零：按差额算，可能是负数
-  remark: string                  // balanceRemark
-}
-
-/** 记下的一次进店（进账本、进备份）：结算原样存下，沃尔沃删了旧工单也还在 */
-type ServiceRecord = {
-  vehicle_id: string
-  provider: string
-  order_id: string
-  dealer_code: string
-  arrive_ts: number
-  odometer: number | null
-  dealer: ServiceVisit["dealer"]  // 经销商简称等，表单的来源一行用
-  tickets: (ServiceTicket & { record_id: string | null })[]   // 每张工单记成的费用 id；几张保养工单合成一条时相同；关掉没记的为 null
-}
-// LedgerFile.service_records: ServiceRecord[]（2.1 新加，读账本时补空数组）
-// 缓存 service_visits.json：{ schema_version: 1, entries: { [车辆键]: { list_ts, visits: ServiceVisit[] } } }，只放还没记下的进店要用的列表和明细
+// 2.1–2.2：一次进店和工单（缓存 service_visits.json）、记下的进店（账本的 service_records）按沃尔沃的接口整理。
+// 2.3 起去掉：油记只认契约的进店（docs/plugins.md 第 7 节），标题、结算明细和来源存在费用上（插件化设计 3.4–3.6 节）。
 
 /** 权益卡（2.0 已有）加一个可选字段 */
 type Perk = {

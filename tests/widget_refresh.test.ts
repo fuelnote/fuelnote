@@ -8,7 +8,7 @@ import { VehicleStatus } from "../providers/types"
 
 const MIN = 60e3
 const T0 = new Date(2026, 9, 19, 12, 0).getTime()
-const LINK: StatusLink = { key: "v1|volvo_cn|VIN", provider: "volvo_cn", vehicle_id: "VIN", tank_l: 55 }
+const LINK: StatusLink = { key: "v1|example|VIN", provider: "example", script: "FuelNote 示例插件", vehicle_id: "VIN", tank_l: 55 }
 
 function status(fuel_l: number): VehicleStatus {
   return { ts: T0 - 90 * MIN, fuel_l, range_km: 430, avg_consumption: 13.2, odometer_km: 82959.065 }
@@ -22,11 +22,11 @@ function snapshot(readAgoMin: number | null, d: Partial<WidgetSnapshot> = {}): W
   }
 }
 
-function harness(file: WidgetSnapshot, opts: { cache?: StatusSnapshot; lock?: number; noCredential?: boolean; fail?: string } = {}) {
+function harness(file: WidgetSnapshot, opts: { cache?: StatusSnapshot; lock?: number; noScript?: boolean; fail?: string } = {}) {
   const state = { file, cache: opts.cache ? { [opts.cache.key]: opts.cache } as Record<string, StatusSnapshot> : {}, lock: opts.lock || 0, reads: 0, saves: 0 }
   const deps: WidgetRefreshDeps = {
     now: () => T0,
-    reader: () => opts.noCredential ? null : async () => {
+    reader: () => opts.noScript ? null : async () => {
       state.reads++
       assert.ok(state.lock > 0, "读的时候持有锁")
       if (opts.fail) throw new Error(opts.fail)
@@ -89,20 +89,20 @@ test("几个小组件同时刷新：另一个 1 分钟内开始读过就不读�
   assert.equal(stale.state.reads, 1)
 })
 
-test("读不到（网络、凭据）：显示上次的车况，不写文件", async () => {
-  const fail = harness(snapshot(120), { fail: "请求超时：<已移除：沃尔沃域名>" })
+test("读不到（插件没有回应、出错，或 widget.json 里还没有插件的脚本名）：显示上次的车况，不写文件", async () => {
+  const fail = harness(snapshot(120), { fail: "插件没有回应" })
   const s = await refreshWidgetStatus(fail.state.file, "systemSmall", fail.deps)
   assert.equal(s.status!.fuel_l, 52)
   assert.equal(fail.state.saves, 0)
   assert.equal(fail.state.lock, 0)
-  const noCred = harness(snapshot(120), { noCredential: true })
-  assert.equal((await refreshWidgetStatus(noCred.state.file, "systemSmall", noCred.deps)).status!.fuel_l, 52)
-  assert.equal(noCred.state.saves + noCred.state.lock, 0)
+  const noScript = harness(snapshot(120), { noScript: true })
+  assert.equal((await refreshWidgetStatus(noScript.state.file, "systemSmall", noScript.deps)).status!.fuel_l, 52)
+  assert.equal(noScript.state.saves + noScript.state.lock, 0)
 })
 
 test("读的时候油记换了车辆：不改油记写的摘要", async () => {
   const h = harness(snapshot(120))
-  const other = snapshot(null, { vehicle: "另一辆", status_link: { ...LINK, key: "v2|volvo_cn|VIN2" } })
+  const other = snapshot(null, { vehicle: "另一辆", status_link: { ...LINK, key: "v2|example|VIN2" } })
   h.deps.latest = () => other
   const s = await refreshWidgetStatus(snapshot(120), "systemSmall", h.deps)
   assert.equal(s, other)

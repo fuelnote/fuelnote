@@ -295,6 +295,8 @@ type XxyhOp =
 
 ### 8.1 接口
 
+1.x–2.2 内置数据源的接口。2.3 起换成数据源插件的契约（`docs/plugins.md`，插件化设计第 4 节），`providers/` 只留契约的数据类型。
+
 ```ts
 type ProviderId = "volvo_cn"   // 以后在这里加
 
@@ -325,12 +327,7 @@ type ProviderContext = { http: Http; now: () => number }
 
 ### 8.2 沃尔沃（中国）
 
-- **换会话**：签名 GET `<已移除：沃尔沃常量><已移除：沃尔沃接口路径>`，签名方式 v587sign（HMAC-SHA256）。得到 accessToken、jwtToken、globalAccessToken，有效期 30 分钟。refresh token 不会轮换，长期有效。
-- **车辆**：签名 GET `<已移除：沃尔沃接口路径>`，取所有 `vinCode`。
-- **行程**：GET `<已移除：沃尔沃域名>/journallog-trip-api/vehicles/{VIN}/trips?quantity=0&startDate&stopDate&tripsWithoutLocations=INCLUDE`，带 `Bearer globalAccessToken`。
-  - 里程和距离以米为单位，坐标是 GCJ-02；
-  - 只保留最近 400 天。
-- 凭据可以粘贴 BoxJS 的 `volvo_auth`（取其中的 `refreshToken` 字段），也可以只粘贴 refresh token。
+2.3 起沃尔沃是另装的数据源插件（插件化设计第 2 节，D6）：接口、签名和凭据都在插件里，不在本仓库。油记按契约（`docs/plugins.md` 第 6、7 节）读车辆、行程、车况和养修，坐标已是 WGS-84，里程是公里。
 
 ### 8.3 加油停车识别（与品牌无关）
 
@@ -349,11 +346,9 @@ type ProviderContext = { http: Http; now: () => number }
 
 ### 8.4 接入新品牌
 
-1. 新建 `providers/<brand>.ts`，实现 `VehicleDataProvider`。坐标转成 WGS-84，里程转成公里。
-2. 在 `providers/registry.ts` 里登记。
-3. 在 `tests/` 加映射测试（用合成数据，不提交真实行程）。
+写一个数据源插件（`docs/plugins.md`），在设置 › 数据源里添加。界面和停车识别都不用改。
 
-界面和停车识别都不用改。只提供里程、不提供行程的品牌，可以返回只有终点、没有坐标的行程：停车识别会跳过它们，「从行程选择」照样可以用来填里程。
+只提供里程、不提供行程的品牌，可以返回只有终点、没有坐标的行程：停车识别会跳过它们，「从行程选择」照样可以用来填里程。
 
 ## 9. 油站
 
@@ -925,31 +920,10 @@ type ReceiptReader = { id: string; name: string; read(image: UIImage): Promise<R
 
 ### 18.1 数据来源
 
-沃尔沃 App 的车况页用的是 gRPC 接口（`content-type: application/grpc`，HTTP/2，`user-agent: dart-grpc/2.0.0`），与行程接口用同一个 `globalAccessToken`（`authorization: Bearer …`，再加 `vin` 头）。请求体是一个 gRPC 帧：`00` + 4 字节长度 + protobuf，protobuf 只有字段 2 = VIN。
+车况由关联的数据源提供（2.3 起是插件的 `vehicle_status`，`docs/plugins.md` 第 6 节）：车况时间（通常是最后一次停车熄火时上报）、剩余油量（升）、续航（km）、车机平均油耗（L/100km）、里程表（km）。读取的细节在数据源里，不在本仓库。
 
-两个接口都是**服务端流式**（`returns (stream …)`）：服务器先推一条当前车况，之后连接一直开着，等车况变化再推。所以不能等响应结束（会一直等到超时，1.2.0-beta.1、beta.2 在手机上就是这样），要读到第一条完整消息就断开，与开源项目的做法相同（`for res in stub.GetFuel(...): break`）。Scripting 里用 `Response.body` 的读取器逐块读（文档 request/readable_stream），读到后取消读取器并用 `AbortController` 断开请求。
-
-字段含义取自官方 App 的 proto（开源项目 [hass-volvooncall-cn](https://github.com/idreamshen/hass-volvooncall-cn) 和 [xiaowo-remote](https://github.com/melosbot/xiaowo-remote) 整理，后者注明来自官方 App 5.68.0），用 2026-10-13 的抓包（`XXYH_ROOT/materials/2026-10-13-003550.har`）核对：
-
-| 接口 | 字段（protobuf 编号：类型） | 值（2026-10-12 15:16 的车况） | 含义 | 依据 |
-|---|---|---|---|---|
-| `<已移除：沃尔沃域名>/services.vehiclestates.fuel.FuelService/GetFuel` | 3.1：Timestamp | 2026-10-12 15:16 | 车况时间（停车熄火时上报） | 与行程结束时间一致 |
-| 同上 | 3.4：float | 52.0 | 剩余油量（升） | 14:39 在 82,912 km 加满（油箱 55 升），又开了 31 km |
-| 同上 | 3.2：uint32 | 620 | 续航（km，`distanceToEmptyKm`） | proto；620 km ≈ 385 英里 |
-| 同上 | 3.5：uint32 | 385 | 续航（英里，`distanceToEmptyMiles`），不用 | proto |
-| 同上 | 3.3：double | 13.2 | 车机平均油耗（L/100km） | proto |
-| 同上 | 3.6：double | 无 | 自动行程平均油耗，不用 | proto |
-| `…/services.vehiclestates.odometer.OdometerService/GetOdometer` | 3.2：varint | 82,943,341 | 里程表（米） | 82,912 + 31 km |
-| 同上 | 3.3、3.4：float | 2943.3、35.6 | 手动、自动小计里程（km） | proto |
-| 同上 | 3.5：int32 | 23 | 平均车速（km/h） | proto |
-
-接口里还有 Health、Exterior（门窗）、Availability 等，这一节不用。
-
-- 实现：车辆数据提供方接口加一个可选能力 `vehicleStatus(ctx, cred, vehicleId)` → `{ ts, fuel_l, range_km, avg_consumption, odometer_km }`，沃尔沃先实现，别的品牌以后可以接。protobuf 只解析用到的几个字段，手写解码（纯函数，用合成的报文测试；真实报文含 VIN，不进仓库）。
 - 油箱容量：取车型库的车型参数（`tank`，S90 为 55 升），用来画油量条和百分比；没有车型时只显示升数。
 - 缓存：与行程相同，10 分钟内不重复读取；结果写进 `status_cache.json`，并写进小组件读的 `widget.json`。
-- 上手前在手机上确认：Scripting 的 `fetch` 能发这种 gRPC 请求（二进制请求体用 `Data`、`te: trailers`、HTTP/2、流式读取）；打开沃尔沃 App 的车况页，核对剩余油量、续航、平均油耗与上表的含义一致。
-- 早先按「52 升 ÷ 13.2 ≈ 394」把 3.5（385）当成续航公里数，是错的；以 proto 为准。
 
 ### 18.2 显示
 
@@ -1034,7 +1008,7 @@ type ReceiptReader = { id: string; name: string; read(image: UIImage): Promise<R
 
 **评估：不做油量记录（2026-10-19）**。讨论过两种做法：
 1. 记加油时用车况填里程、显示加油前油量：只有在加油站当场记才有用，而加油时要付款、沟通、及时驶离，没有时间操作。
-2. 后台记录车况，加上行程耗油（沃尔沃每段行程带 `fuelConsumption`）推算油量变化，自动认出加油：真实数据可行（48 段「加满到加满」：行程耗油合计 1765.5 L，实际加油 1760.8 L，差 0.3%；单段误差中位数约 1.1 L，夏季有几段少 7–13%）。但它只能提醒和核对：216 条加油记录里 215 条是「加满」（默认值已覆盖）、漏记 1 条、「油灯亮」2 条，升数又有截图识别给出准确值，对记账的便利性帮助很小。用户同意不做。
+2. 后台记录车况，加上行程耗油（沃尔沃每段行程带耗油量）推算油量变化，自动认出加油：真实数据可行（48 段「加满到加满」：行程耗油合计 1765.5 L，实际加油 1760.8 L，差 0.3%；单段误差中位数约 1.1 L，夏季有几段少 7–13%）。但它只能提醒和核对：216 条加油记录里 215 条是「加满」（默认值已覆盖）、漏记 1 条、「油灯亮」2 条，升数又有截图识别给出准确值，对记账的便利性帮助很小。用户同意不做。
 
 另外确认：「油灯亮」（小熊的 `lightOn`）不参与油耗计算，油耗只按两次「加满」之间算（与小熊 213 段一致）。
 

@@ -73,19 +73,20 @@
 
 beta.2 验收时用户提的两点（2026-11-03，画稿第十九轮）一起放进 beta.3：
 
-- [ ] 编辑加油「从行程选择」选的停车和加油时间对不上时，填入前先确认（设计 3.3 节，D25；R19StopConfirm）：`common/stops.ts` 的时间范围和自动配停车共用；文案在 `common/fuel_pick.ts`；`pages/fuel_form.tsx` 填入前弹操作表。测试：停-8～停-12。
-- [ ] 编辑加油的来源挪到最下面，和本次油耗一张卡片（设计 3.5 节，D20；R19FuelSource）。FuelNote Check 的截图 `plugin-fuel-source` 跟着变。
+- [x] 编辑加油「从行程选择」选的停车和加油时间对不上时，填入前先确认（设计 3.3 节，D25；R19StopConfirm）：`common/stops.ts` 的时间范围和自动配停车共用；文案在 `common/fuel_pick.ts`；`pages/fuel_form.tsx` 填入前弹操作表。测试：停-8～停-12。
+- [x] 编辑加油的来源挪到最下面，和本次油耗一张卡片（设计 3.5 节，D20；R19FuelSource）。FuelNote Check 的截图 `plugin-fuel-source` 跟着变。
 
-- [ ] 插件这边（细节在插件计划）：建私有仓库；`describe`（`id` 是 `volvo_cn`，名称「沃尔沃」，能力 `vehicles`、`trips`、`vehicle_status`、`service`）、`status`、`connect`（照第十八轮稿，打开就从 BoxJS 读凭据）、四个车辆的动作；凭据和会话存插件自己的钥匙串，登录过期时自动从 BoxJS 换（和易捷一样）；已结算的养修明细存在插件里。沃尔沃的代码、规则、探测工具、真实数据的测试都搬过去。
-- [ ] 油记删掉：`providers/volvo_cn.ts`、`volvo_service.ts`、`grpc.ts`、`registry.ts`、beta.2 挪进来的沃尔沃规则和转换，以及内置数据源这条路（设计 4.2 节）；`platform/provider_ctx.ts`、`tools/volvo_service_probe.ts`、`pages/provider_settings.tsx`（沃尔沃凭据页）。对应的测试搬到插件。
-- [ ] 清理一次（设计第 2 节）：第一次打开时删掉油记钥匙串里沃尔沃的凭据和会话、`service_visits.json`。这段代码发 2.3.0 前删掉。`app/backup.ts` 的凭据去掉沃尔沃。
-- [ ] 小组件：`widget.json` 的车况链接加上插件的脚本名；`common/widget_runtime.ts` 调插件的 `vehicle_status`（10 秒），读不到就显示上次的车况，不再引入数据源的代码。
-- [ ] 快捷指令：截屏记加油按付款时间配停车，走插件的 `trips`，和主 App 同一条路。
-- [ ] 设置 › 数据源只列插件；车关联的数据源还没添加时的提示（设计第 5 节，按画稿）。
-- [ ] 公开文档里不留沃尔沃协议的细节（端点、字段名、签名、gRPC 的读法）：设计文档、2.1 设计（第 3、4 节）、实施文档和 `CLAUDE.md` 里相关的段落搬到插件仓库，留一句指向契约。CHANGELOG 不改。
-- [ ] 测试：分层测试改成油记里没有品牌的代码；行程回放和养修的真实数据测试改读插件导出的通用数据（`Trip[]`、`ServiceVisit[]` 的 JSON，放在 `XXYH_ROOT` 下，不进仓库），`tools/device_check.ts` 也改读这份。
-- [ ] FuelNote Check：加「什么都不接」场景（设计第 8 节：新装、不接任何数据源，记加油、费用、保养、保险、权益）。只调示例插件，不调真实插件。
-- [ ] `CHANGELOG.md` 写明：沃尔沃不再内置，要另装插件；加油停车提示去掉。`README.md`、`CLAUDE.md`。
+- [x] 插件这边（细节在插件计划）：`describe`（`id` 是 `volvo_cn`，名称「沃尔沃」，能力 `vehicles`、`trips`、`vehicle_status`、`service`）、`status`、`connect`（照第十八轮稿，打开就从 BoxJS 读凭据）、四个车辆的动作；凭据和会话存插件自己的钥匙串，登录过期时自动从 BoxJS 换（和易捷一样）；已结算的养修明细存在插件里。沃尔沃的代码、规则、探测工具、真实数据的测试都搬过去。插件导出通用数据给油记的真实数据测试和 FuelNote Check（`XXYH_ROOT/out/plugin_data/`）。
+- [ ] 插件的 GitHub 私有仓库：建仓库、推送之前先问用户。
+- [x] 油记删掉：`providers/volvo_cn.ts`、`volvo_service.ts`、`grpc.ts`、`registry.ts`、beta.2 挪进来的沃尔沃规则和转换，以及内置数据源这条路（设计 4.2 节）；`platform/provider_ctx.ts`、`tools/volvo_service_probe.ts`、`pages/provider_settings.tsx`（沃尔沃凭据页）。对应的测试搬到插件。
+- [x] 清理一次（设计第 2 节）：第一次打开时删掉油记钥匙串里沃尔沃的凭据和会话、`service_visits.json`。这段代码发 2.3.0 前删掉。`app/backup.ts` 的凭据去掉沃尔沃。
+- [x] 小组件：`widget.json` 的车况链接加上插件的脚本名；`common/widget_runtime.ts` 调插件的 `vehicle_status`（10 秒），读不到就显示上次的车况，不再引入数据源的代码。
+- [x] 快捷指令：截屏记加油按付款时间配停车，走插件的 `trips`，和主 App 同一条路（都经过 `app/vehicle_data.ts`，没有另外的代码）。
+- [x] 设置 › 数据源只列插件；车关联的数据源还没添加时的提示（设计第 5 节，按画稿）。
+- [x] 公开文档里不留沃尔沃协议的细节（端点、字段名、签名、gRPC 的读法）：设计文档、2.1 设计（第 3、4 节）、实施文档和 `CLAUDE.md` 里相关的段落搬到插件仓库，留一句指向契约。CHANGELOG 不改。
+- [x] 测试：分层测试改成油记里没有品牌的代码；行程回放和养修的真实数据测试改读插件导出的通用数据（`Trip[]`、`ServiceVisit[]` 的 JSON，放在 `XXYH_ROOT` 下，不进仓库），`tools/device_check.ts` 也改读这份。
+- [x] FuelNote Check：加「什么都不接」场景（设计第 8 节：新装、不接任何数据源，记加油、费用、保养、保险、权益）。只调示例插件，不调真实插件。
+- [x] `CHANGELOG.md` 写明：沃尔沃不再内置，要另装插件；加油停车提示去掉。`README.md`、`CLAUDE.md`。
 
 ## 2.3.0 发布
 
@@ -117,5 +118,5 @@ beta.3：
 13. 已经关联沃尔沃的车不用重选，第 1–11 条照旧；小组件、快捷指令都走插件。
 14. 编辑加油时「从行程选择」选别的日期的停车：先确认，「取消」不填；「仍然填入」后里程按这次停车，时间不变。选付款前 3 小时内的停车不问。
 15. 编辑从易捷记的加油：来源在最下面，和本次油耗一张卡片。
-14. 设置 › 备份的凭据里没有沃尔沃了。
-15. 移除沃尔沃插件：设置 › 数据源出现提示，记录页没有「当前」，记费用里没有「从沃尔沃选」，记下的养修和来源照旧；再添加回来，一切照旧。
+16. 设置 › 备份的凭据里没有沃尔沃了。
+17. 移除沃尔沃插件：设置 › 数据源出现提示，记录页没有「当前」，记费用里没有「从沃尔沃选」，记下的养修和来源照旧；再添加回来，一切照旧。

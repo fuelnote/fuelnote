@@ -1,6 +1,6 @@
 // 费用的标题（插件化设计 3.6 节，纯函数）：填了标题就用填的；空着时自动生成：换了机油的保养「第 N 次保养」，其他带保养记录的写说明的第一行
 // （没有说明时写项目），其余写备注的第一行，都没有时写类别名。这是 2.2 自己记的费用的规则。费用页、权益详情的使用记录、表单里的灰字都用它。
-// 只导入类型：沃尔沃的转换（providers/volvo_service.ts）用 isOilChange，小组件经过它加载这个文件，不要带进费用统计、保险这些模块
+// 只导入类型：用不着为了类型加载费用统计这个大模块
 import type { ExpenseEntry } from "./expense_stats"
 import { ExpenseRecord, LedgerFile, MaintenanceRecord } from "./types"
 

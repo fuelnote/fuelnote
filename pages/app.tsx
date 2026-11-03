@@ -5,7 +5,7 @@ import {
   addVehicle, AppData, batchInfo, batchPerks, cachedStatus, canReadStatus, categoriesFor, categoryName, currentVehicle, defaultCategory, defaultUse,
   deleteInsurance, deletePerks, deleteRecord, deleteStore, deleteUse, dismissRenewal, expenseEntries, ExpenseEntry,
   ExpenseRecord, expenseUses, finishAutoBackup, flushAutoBackup, fmtDate, fmtDateTime, insuranceForRecord, InsuranceYear, LedgerRecord, loadData, MAINTENANCE_CATEGORY, newId,
-  NewVehicle, Perk, perkBook, PerkUse, providerById, readVehicleStatus, remaining, sameName, saveBatch, saveExpense, saveFuel,
+  NewVehicle, Perk, perkBook, PerkUse, readVehicleStatus, remaining, sameName, saveBatch, saveExpense, saveFuel,
   saveInsurance, savePerk, savePerks, saveStore, saveUse, saveWidgetSnapshot, scheduleAutoBackup, sourceOf, Store, toExpenseData, toFuelData, updateSettings,
   maintenanceOf, usageLine, Use, usedOf, useText, Vehicle, vehicleById, vehicleRecords, vehicleTank, yearLabel, yuan,
   connectPlugin, DataSource, pluginsOf, saveServiceVisit, serviceSourceOf,
@@ -25,7 +25,6 @@ import { ExpenseForm, ExpenseFormResult } from "./expense_form"
 import { ExpenseTab } from "./expense_tab"
 import { FuelForm, FuelFormResult } from "./fuel_form"
 import { StatusSheet, StatusView } from "./fuel_status"
-import { ProviderSheet } from "./provider_settings"
 import { FuelTab } from "./fuel_tab"
 import { SettingsPage } from "./settings"
 import { VehicleAdd } from "./vehicle_add"
@@ -183,15 +182,10 @@ export function App({ action, image, notice }: { action: string | null; image: U
     remove: id => setData(deleteStore(getData(), id)),
   }
 
-  /** 连接数据源（选进店页的「连接」「重新连接」）：插件打开它自己的连接页；内置的打开凭据页 */
+  /** 连接数据源（选进店页的「连接」「重新连接」）：打开插件自己的连接页 */
   async function connectSource(source: DataSource) {
-    if (!source.builtin) {
-      const ref = pluginsOf(getData()).find(p => p.id === source.id)
-      if (ref) await connectPlugin(ref)
-      return
-    }
-    const p = providerById(source.id)
-    if (p) await Navigation.present({ element: <ProviderSheet data={getData()} app={app} provider={p} /> })
+    const ref = pluginsOf(getData()).find(p => p.id === source.id)
+    if (ref) await connectPlugin(ref)
   }
 
   /**

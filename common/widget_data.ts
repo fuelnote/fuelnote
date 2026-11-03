@@ -18,8 +18,8 @@ export type WidgetStatus = {
 /** 大号「最近加油」的一行（1.4 起） */
 export type WidgetFill = { ts: number; liters: number; grade: number | null; station: string | null; paid: number; consumption: number | null }
 
-/** 小组件自己读车况要用的（设计文档 18.3 节）：缓存键、提供方、车辆 id、油箱容量 */
-export type StatusLink = { key: string; provider: string; vehicle_id: string; tank_l: number | null }
+/** 小组件自己读车况要用的（设计文档 18.3 节）：缓存键、数据源、插件的脚本名（2.3.0-beta.3 起）、车辆 id、油箱容量 */
+export type StatusLink = { key: string; provider: string; script: string; vehicle_id: string; tank_l: number | null }
 
 export type WidgetSnapshot = {
   schema_version: 1
