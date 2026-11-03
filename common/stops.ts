@@ -126,6 +126,11 @@ export function rankStops(stops: Stop[]): Stop[] {
   return [...open, ...done, ...other]
 }
 
+/** 停车配得上这次付款：熄火在付款前 3 小时内到付款后 2 分钟。自动配停车和「从行程选择」填入前的确认共用（插件化设计 3.3 节，D25） */
+export function stopFitsPayment(endTs: number, at: number): boolean {
+  return endTs <= at + 2 * 60e3 && endTs >= at - RECORDED_WINDOW_MS
+}
+
 /**
  * 默认选择：有支付时间时取支付前 3 小时内最近的加油停车；
  * 没有时取最近一次未记录的加油停车。找不到时退回最近一段行程。
@@ -133,7 +138,7 @@ export function rankStops(stops: Stop[]): Stop[] {
 export function chooseStop(stops: Stop[], at: number | null): { stop: Stop; kind: "refuel" | "trip" } | null {
   const sorted = stops.slice().sort((a, b) => a.end_ts - b.end_ts)
   if (at) {
-    const win = sorted.filter(s => s.end_ts <= at + 2 * 60e3 && s.end_ts >= at - RECORDED_WINDOW_MS)
+    const win = sorted.filter(s => stopFitsPayment(s.end_ts, at))
     const refuel = win.filter(s => s.refuel).pop()
     if (refuel) return { stop: refuel, kind: "refuel" }
     return win.length ? { stop: win[win.length - 1], kind: "trip" } : null

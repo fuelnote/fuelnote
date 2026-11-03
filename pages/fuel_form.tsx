@@ -12,7 +12,7 @@ import {
   amountFixes, AppData, arrivalStop, cachedStops, canReadTrips, checkFuel, completeTriple, DataSourceMark, decideGrade, derivedEvidence, duplicateText, errorText, FieldSource,
   fillFromReceipt, fillFromTxn, fillWarnings, findDuplicate, fmtShort, FuelData, fuelRecords, FuelTxn, GradeDecision, gradeEvidence, GRADES, gradeText,
   ImageOrigin, isInferred, keptNumber, MoneyField, newStationNote, numText, openStopIn, parseNum, pickOpening, PluginRef, pluginState, pluginStation, pluginsWith, priceCityFor,
-  priceRefFor, ReceiptFill, ReceiptResult, recognizeImage, SOURCE_TITLES, Station, stationsFor, Stop, StopChoice, stopForPayment, stopWarning, Triple, TripleField,
+  priceRefFor, ReceiptFill, ReceiptResult, recognizeImage, SOURCE_TITLES, Station, stationsFor, Stop, StopChoice, stopFitsPayment, stopForPayment, stopMismatchText, stopWarning, Triple, TripleField,
   usualGrade, Vehicle, stopsForPayment, vehicleStops,
 } from "../common/model"
 import { FieldLabel, FieldRow, joinWhen, km, money, showError, SourceTag, stopWhen, stopWhere } from "./components"
@@ -495,7 +495,11 @@ export function FuelForm({ data, vehicle, record, initialImage, initialPick, onS
   async function pickStop() {
     const stop = await Navigation.present<Stop | null>({ element: <StopPicker data={data} vehicle={vehicle} /> })
     if (!stop) return
-    // 有付款时间（截图或交易）时，换停车不改时间（D9）
+    // 编辑时、有付款时间（截图或交易）时，换停车不改时间（D9）：停车和加油时间对不上时先确认（插件化设计 3.3 节，D25）
+    if ((record || fill?.payTs != null) && !stopFitsPayment(stop.end_ts, ts)) {
+      const i = await Dialog.actionSheet({ title: "请确认", message: stopMismatchText(stop.end_ts, ts, !!stop.candidate), actions: [{ label: "仍然填入" }] })
+      if (i !== 0) return
+    }
     applyStop(stop, { keepTime: fill?.payTs != null })
     if (pick) await decidePickStation(pick, stop, true, run.current)
   }
@@ -630,14 +634,6 @@ export function FuelForm({ data, vehicle, record, initialImage, initialPick, onS
         keyboard: <HStack><Spacer /><Button title="完成" action={() => Keyboard.hide()} /></HStack>,
       }}
     >
-      {record?.data_source ? <Section key="source"
-        footer={<Text>{`这条加油是从${record.data_source.name}选来填的。来源不能改；${record.data_source.name}插件移除以后照样显示。`}</Text>}>
-        <HStack>
-          <Text>来源</Text>
-          <Spacer />
-          <Text foregroundStyle="secondaryLabel">{record.data_source.name}</Text>
-        </HStack>
-      </Section> : null}
       {showAutofill ? <Section header={<Text>自动填写</Text>}>
         {imageRow}
         {pluginRows}
@@ -716,8 +712,17 @@ export function FuelForm({ data, vehicle, record, initialImage, initialPick, onS
         <TextField title="备注" value={remark} onChanged={setRemark} prompt="可选" axis="vertical" lineLimit={{ min: 1, max: 4 }} />
       </Section>
 
-      {check.consumption != null ? <Section>
-        <HStack><Text>本次油耗</Text><Spacer /><Text monospacedDigit>{`${check.consumption.toFixed(2)} L/100km`}</Text></HStack>
+      {/* 最下面一张卡片：本次油耗（算得出时）和来源（从数据源选来填的才有，插件化设计 3.5 节，画稿第十九轮 R19FuelSource） */}
+      {check.consumption != null || record?.data_source ? <Section
+        {...(record?.data_source ? { footer: <Text>{`这条加油是从${record.data_source.name}选来填的。来源不能改；${record.data_source.name}插件移除以后照样显示。`}</Text> } : {})}>
+        {check.consumption != null
+          ? <HStack><Text>本次油耗</Text><Spacer /><Text monospacedDigit>{`${check.consumption.toFixed(2)} L/100km`}</Text></HStack>
+          : null}
+        {record?.data_source ? <HStack>
+          <Text>来源</Text>
+          <Spacer />
+          <Text foregroundStyle="secondaryLabel">{record.data_source.name}</Text>
+        </HStack> : null}
       </Section> : null}
     </Form>
   </NavigationStack>

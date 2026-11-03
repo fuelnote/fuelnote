@@ -4,11 +4,11 @@ import { test } from "node:test"
 import assert from "node:assert/strict"
 import {
   appendTxns, arrivalStop, fillFromTxn, firstMonth, gapText, groupByMonth, mergeTxns, monthRange, monthsDown, newStationNote, pickMonthTitle, pickOpening, pickRange, pickStation, prevMonth,
-  replaceRecent, sortTxns, StationDeps, stopWarning,
+  replaceRecent, sortTxns, StationDeps, stopMismatchText, stopWarning,
 } from "../common/fuel_pick"
 import { LngLat, metres } from "../common/geo"
 import { FuelTxn, FuelTxnStation } from "../common/plugin"
-import { Stop } from "../common/stops"
+import { Stop, stopFitsPayment } from "../common/stops"
 import { Poi, Station } from "../common/types"
 
 const MIN = 60e3
@@ -248,4 +248,16 @@ test("加载回上次的月份：一个月一个月地读，跨年照常", () =>
   assert.deepEqual(monthsDown("2026-02", "2025-11"), ["2026-01", "2025-12", "2025-11"])
   assert.deepEqual(monthsDown("2026-09", "2026-09"), [])
   assert.deepEqual(monthsDown("2026-09", "2026-10"), [])
+})
+
+test("停-8～停-12：「从行程选择」选的停车和加油时间对不上时先确认。熄火在付款前 3 小时内到付款后 2 分钟算对得上（和自动配停车同一个范围）；确认里写出两边的时间", () => {
+  const at = (m: number, d: number, h: number, mi: number) => new Date(2026, m - 1, d, h, mi).getTime()
+  const pay = at(5, 9, 9, 54)
+  assert.equal(stopFitsPayment(at(5, 9, 9, 53), pay), true, "停-8：付款前 1 分钟熄火")
+  assert.equal(stopFitsPayment(at(5, 12, 17, 55), pay), false, "停-9：3 天后的停车")
+  assert.equal(stopFitsPayment(at(5, 9, 10, 24), pay), false, "停-11：付款后 30 分钟熄火")
+  assert.equal(stopFitsPayment(at(5, 9, 9, 56), pay), true, "付款后 2 分钟内也算")
+  assert.deepEqual([stopFitsPayment(at(5, 9, 6, 54), pay), stopFitsPayment(at(5, 9, 6, 53), pay)], [true, false], "付款前正好 3 小时算，再早不算")
+  assert.equal(stopMismatchText(at(5, 12, 17, 55), pay, false), "停车在 5月12日 17:55，不在这次加油前 3 小时内（加油 5月9日 09:54）。填入后，里程按这次停车，时间不变。")
+  assert.ok(stopMismatchText(at(5, 12, 17, 55), pay, true).includes("填入后，里程和油站按这次停车"), "停车附近有我的油站：油站也跟着换")
 })

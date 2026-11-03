@@ -6,6 +6,7 @@ import { distanceText, LngLat, metres } from "./geo"
 import { FuelTxn, FuelTxnStation } from "./plugin"
 import { monthEnd, monthOf, monthStart } from "./plugin_source"
 import { Stop } from "./stops"
+import { fmtMonthDay, fmtTime } from "./time"
 import { Poi, Station } from "./types"
 import { nearestStation, SAME_STATION_M, sameStationName, stationFromPoi, stationFromTxn } from "../stations/match"
 
@@ -234,4 +235,13 @@ export function stopWarning(txn: FuelTxnStation | null, stop: Stop | null, mine:
   if (d <= STOP_FAR_M) return null
   const parked = nearestStation(mine, at, SAME_STATION_M)
   return `${parked ? `停车在${parked.station.name}，` : "停车位置"}距付款油站 ${distanceText(d)}，请核对里程`
+}
+
+/**
+ * 「从行程选择」选的停车和加油时间对不上时（stopFitsPayment），填入前确认的说明（D25）：时间不跟着停车变，所以写出两边的时间；
+ * withStation：停车附近有我的油站，油站也跟着换
+ */
+export function stopMismatchText(stopEnd: number, at: number, withStation: boolean): string {
+  const when = (ts: number) => `${fmtMonthDay(ts)} ${fmtTime(ts)}`
+  return `停车在 ${when(stopEnd)}，不在这次加油前 3 小时内（加油 ${when(at)}）。填入后，${withStation ? "里程和油站" : "里程"}按这次停车，时间不变。`
 }
