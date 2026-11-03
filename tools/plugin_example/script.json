@@ -1,7 +1,7 @@
 {
   "name" : "FuelNote 示例插件",
   "localizedNames" : {
-    "zh" : "FuelNote 示例插件"
+    "zh" : "油记·示例插件"
   },
   "description" : "Example data source plugin for FuelNote: returns made-up refuel transactions",
   "localizedDescriptions" : {

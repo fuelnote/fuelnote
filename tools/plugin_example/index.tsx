@@ -158,7 +158,7 @@ function ConnectPage() {
     setState(s)
   }
   return <NavigationStack>
-    <List navigationTitle="FuelNote 示例插件" navigationBarTitleDisplayMode="inline" toolbar={{ confirmationAction: <Button title="完成" action={() => dismiss()} /> }}>
+    <List navigationTitle="示例" navigationBarTitleDisplayMode="inline" toolbar={{ confirmationAction: <Button title="完成" action={() => dismiss()} /> }}>
       <Section header={<Text>连接状态</Text>} footer={<Text>示例插件不连任何服务，交易、行程、车况和养修都是按当前时间编的。切换状态，可以看油记在未连接、凭据过期时的样子。</Text>}>
         {(["connected", "expired", "disconnected"] as State[]).map(s => <Button key={s} action={() => choose(s)}>
           <HStack>

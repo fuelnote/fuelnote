@@ -8,6 +8,8 @@
 
 - 脚本文件夹里放 `fuelnote.json`：`{ "contract": 1 }`。「设置 › 数据源 › 添加插件」只列带这个文件的脚本，不运行其他脚本。
 - 列表里的名称、版本、图标取脚本自己的 `script.json`（`localizedNames.zh` 或 `name`、`version`、`icon`、`color`）。
+- 名称：显示名（`localizedNames.zh`）写「油记·<数据源>」，在 Scripting 的脚本列表里认得出是油记的插件；油记里显示的是 `describe` 返回的 `name`，插件自己页面的标题也用它。脚本名（`script.json` 的 `name`，也是文件夹名）建议写成 `FuelNote<数据源>`，定了不要改：油记按脚本名调用插件，改了要在油记里重新添加。仓库名建议 `fuelnote-plugin-<数据源>`。示例插件的脚本名「FuelNote 示例插件」早于这条，不改。
+- 分发：把运行需要的文件打成 zip（文件放在根目录），Scripting 用 zip 的地址导入；`script.json` 的 `remoteResource` 指向同一个地址，就按 `autoUpdateInterval` 自动更新（Scripting 文档 script 一节）。私有的插件可以放在 Secret Gist：拿到链接的人都能下载。
 
 ## 2. 调用
 
