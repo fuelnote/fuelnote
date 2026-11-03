@@ -5,7 +5,7 @@ import { CAPABILITY_TITLES, connectPlugin, PluginCapability, pluginsOf, pluginSt
 import { AppActions } from "./components"
 
 const ICONS: Record<PluginCapability, string> = {
-  fuel: "doc.text", vehicles: "car.2", trips: "car", vehicle_status: "gauge.with.dots.needle.33percent", service: "wrench.and.screwdriver",
+  fuel: "doc.text", vehicles: "car.2", trips: "car", vehicle_status: "gauge.with.dots.needle.33percent", service: "wrench.and.screwdriver", fuel_price: "yensign.circle",
 }
 
 function hint(cap: PluginCapability, name: string): string {
@@ -13,6 +13,7 @@ function hint(cap: PluginCapability, name: string): string {
   if (cap === "vehicles") return "在车辆的「车辆数据」里关联到车"
   if (cap === "trips") return "记加油时按时间配停车、填里程"
   if (cap === "vehicle_status") return "记录页「当前」的油量和里程"
+  if (cap === "fuel_price") return "按所在地区的挂牌价算加满要多少钱"
   return `记费用时从${name}选一次进店，要记的几笔一起填好`
 }
 

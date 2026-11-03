@@ -5,10 +5,10 @@
 import {
   Button, DynamicShapeStyle, Gauge, HStack, List, Navigation, NavigationStack, ProgressView, Rectangle, Section, ShapeStyle, Spacer, Text, useState, VStack, ZStack,
 } from "scripting"
-import { currentTank, CurrentTank, fmtDateTime, FuelRecord, fuelLow, fuelRatio, StatusSnapshot, statusWhen } from "../common/model"
+import { currentTank, CurrentTank, FillView, fmtDateTime, FuelRecord, fuelLow, fuelRatio, StatusSnapshot, statusWhen } from "../common/model"
 
-/** 车况的显示状态：snapshot 为 null 表示还没读到过 */
-export type StatusView = { snapshot: StatusSnapshot | null; tank: number | null; busy: boolean; error: string | null; source: string }
+/** 车况的显示状态：snapshot 为 null 表示还没读到过；fill 是「加满」一组（2.4，加满金额设计第 5 节），不知道剩余油量或油箱容量时 null */
+export type StatusView = { snapshot: StatusSnapshot | null; tank: number | null; busy: boolean; error: string | null; source: string; fill: FillView | null }
 
 type Tint = DynamicShapeStyle
 
@@ -64,8 +64,8 @@ function FuelRing({ ratio, size, tint, children }: {
 }
 
 /**
- * 记录页最上面的「当前」：剩余油量、续航，上次加油后已行驶的里程；分组标题右边是车况时间。
- * 轻点打开车况详情（每种状态都一样）；下拉刷新时重新读取
+ * 记录页最上面的「当前」：剩余油量、续航，上次加油后已行驶的里程；分组标题右边是车况时间；
+ * 有加满金额时卡片右边写「¥28 / 加满约」（2.4，画稿 R21Records）。轻点打开车况详情（每种状态都一样）；下拉刷新时重新读取
  */
 export function CurrentSection({ view, last, onOpen }: { view: StatusView; last: FuelRecord | null; onOpen: () => void }) {
   const c = currentTank(view.snapshot ? view.snapshot.status : null, view.tank, last, view)
@@ -81,12 +81,18 @@ export function CurrentSection({ view, last, onOpen }: { view: StatusView; last:
           {c.detail ? <Text font="caption" foregroundStyle="secondaryLabel">{c.detail}</Text> : null}
         </VStack>
         <Spacer />
+        {view.fill && view.fill.amount != null
+          ? <VStack alignment="trailing" spacing={3}>
+            <Text font="headline" foregroundStyle={t.text}>{`¥${view.fill.amount}`}</Text>
+            <Text font="caption" foregroundStyle="secondaryLabel">加满约</Text>
+          </VStack>
+          : null}
       </HStack>
     </Button>
   </Section>
 }
 
-/** 车况详情：大圆环、续航、车机平均油耗、里程表、车况时间；右上角重新读取 */
+/** 车况详情：大圆环、续航、车机平均油耗、里程表、车况时间；「加满」一组（2.4，画稿 R22Region）；右上角重新读取 */
 export function StatusSheet({ get, refresh }: { get: () => StatusView; refresh: () => Promise<string | null> }) {
   const dismiss = Navigation.useDismiss()
   const [view, setView] = useState(get)
@@ -131,6 +137,21 @@ export function StatusSheet({ get, refresh }: { get: () => StatusView; refresh: 
         {view.snapshot ? <HStack><Text>读取时间</Text><Spacer /><Text foregroundStyle="secondaryLabel">{statusWhen(view.snapshot.read_at)}</Text></HStack> : null}
         {view.error ? <Text font="footnote" foregroundStyle="systemRed">{`读取失败：${view.error}`}</Text> : null}
       </Section>
+      {view.fill ? <FillSection fill={view.fill} /> : null}
     </List>
   </NavigationStack>
+}
+
+/** 「加满」一组：加满约 ¥28 · 3 L、95# 挂牌价 9.41 元/升；没有金额时只写升数；说明写按哪里、哪天的价算（显-1～显-8） */
+function FillSection({ fill }: { fill: FillView }) {
+  return <Section header={<Text>加满</Text>} footer={<Text>{fill.note}</Text>}>
+    <HStack>
+      <Text>加满约</Text>
+      <Spacer />
+      <Text foregroundStyle="secondaryLabel">{fill.amount != null ? `¥${fill.amount} · ${fill.litres} L` : `${fill.litres} L`}</Text>
+    </HStack>
+    {fill.priceLabel && fill.price != null
+      ? <HStack><Text>{fill.priceLabel}</Text><Spacer /><Text foregroundStyle="secondaryLabel">{`${fill.price.toFixed(2)} 元/升`}</Text></HStack>
+      : null}
+  </Section>
 }

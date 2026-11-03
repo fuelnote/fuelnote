@@ -239,6 +239,29 @@ test("车辆、行程、车况：不缓存，每次都调插件；参数带车�
   assert.deepEqual(h.file()?.months, {})
 })
 
+test("油价（2.4）：参数是省、市，这里不缓存；成功、出错都不改插件的连接状态（查油价不用登录）", async () => {
+  const ref: PluginRef = { script: "FuelNoteEjoy", id: "ejoy", name: "易捷", capabilities: ["fuel", "fuel_price"] }
+  let down = false
+  const h = harness({
+    respond: action => {
+      if (action === "fuel") return { ok: false, error: "expired", message: "登录已过期" }
+      if (down) return { ok: false, error: "network", message: "连不上" }
+      return { ok: true, region: "上海", effective: NOW, items: [{ grade: 95, price: 9.41 }] }
+    },
+  })
+  assert.ok(!(await h.source.fuel(ref, { from: NOW - DAY, to: NOW })).ok)
+  assert.equal(h.source.lastState("ejoy"), "expired")
+  const p = await h.source.fuelPrice(ref, { province: "上海", city: "上海" })
+  assert.ok(p.ok && p.value.items[0].price === 9.41)
+  assert.ok((await h.source.fuelPrice(ref, { province: "上海", city: "上海" })).ok)
+  assert.deepEqual(h.calls.filter(c => c.action === "fuel_price").map(c => c.params), [{ province: "上海", city: "上海" }, { province: "上海", city: "上海" }])
+  assert.equal(h.source.lastState("ejoy"), "expired")
+  down = true
+  const r = await h.source.fuelPrice(ref, { province: "上海", city: "上海" })
+  assert.ok(!r.ok && r.error.kind === "network")
+  assert.equal(h.source.lastState("ejoy"), "expired")
+})
+
 test("养修：「插件 + 车辆」缓存 10 分钟；下拉不看缓存；出错不缓存；重新连接时清掉；参数带车辆 id", async () => {
   const ref: PluginRef = { script: "FuelNote 示例插件", id: "example", name: "示例", capabilities: ["vehicles", "service"] }
   let fail = false

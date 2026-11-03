@@ -1,7 +1,7 @@
 // 数据源插件的契约（插件化设计第 4 节）：版本、标记文件、各动作的超时；返回值的校验和整理；添加前的检查；给用户看的错误和状态。
 // 纯逻辑：调用插件在 platform/plugin_bridge.ts，排队、超时和缓存在 common/plugin_source.ts。
 import { PerkHint, Place, RemoteVehicle, ServiceExpense, ServiceVisit, Trip, VehicleStatus } from "../providers/types"
-import { GRADES, PluginCapability, PluginRef, Settlement } from "./types"
+import { FuelPrice, FuelPrices, GRADES, PluginCapability, PluginRef, Settlement } from "./types"
 
 export const PLUGIN_CONTRACT = 1
 /** 插件文件夹里的标记（D8）：只把带它的脚本列为可添加的插件，不运行其他脚本 */
@@ -11,14 +11,14 @@ export type PluginAction = "describe" | "status" | "connect" | PluginCapability
 
 /** 油记等多久（docs/plugins.md 第 4 节）；connect 打开插件自己的页面，不限 */
 export const PLUGIN_TIMEOUT_MS: Record<PluginAction, number | null> = {
-  describe: 5000, status: 5000, connect: null, vehicles: 20000, fuel: 20000, trips: 20000, vehicle_status: 10000, service: 60000,
+  describe: 5000, status: 5000, connect: null, vehicles: 20000, fuel: 20000, trips: 20000, vehicle_status: 10000, service: 60000, fuel_price: 10000,
 }
 
-const CAPABILITIES: PluginCapability[] = ["fuel", "vehicles", "trips", "vehicle_status", "service"]
+const CAPABILITIES: PluginCapability[] = ["fuel", "vehicles", "trips", "vehicle_status", "service", "fuel_price"]
 /** 要关联到一辆车的数据：提供其中之一的插件必须提供 vehicles */
 export const VEHICLE_CAPABILITIES: PluginCapability[] = ["trips", "vehicle_status", "service"]
 
-export const CAPABILITY_TITLES: Record<PluginCapability, string> = { fuel: "加油交易", vehicles: "车辆", trips: "行程", vehicle_status: "车况", service: "养修" }
+export const CAPABILITY_TITLES: Record<PluginCapability, string> = { fuel: "加油交易", vehicles: "车辆", trips: "行程", vehicle_status: "车况", service: "养修", fuel_price: "油价" }
 
 /** 「加油交易、行程」 */
 export function capabilityLine(caps: PluginCapability[]): string {
@@ -227,6 +227,28 @@ export function parseVehicleStatus(raw: unknown): PluginResult<VehicleStatus> {
   if (!s || typeof s !== "object" || Array.isArray(s)) return fail("invalid")
   const r = s as Record<string, unknown>
   return { ok: true, value: { ts: num(r.ts), fuel_l: num(r.fuel_l), range_km: num(r.range_km), avg_consumption: num(r.avg_consumption), odometer_km: num(r.odometer_km) } }
+}
+
+// ---------- 油价（docs/plugins.md 第 8 节，2.4） ----------
+
+/** 挂牌价超出这个范围的当作数据不对 */
+const MAX_PRICE = 50
+
+/** region 不是非空文字、items 不是数组、一项都不剩时数据不对；不认识的标号、超出范围的价格丢掉，同一标号只留第一项 */
+export function parseFuelPrices(raw: unknown): PluginResult<FuelPrices> {
+  const e = envelope(raw)
+  if (!e.ok) return e
+  const region = text(e.value.region)
+  if (!region || !Array.isArray(e.value.items)) return fail("invalid")
+  const items: FuelPrice[] = []
+  for (const x of e.value.items) {
+    const grade = isObject(x) ? num(x.grade) : null
+    const price = isObject(x) ? two(x.price) : null
+    if (grade == null || !GRADES.includes(grade) || price == null || price <= 0 || price > MAX_PRICE) continue
+    if (!items.some(i => i.grade === grade)) items.push({ grade, price })
+  }
+  if (!items.length) return fail("invalid")
+  return { ok: true, value: { region, effective: num(e.value.effective), items } }
 }
 
 // ---------- 养修（docs/plugins.md 第 7 节） ----------

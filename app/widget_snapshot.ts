@@ -6,6 +6,7 @@ import { monthKey } from "../common/time"
 import { WidgetSnapshot } from "../common/widget_data"
 import { saveWidgetFile } from "../platform/storage"
 import { sourceOf } from "./data_sources"
+import { widgetFillPrice } from "./fuel_price"
 import { hasStatusSource, statusSource, stopsKey, vehicleTank } from "./vehicle_data"
 
 export function saveWidgetSnapshot(data: AppData, now = Date.now()): void {
@@ -47,6 +48,8 @@ export function saveWidgetSnapshot(data: AppData, now = Date.now()): void {
       ts: r.ts, liters: r.liters, grade: r.grade, station: (r.station_id && stationNames.get(r.station_id)) || null, paid: r.paid,
       consumption: consumption.get(r.id) ?? null,
     })),
+    // 加满金额（加满金额设计第 4 节）：小组件按自己读到的车况重算，所以只写价格
+    fill_price: v ? widgetFillPrice(data, v) : null,
   }
   try { saveWidgetFile(JSON.stringify(snap)) } catch { /* 小组件下次再更新 */ }
 }

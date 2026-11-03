@@ -3,15 +3,16 @@
 // - 加油交易按「插件 + 月份」缓存：缺哪几个月就向插件要哪几个月，取出来再按时间筛。包含最近 2 天的月份 10 分钟，更早的 1 天；出错不缓存；
 // - 养修按「插件 + 车辆」缓存 10 分钟（插件化设计 3.4 节）；下拉不看缓存，出错不缓存；
 // - 车辆、行程、车况这里不缓存：行程、车况的缓存和内置的数据源共用，在 app/vehicle_data.ts（插件化设计第 5 节）；
+// - 油价这里不缓存，按地区缓存在 app/fuel_price.ts（加满金额设计第 4 节）；查油价不用登录，结果不改插件的连接状态；
 // - 记下每个插件上次调用的结果（已连接、未连接、已过期），记加油的入口和设置里显示。
 // 纯逻辑：调用插件、读写缓存、时钟和计时都由调用方注入（照 common/stop_source.ts 的写法），Node 测试可用。
 import { RemoteVehicle, ServiceVisit, Trip, VehicleStatus } from "../providers/types"
 import { BJ_OFFSET } from "./format"
 import {
-  FuelTxn, parseDescribe, parseFuel, parseService, parseStatus, parseTrips, parseVehicles, parseVehicleStatus, PluginAction, pluginError, PluginInfo, PluginResult,
+  FuelTxn, parseDescribe, parseFuel, parseFuelPrices, parseService, parseStatus, parseTrips, parseVehicles, parseVehicleStatus, PluginAction, pluginError, PluginInfo, PluginResult,
   PluginState, PluginStatus, PLUGIN_TIMEOUT_MS, stateOfError, stateOfStatus,
 } from "./plugin"
-import { PluginRef } from "./types"
+import { FuelPrices, PluginRef, PriceRegion } from "./types"
 
 export const RECENT_MONTH_TTL_MS = 10 * 60e3
 export const OLD_MONTH_TTL_MS = 86400e3
@@ -56,6 +57,8 @@ export type PluginSource = {
   vehicleStatus(ref: PluginRef, vehicle: string): Promise<PluginResult<VehicleStatus>>
   /** 已结算的进店，新的在前；force：不看缓存（选进店页下拉） */
   service(ref: PluginRef, vehicle: string, opts?: { force?: boolean }): Promise<PluginResult<ServiceVisit[]>>
+  /** 这个地区的挂牌价（2.4） */
+  fuelPrice(ref: PluginRef, region: PriceRegion): Promise<PluginResult<FuelPrices>>
   lastState(pluginId: string): PluginState | null
   /** 移除插件：清掉它的缓存和状态 */
   forget(pluginId: string): void
@@ -209,11 +212,12 @@ export function createPluginSource(deps: PluginSourceDeps): PluginSource {
   }
 
   /** 车辆、行程、车况：排队、超时、相同的请求共用，记下状态；不缓存 */
-  function read<T>(ref: PluginRef, action: PluginAction, params: Record<string, unknown>, parse: (raw: unknown) => PluginResult<T>): Promise<PluginResult<T>> {
+  /** track：按结果记下插件的连接状态；不用登录的动作（油价）不记 */
+  function read<T>(ref: PluginRef, action: PluginAction, params: Record<string, unknown>, parse: (raw: unknown) => PluginResult<T>, track = true): Promise<PluginResult<T>> {
     return once(`${ref.script}|${action}|${JSON.stringify(params)}`, async () => {
       const r = await invoke(ref.script, action, params)
       const parsed = r.ok ? parse(r.value) : r
-      remember(ref.id, parsed.ok ? "connected" : stateOfError(parsed.error))
+      if (track) remember(ref.id, parsed.ok ? "connected" : stateOfError(parsed.error))
       return parsed
     })
   }
@@ -248,6 +252,7 @@ export function createPluginSource(deps: PluginSourceDeps): PluginSource {
     trips: (ref, vehicle, range) => read(ref, "trips", { vehicle, from: range.from, to: range.to }, parseTrips),
     vehicleStatus: (ref, vehicle) => read(ref, "vehicle_status", { vehicle }, parseVehicleStatus),
     service,
+    fuelPrice: (ref, region) => read(ref, "fuel_price", { province: region.province, city: region.city }, parseFuelPrices, false),
     lastState: id => cache().states[id] ?? null,
     forget,
   }

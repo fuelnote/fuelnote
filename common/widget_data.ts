@@ -44,11 +44,14 @@ export type WidgetSnapshot = {
   year_cost: number
   /** 最近 3 次加油，新的在前（1.4 起） */
   recent: WidgetFill[]
+  /** 当前车辆默认标号在所在地区的挂牌价，算加满金额（2.4 起；之前的 widget.json 没有） */
+  fill_price?: { grade: number; price: number } | null
 }
 
 export const EMPTY_WIDGET: WidgetSnapshot = {
   schema_version: 1, updated_at: 0, vehicle: null, status_source: false, status: null, status_link: null, latest_consumption: null, avg_consumption: null,
   last_fuel_ts: null, last_odometer: null, last_fuel_odometer: null, last_fuel_full: false, month: "", month_cost: 0, year: "", year_cost: 0, recent: [],
+  fill_price: null,
 }
 
 export function widgetFilePath(): string {
@@ -164,6 +167,24 @@ export const LOW_FUEL_RATIO = 0.15
 export const LOW_RANGE_KM = 80
 
 /** 油量条的比例（0–1）；不知道油箱容量或油量时为 null */
+/** 加满要加多少升：油箱容量 − 剩余油量，剩余不小于容量时 0（加满金额设计第 1 节）；缺一样时 null */
+export function fillLitres(fuel: number | null, tank: number | null): number | null {
+  if (fuel == null || tank == null || tank <= 0) return null
+  return Math.max(0, tank - fuel)
+}
+
+/** 加满金额：要加的升数 × 挂牌价，四舍五入到元 */
+export function fillAmount(fuel: number | null, tank: number | null, price: number): number | null {
+  const litres = fillLitres(fuel, tank)
+  return litres == null ? null : Math.round(litres * price)
+}
+
+/** 小组件上的加满金额：按摘要里的车况（小组件自己读到的更新）和油记写进来的价格 */
+export function fillAmountNow(s: WidgetSnapshot): number | null {
+  const st = s.status_source ? s.status : null
+  return st && s.fill_price ? fillAmount(st.fuel_l, st.tank_l, s.fill_price.price) : null
+}
+
 export function fuelRatio(fuel: number | null, tank: number | null): number | null {
   if (fuel == null || !tank || tank <= 0) return null
   return Math.max(0, Math.min(1, fuel / tank))

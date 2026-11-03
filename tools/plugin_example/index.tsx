@@ -1,4 +1,4 @@
-// FuelNote 示例插件：油记数据源契约（docs/plugins.md）的示例实现，返回按当前时间编的加油交易、一辆示例车的行程、车况和养修。写插件时照这个改。
+// FuelNote 示例插件：油记数据源契约（docs/plugins.md）的示例实现，返回按当前时间编的加油交易、一辆示例车的行程、车况和养修，以及固定的示例油价。写插件时照这个改。
 // 被油记调用时 Script.queryParameters 带 fuelnote: 1 和 action；处理完一定 Script.exit(对象)，出错时也一样，否则油记会一直等。
 // 自己打开时是连接页：可以切换「已连接」「已过期」「未连接」，用来看油记在出错时的样子。
 import { Button, HStack, Image, List, Navigation, NavigationStack, Script, Section, Spacer, Text, useState } from "scripting"
@@ -9,6 +9,8 @@ const CONTRACT = 1
 const STATE_KEY = "example.state"
 const ACCOUNT = "示例账号 ****0001"
 const LABELS: Record<State, string> = { connected: "已连接", expired: "已过期", disconnected: "未连接" }
+/** 示例油价（元/升），不是哪里的真实价格 */
+const EXAMPLE_PRICES = [{ grade: 92, price: 7.5 }, { grade: 95, price: 8 }, { grade: 98, price: 9 }, { grade: 0, price: 7.2 }]
 
 function readState(): State {
   const s = Storage.get<string>(STATE_KEY)
@@ -177,12 +179,19 @@ function ConnectPage() {
 
 async function handle(action: string, q: Record<string, any>): Promise<unknown> {
   if (action === "describe") {
-    return { ok: true, contract: CONTRACT, id: "example", name: "示例", version: Script.metadata.version, capabilities: ["fuel", "vehicles", "trips", "vehicle_status", "service"] }
+    return { ok: true, contract: CONTRACT, id: "example", name: "示例", version: Script.metadata.version, capabilities: ["fuel", "vehicles", "trips", "vehicle_status", "service", "fuel_price"] }
   }
   if (action === "status") return status()
   if (action === "connect") {
     await Navigation.present({ element: <ConnectPage /> })
     return status()
+  }
+  // 油价（2.4）：不用登录，未连接、已过期时照样返回；地区名用传来的省名，生效时间是本月 1 日 0 点，价格固定
+  if (action === "fuel_price") {
+    const province = typeof q.province === "string" ? q.province.trim() : ""
+    if (!province) return { ok: false, error: "failed", message: "没有给省份" }
+    const d = new Date()
+    return { ok: true, region: province, effective: new Date(d.getFullYear(), d.getMonth(), 1).getTime(), items: EXAMPLE_PRICES }
   }
   const known = ["fuel", "vehicles", "trips", "vehicle_status", "service"]
   if (!known.includes(action)) return { ok: false, error: "unsupported", message: `示例插件不支持「${action}」` }

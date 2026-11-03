@@ -8,7 +8,7 @@ import { readWidgetSnapshot, StatusLink, WidgetSnapshot } from "./widget_data"
 import { refreshWidgetStatus as refresh } from "./widget_refresh"
 
 export {
-  consumptionLevel, consumptionTrend, daysAgoText, drivenSinceFill, fillDay, fuelRatio, fuelTone, moneyText, monthCostNow, readWidgetSnapshot,
+  consumptionLevel, consumptionTrend, daysAgoText, drivenSinceFill, fillAmountNow, fillDay, fuelRatio, fuelTone, moneyText, monthCostNow, readWidgetSnapshot,
   WIDGET_STATUS_MAX_AGE_MS, widgetRefreshDate, yearCostNow,
 } from "./widget_data"
 export type { ConsumptionLevel, FuelTone, Trend, WidgetFill, WidgetSnapshot, WidgetStatus } from "./widget_data"

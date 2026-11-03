@@ -315,7 +315,14 @@ export type Settings = {
 }
 
 /** 数据源插件能提供的数据（docs/plugins.md 第 4 节）；提供 trips、vehicle_status、service 之一的必须提供 vehicles */
-export type PluginCapability = "fuel" | "vehicles" | "trips" | "vehicle_status" | "service"
+export type PluginCapability = "fuel" | "vehicles" | "trips" | "vehicle_status" | "service" | "fuel_price"
+
+/** 挂牌价（docs/plugins.md 第 8 节，2.4）：grade 是 92、95、98、0，price 是元/升 */
+export type FuelPrice = { grade: number; price: number }
+/** 一个地区的挂牌价：region 是显示给用户的地区名，effective 是这次调价的生效时间 */
+export type FuelPrices = { region: string; effective: number | null; items: FuelPrice[] }
+/** 交给插件查油价的地区：省、市的短名（「上海」「广西」「南宁」，加满金额设计第 3 节） */
+export type PriceRegion = { province: string; city: string }
 
 /** 添加的插件：脚本名（`Script.run` 用）、插件自己的 id、名称、提供的数据 */
 export type PluginRef = { script: string; id: string; name: string; capabilities: PluginCapability[] }

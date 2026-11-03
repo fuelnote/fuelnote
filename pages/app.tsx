@@ -3,7 +3,7 @@
 import { AppEvents, Navigation, Script, Tab, TabView, Widget, useEffect, useMemo, useObservable, useRef, useState } from "scripting"
 import {
   addVehicle, AppData, batchInfo, batchPerks, cachedStatus, canReadStatus, categoriesFor, categoryName, currentVehicle, defaultCategory, defaultUse,
-  deleteInsurance, deletePerks, deleteRecord, deleteStore, deleteUse, dismissRenewal, expenseEntries, ExpenseEntry,
+  deleteInsurance, deletePerks, deleteRecord, deleteStore, deleteUse, dismissRenewal, expenseEntries, ExpenseEntry, fillViewFor, pricePluginId, refreshFuelPrice,
   ExpenseRecord, expenseUses, finishAutoBackup, flushAutoBackup, fmtDate, fmtDateTime, insuranceForRecord, InsuranceYear, LedgerRecord, loadData, MAINTENANCE_CATEGORY, newId,
   NewVehicle, Perk, perkBook, PerkUse, readVehicleStatus, remaining, sameName, saveBatch, saveExpense, saveFuel,
   saveInsurance, savePerk, savePerks, saveStore, saveUse, saveWidgetSnapshot, scheduleAutoBackup, sourceOf, Store, toExpenseData, toFuelData, updateSettings,
@@ -52,8 +52,11 @@ export function App({ action, image, notice }: { action: string | null; image: U
 
   /** 数据放回去；label 不是 undefined 时标题下方的提示一起换（同一次渲染） */
   const setData = (d: AppData, label?: string | null) => {
+    const priceChanged = pricePluginId(ref.current) !== pricePluginId(d)
     ref.current = d
     setUi(u => ({ data: d, message: label === undefined ? u.message : label }))
+    // 添加或移除了提供油价的插件：重新读油价（加满金额设计第 4 节）
+    if (priceChanged) void refreshPrice()
     saveWidgetSnapshot(d)
     Widget.reloadAll()
     // 改了数据就自动备份：1 分钟内没有新的修改再写（只是界面状态变了时不写）
@@ -126,14 +129,18 @@ export function App({ action, image, notice }: { action: string | null; image: U
   function statusView(d: AppData): StatusView | null {
     const v = currentVehicle(d)
     if (!v || !v.provider || !canReadStatus(d, v)) return null
-    return { snapshot: cachedStatus(d, v), tank: vehicleTank(d, v), busy: statusBusy, error: statusError, source: sourceOf(d, v)?.name || "车辆数据" }
+    const snapshot = cachedStatus(d, v)
+    return {
+      snapshot, tank: vehicleTank(d, v), busy: statusBusy, error: statusError, source: sourceOf(d, v)?.name || "车辆数据",
+      fill: fillViewFor(d, v, snapshot ? snapshot.status : null),
+    }
   }
 
   /** 车况详情：看完整数据、重新读取 */
   function openStatus() {
     Navigation.present({
       element: <StatusSheet
-        get={() => statusView(getData()) || { snapshot: null, tank: null, busy: false, error: null, source: "车辆数据" }}
+        get={() => statusView(getData()) || { snapshot: null, tank: null, busy: false, error: null, source: "车辆数据", fill: null }}
         refresh={() => refreshStatus(true)}
       />,
     })
@@ -141,7 +148,20 @@ export function App({ action, image, notice }: { action: string | null; image: U
 
   /** 当前车辆的车况（2.3 起打开油记时不再读行程：记录页没有加油停车提示了，插件化设计 D2） */
   function refreshVehicle(force = false) {
+    void refreshPrice()
     return refreshStatus(force)
+  }
+
+  /** 读油价（加满金额设计第 4 节）：一天一次、地区变了才调插件，和车况互不等待；变了就更新小组件和「当前」 */
+  async function refreshPrice() {
+    try {
+      if (!(await refreshFuelPrice(getData()))) return
+    } catch {
+      return
+    }
+    saveWidgetSnapshot(getData())
+    Widget.reloadAll()
+    setStatusVersion(Date.now())
   }
 
   /** 添加车辆（设计文档 17.4 节）：从车辆菜单、设置、没有车辆时进入；添加后切换到它 */

@@ -2,7 +2,7 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
 import {
-  addProblem, capabilityLine, parseDescribe, parseFuel, parseService, parseStatus, parseTrips, parseVehicles, parseVehicleStatus, PLUGIN_TIMEOUT_MS, pluginRef,
+  addProblem, capabilityLine, parseDescribe, parseFuel, parseFuelPrices, parseService, parseStatus, parseTrips, parseVehicles, parseVehicleStatus, PLUGIN_TIMEOUT_MS, pluginRef,
   pluginStateText, stateOfError, stateOfStatus,
 } from "../common/plugin"
 import { normalizeLedger } from "../common/ledger_file"
@@ -189,4 +189,25 @@ test("service：已结算的进店，新的在前；缺字段或类型不对的�
   const bad = parseService({ ok: true })
   assert.ok(!bad.ok && bad.error.kind === "invalid")
   assert.equal(PLUGIN_TIMEOUT_MS.service, 60000)
+})
+
+test("fuel_price（2.4）：地区、生效时间、各标号的挂牌价；不认识的标号、超出范围的价格丢掉，同一标号只留第一项，两位小数；等 10 秒", () => {
+  const r = parseFuelPrices({
+    ok: true, region: " 上海 ", effective: T,
+    items: [{ grade: 92, price: 8.854 }, { grade: 95, price: 9.41 }, { grade: 95, price: 9.99 }, { grade: 97, price: 9.5 }, { grade: 98, price: 0 }, { grade: 0, price: 8.57 }, { grade: "98", price: 11.41 }, null],
+  })
+  assert.ok(r.ok)
+  assert.deepEqual(r.value, { region: "上海", effective: T, items: [{ grade: 92, price: 8.85 }, { grade: 95, price: 9.41 }, { grade: 0, price: 8.57 }] })
+  const noDate = parseFuelPrices({ ok: true, region: "上海", effective: "10/29", items: [{ grade: 95, price: 9.41 }] })
+  assert.ok(noDate.ok && noDate.value.effective === null)
+  for (const bad of [{ ok: true, items: [{ grade: 95, price: 9.41 }] }, { ok: true, region: "上海", items: {} }, { ok: true, region: "上海", items: [{ grade: 97, price: 9 }] }]) {
+    const x = parseFuelPrices(bad)
+    assert.ok(!x.ok && x.error.kind === "invalid")
+  }
+  const err = parseFuelPrices({ ok: false, error: "network", message: "连不上" })
+  assert.ok(!err.ok && err.error.kind === "network")
+  assert.equal(PLUGIN_TIMEOUT_MS.fuel_price, 10000)
+  const d = parseDescribe({ ok: true, contract: 1, id: "ejoy", name: "易捷", version: "0.3.0", capabilities: ["fuel", "fuel_price"] })
+  assert.ok(d.ok && d.value.capabilities.includes("fuel_price"))
+  assert.equal(capabilityLine(["fuel", "fuel_price"]), "加油交易、油价")
 })

@@ -59,8 +59,13 @@ import { StoreDetail } from "../../pages/store_detail"
 import { ServicePick } from "../../pages/service_pick"
 import { autoTitle, categoryName, DataSource, entryTitle, expenseDuplicateText, findExpenseDuplicate, oilChangeNumbers, saveServiceVisit, serviceForm, ServiceVisit, toExpenseData, toFuelData } from "../../common/model"
 import { addPlugin, connectPlugin, EXAMPLE_PLUGIN, installedPlugins, pluginsOf, pluginState, pluginStatus, removePlugin } from "../../common/model"
-import { dataSourceById, missingSources, readVehicleStatus, savePerk, serviceSourceOf, vehicleStops } from "../../common/model"
+import { cachedStatus, dataSourceById, missingSources, readVehicleStatus, savePerk, serviceSourceOf, vehicleStops, vehicleTank } from "../../common/model"
 import { pluginFuel } from "../../app/plugins"
+import { commit } from "../../app/store"
+import { fillViewFor, refreshFuelPrice } from "../../app/fuel_price"
+import { PriceCache } from "../../common/fill_cost"
+import { readCache, writeCache } from "../../platform/storage"
+import { StatusSheet } from "../../pages/fuel_status"
 import { PluginAdd } from "../../pages/plugin_add"
 import { FuelPick } from "../../pages/fuel_pick"
 import { FuelForm } from "../../pages/fuel_form"
@@ -80,7 +85,7 @@ const SANDBOX = "FuelNoteCheck"
 setDataRoot(SANDBOX)
 
 /** 改了这个值，手机重新运行后报到的 STAMP 跟着变（确认跑的是新代码） */
-export const STAMP = "58"
+export const STAMP = "59"
 const PORT = 3200
 const DAY = 86400e3
 const BJ_OFFSET = 8 * 3600e3
@@ -1000,7 +1005,7 @@ async function runPlugin(): Promise<{ steps: Step[] }> {
 
   data = await addPlugin(getData, EXAMPLE_PLUGIN)
   const ref = pluginsOf(data).find(p => p.script === EXAMPLE_PLUGIN)
-  add(steps, "添加：调一次 describe，存进设置（id、名称、提供的数据）", !!ref && ref.id === "example" && ref.capabilities.join() === "fuel,vehicles,trips,vehicle_status,service",
+  add(steps, "添加：调一次 describe，存进设置（id、名称、提供的数据）", !!ref && ref.id === "example" && ref.capabilities.join() === "fuel,vehicles,trips,vehicle_status,service,fuel_price",
     ref ? JSON.stringify(ref) : "没有")
   if (!ref) return { steps }
   let dup = ""
@@ -1281,6 +1286,75 @@ async function runMap(): Promise<{ steps: Step[] }> {
   return { steps }
 }
 
+// ---------- 加满金额（2.4，加满金额设计 docs/specs/2026-11-03-fill-cost.md） ----------
+
+const FILL_CAR = "check-fill-car"
+/** 检查用的车型：车型参数缓存里只有油箱 55 L，和车况的示例 32.5 L 配着算 */
+const FILL_MODEL = 990001
+
+/** 加满金额：示例插件的油价（95# 8.00）× 示例车况空出来的 22.5 L = ¥180；移除插件后只写升数（显-5）；小组件的摘要里有价格 */
+async function runFill(): Promise<{ steps: Step[] }> {
+  const steps: Step[] = []
+  let data = loadData().data
+  const getData = () => data
+  if (!pluginsOf(data).some(p => p.script === EXAMPLE_PLUGIN)) data = await addPlugin(getData, EXAMPLE_PLUGIN)
+  const ref = pluginsOf(data).find(p => p.script === EXAMPLE_PLUGIN)
+  add(steps, "示例插件提供油价", !!ref && ref.capabilities.includes("fuel_price"), ref ? ref.capabilities.join("、") : "没有添加")
+  if (!ref) return { steps }
+
+  const catalog = readCache<Record<string, any>>("catalog_cache.json") || { schema_version: 1 }
+  writeCache("catalog_cache.json", { ...catalog, specs: { ...(catalog.specs || {}), [String(FILL_MODEL)]: { id: FILL_MODEL, name: "检查用车型", pinpai: null, chexi: null, vehicle_type: 1, fuel_type: "汽油", gas_type: "95号", engine: null, gearbox: null, tank: 55 } } })
+  const car: Vehicle = {
+    id: FILL_CAR, name: "示例车（加满）", default_grade: 95, created_ts: Date.now(), xxyh_car: null, provider: { id: ref.id, vehicle_id: "example-car", name: "示例车" },
+    profile: { model: FILL_MODEL, model_name: "检查用车型", pinpai: null, chexi: null, vehicle_type: 1, replenish_mode: 1, gas_type: "95号", buy_date: null },
+  }
+  data = commit(data, { ...data.ledger, vehicles: [...data.ledger.vehicles.filter(v => v.id !== FILL_CAR), car], settings: { ...data.ledger.settings, current_vehicle_id: FILL_CAR } })
+  let snap: Awaited<ReturnType<typeof readVehicleStatus>> | null = null
+  try { snap = await readVehicleStatus(data, car, true) } catch (e) { add(steps, "读示例车况", false, errorText(e)) }
+  add(steps, "示例车况：剩余 32.5 L，油箱 55 L（车型参数）", !!snap && snap.status.fuel_l === 32.5 && vehicleTank(data, car) === 55,
+    snap ? `${snap.status.fuel_l} L / ${vehicleTank(data, car)} L` : "没有车况")
+
+  writeCache("fuel_price.json", null)
+  const t0 = Date.now()
+  const changed = await refreshFuelPrice(data)
+  const cache = readCache<PriceCache>("fuel_price.json")
+  add(steps, "读油价：定出地区（手机的位置，没有时最近用过的油站），调示例插件，存下地区和价格（区-1、区-2）",
+    changed && !!cache && !!cache.region.province && cache.plugin.id === ref.id && cache.prices.items.some(i => i.grade === 95 && i.price === 8),
+    cache ? `${cache.from === "location" ? "按位置" : "按油站"} · ${cache.region.province} ${cache.region.city} · ${cache.prices.region}；${Date.now() - t0} ms` : "没有缓存")
+  const again = await refreshFuelPrice(data)
+  add(steps, "再读一次：地区没变、不到一天，不调插件（价-2）", !again)
+
+  const view = fillViewFor(data, car, snap ? snap.status : null)
+  add(steps, "车况详情「加满」：¥180 · 23 L，95# 挂牌价 8.00，说明写地区和插件（显-1 或显-2）",
+    !!view && view.amount === 180 && view.litres === 23 && view.price === 8 && view.priceLabel === "95# 挂牌价" && view.note.includes("油价来自示例"),
+    view ? `¥${view.amount} · ${view.litres} L；${view.note}` : "没有这一组")
+
+  saveWidgetSnapshot(data)
+  const readWidget = () => JSON.parse(FileManager.readAsStringSync(`${dataDirectory()}/widget.json`)) as { fill_price?: { grade: number; price: number } | null }
+  const widget = readWidget()
+  add(steps, "小组件的摘要写着这辆车默认标号的价格", widget.fill_price?.grade === 95 && widget.fill_price?.price === 8, JSON.stringify(widget.fill_price ?? null))
+
+  const removed = removePlugin(data, ref.id)
+  const none = fillViewFor(removed, car, snap ? snap.status : null)
+  add(steps, "移除示例插件：不用它的缓存，「加满」只写升数（显-5）", !!none && none.amount == null && none.note.startsWith("添加提供油价的数据源插件后"), none ? none.note : "没有这一组")
+  saveWidgetSnapshot(removed)
+  add(steps, "移除后小组件的摘要没有价格（和 2.3 一样）", readWidget().fill_price == null)
+  data = await addPlugin(() => removed, EXAMPLE_PLUGIN)
+  saveWidgetSnapshot(data)
+  return { steps }
+}
+
+/** 加满金额的截图（/run/fill 之后）：记录页「当前」、车况详情 */
+function fillScreen(screen: string, data: AppData): VirtualNode | null {
+  const car = data.ledger.vehicles.find(v => v.id === FILL_CAR)
+  if (!car) return null
+  const snapshot = cachedStatus(data, car)
+  const view = { snapshot, tank: vehicleTank(data, car), busy: false, error: null, source: "示例", fill: fillViewFor(data, car, snapshot ? snapshot.status : null) }
+  if (screen === "fill-current") return <FuelTab data={data} subtitle={car.name} status={view} openStatus={noop} actions={fuelStub} />
+  if (screen === "fill-sheet") return <StatusSheet get={() => view} refresh={async () => null} />
+  return null
+}
+
 /** 地图搜索的截图（/run/map 之后）：设置页（没有「油站搜索」）、选择门店（附近、搜索结果）、门店详情（地图上选的、2.1 存着营业时间的） */
 function mapScreen(screen: string, data: AppData): VirtualNode | null {
   const stores = benefitStub(data).stores
@@ -1349,6 +1423,7 @@ function screenElement(screen: string): VirtualNode | null {
   if (screen.startsWith("service-")) return serviceScreen(screen, data)
   if (screen.startsWith("plugin-")) return pluginScreen(screen, data)
   if (screen.startsWith("map-")) return mapScreen(screen, data)
+  if (screen.startsWith("fill-")) return fillScreen(screen, data)
   if (screen.startsWith("bare-")) return bareScreen(screen, data)
   // 2.0.0-beta.4：备份与恢复、恢复列表、看一眼再恢复（最新的一份恢复前副本）、备份密码；用记账留下的「恢复前」副本
   if (screen.startsWith("backup-")) {
@@ -1468,6 +1543,7 @@ export function CheckPage() {
     server.registerAsyncHandler("/run/service", guarded("养修", async req => jsonResponse(await runService(bodyJson<ServiceBody>(req)))))
     server.registerAsyncHandler("/run/plugin", guarded("数据源插件", async () => jsonResponse(await runPlugin())))
     server.registerAsyncHandler("/run/map", guarded("地图搜索", async () => jsonResponse(await runMap())))
+    server.registerAsyncHandler("/run/fill", guarded("加满金额", async () => jsonResponse(await runFill())))
     server.registerAsyncHandler("/run/bare", guarded("什么都不接", async () => jsonResponse(await runBare())))
     server.registerAsyncHandler("/shot", guarded("截图", async req =>
       pngResponse(await takeShot(query(req, "screen"), query(req, "scheme") === "dark" ? "dark" : "light", Number(query(req, "height")) || 0))))

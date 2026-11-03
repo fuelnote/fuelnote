@@ -4,7 +4,7 @@ import { joinPath } from "../common/files"
 import { AppData } from "../common/ledger"
 import { addProblem, FuelTxn, PLUGIN_MARKER, pluginRef, PluginResult, PluginState, PluginStatus } from "../common/plugin"
 import { createPluginSource, PluginCacheFile } from "../common/plugin_source"
-import { PluginCapability, PluginRef } from "../common/types"
+import { FuelPrices, PluginCapability, PluginRef, PriceRegion } from "../common/types"
 import { callPlugin } from "../platform/plugin_bridge"
 import { isMainDataRoot, readCache, writeCache } from "../platform/storage"
 import { RemoteVehicle, ServiceVisit, Trip, VehicleStatus } from "../providers/types"
@@ -100,3 +100,6 @@ export const pluginVehicleStatus = (ref: PluginRef, vehicle: string): Promise<Pl
 export function pluginService(ref: PluginRef, vehicle: string, force = false): Promise<PluginResult<ServiceVisit[]>> {
   return source.service(ref, vehicle, { force })
 }
+
+/** 这个地区的挂牌价（加满金额设计第 2 节）；按地区的缓存在 app/fuel_price.ts */
+export const pluginFuelPrice = (ref: PluginRef, region: PriceRegion): Promise<PluginResult<FuelPrices>> => source.fuelPrice(ref, region)

@@ -7,9 +7,10 @@
 // - 油量条的宽度按 Widget.displaySize 算：主屏幕小组件里形状的宽度以 frame 为准（参考本地脚本 SGCC_Mod 的做法）。
 // 车况超过 1 小时时，小组件用油记的凭据自己读一次再显示（设计文档 18.3 节第 2 步）；数据要在 Widget.present 之前准备好（Scripting 文档）。
 // 显示车况的 1 小时后刷新，其他的每天零点后刷新。只从 common/widget_runtime 导入（打包器的限制，设计文档 9.4 节）。
+// 加满金额（2.4，加满金额设计第 5 节）：油记写进价格，这里按车况的剩余油量算；没有金额时和 2.3 一样。
 import { AccessoryWidgetBackground, Capsule, Circle, DynamicShapeStyle, Gauge, HStack, Image, Link, ProgressView, Rectangle, Script, Spacer, Text, VStack, Widget, ZStack } from "scripting"
 import {
-  consumptionLevel, consumptionTrend, daysAgoText, drivenSinceFill, fillDay, fuelRatio, fuelTone, monthCostNow, moneyText,
+  consumptionLevel, consumptionTrend, daysAgoText, drivenSinceFill, fillAmountNow, fillDay, fuelRatio, fuelTone, monthCostNow, moneyText,
   readWidgetSnapshot, refreshWidgetStatus, widgetRefreshDate, WidgetFill, WidgetSnapshot, WidgetStatus, yearCostNow,
 } from "./common/widget_runtime"
 
@@ -123,6 +124,7 @@ function Cell({ label, value, unit, compact }: { label: string; value: string; u
 /** 四格：有车况时为剩余油量、续航；没有车况时为平均油耗、上次加油。下面一行是本月、今年的油费（只算加油，设计文档 21.3 节） */
 function CellGrid({ s, compact }: { s: WidgetSnapshot; compact: boolean }) {
   const st = statusOf(s)
+  const fill = fillAmountNow(s)
   const gap = compact ? 6 : 8
   return <VStack spacing={gap} frame={{ maxWidth: "infinity", maxHeight: "infinity" }}>
     <HStack spacing={gap}>
@@ -133,10 +135,16 @@ function CellGrid({ s, compact }: { s: WidgetSnapshot; compact: boolean }) {
         ? <Cell label="续航" value={st.range_km == null ? "—" : String(st.range_km)} unit="km" compact={compact} />
         : <Cell label="上次加油" value={s.last_fuel_ts ? daysAgoText(s.last_fuel_ts) : "—"} compact={compact} />}
     </HStack>
-    <HStack spacing={gap}>
-      <Cell label="本月油费" value={moneyText(monthCostNow(s), 2)} compact={compact} />
-      <Cell label="今年油费" value={moneyText(yearCostNow(s), 0)} compact={compact} />
-    </HStack>
+    {/* 有加满金额时左边是它、右边本月油费（F6，画稿 R22WidgetB）；没有时照旧本月、今年 */}
+    {fill != null
+      ? <HStack spacing={gap}>
+        <Cell label="加满约" value={String(fill)} unit="元" compact={compact} />
+        <Cell label="本月油费" value={moneyText(monthCostNow(s), 2)} compact={compact} />
+      </HStack>
+      : <HStack spacing={gap}>
+        <Cell label="本月油费" value={moneyText(monthCostNow(s), 2)} compact={compact} />
+        <Cell label="今年油费" value={moneyText(yearCostNow(s), 0)} compact={compact} />
+      </HStack>}
   </VStack>
 }
 
@@ -297,13 +305,14 @@ function Large({ s }: { s: WidgetSnapshot }) {
   </VStack>
 }
 
-/** 锁屏圆形：中间是最近油耗，圆环是剩余油量；没有车况或不知道油箱容量时只有油耗 */
+/** 锁屏圆形：圆环是剩余油量；中间有加满金额时写金额（F11，画稿 R24Circular），否则写最近油耗；没有车况或不知道油箱容量时只有油耗 */
 function Circular({ s }: { s: WidgetSnapshot }) {
   const st = s.status_source ? s.status : null
   const ratio = st ? fuelRatio(st.fuel_l, st.tank_l) : null
+  const fill = fillAmountNow(s)
   const center = <VStack spacing={0}>
-    <Text font="headline" fontDesign="rounded" minScaleFactor={0.6} lineLimit={1} widgetAccentable>{num(s.latest_consumption, 1)}</Text>
-    <Text font={8} foregroundStyle="secondaryLabel">L/100km</Text>
+    <Text font="headline" fontDesign="rounded" minScaleFactor={0.6} lineLimit={1} widgetAccentable>{fill != null ? `¥${fill}` : num(s.latest_consumption, 1)}</Text>
+    <Text font={8} foregroundStyle="secondaryLabel">{fill != null ? "加满约" : "L/100km"}</Text>
   </VStack>
   if (ratio == null) {
     return <ZStack widgetURL={addFuelURL()}>
@@ -316,10 +325,11 @@ function Circular({ s }: { s: WidgetSnapshot }) {
   </ZStack>
 }
 
-/** 锁屏横条：车名、最近油耗；有车况时下面是油量条，否则是上次加油 */
+/** 锁屏横条：车名、最近油耗；有车况时下面是油量条和剩余油量，有加满金额时跟在后面（F14，画稿 R23Lock），否则是上次加油 */
 function Rectangular({ s }: { s: WidgetSnapshot }) {
   const st = s.status_source ? s.status : null
   const ratio = st ? fuelRatio(st.fuel_l, st.tank_l) : null
+  const fill = fillAmountNow(s)
   return <VStack alignment="leading" spacing={2} frame={{ maxWidth: "infinity", alignment: "leading" }} widgetURL={addFuelURL()}>
     <HStack spacing={4}>
       <Image systemName="fuelpump.fill" font="caption" />
@@ -332,15 +342,17 @@ function Rectangular({ s }: { s: WidgetSnapshot }) {
     {st
       ? <HStack spacing={6}>
         {ratio != null ? <ProgressView value={ratio} /> : null}
-        <Text font="caption" fontDesign="rounded">{`${litres(st)} L`}</Text>
+        <Text font="caption" fontDesign="rounded" lineLimit={1}>{fill != null ? `${litres(st)} L · 加满 ¥${fill}` : `${litres(st)} L`}</Text>
       </HStack>
       : <Text font="caption" foregroundStyle="secondaryLabel" lineLimit={1}>{lastFuelText(s)}</Text>}
   </VStack>
 }
 
+/** 锁屏一行：最近油耗；有加满金额时后面写金额，换掉剩余油量（F14，画稿 R23Lock） */
 function Inline({ s }: { s: WidgetSnapshot }) {
   const st = s.status_source ? s.status : null
-  const tail = st ? ` · 余 ${litres(st)} L` : s.last_fuel_ts ? ` · ${daysAgoText(s.last_fuel_ts)}` : ""
+  const fill = fillAmountNow(s)
+  const tail = fill != null ? ` · 加满 ¥${fill}` : st ? ` · 余 ${litres(st)} L` : s.last_fuel_ts ? ` · ${daysAgoText(s.last_fuel_ts)}` : ""
   return <HStack widgetURL={addFuelURL()}>
     <Image systemName="fuelpump.fill" />
     <Text>{`${num(s.latest_consumption, 1)} L/100km${tail}`}</Text>
