@@ -2,7 +2,7 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
 import {
-  addProblem, capabilityLine, parseDescribe, parseFuel, parseFuelPrices, parseService, parseStatus, parseTrips, parseVehicles, parseVehicleStatus, PLUGIN_TIMEOUT_MS, pluginRef,
+  addProblem, capabilityLine, parseDescribe, parseFuel, parseFuelPrices, parseService, refreshedRef, parseStatus, parseTrips, parseVehicles, parseVehicleStatus, PLUGIN_TIMEOUT_MS, pluginRef,
   pluginStateText, stateOfError, stateOfStatus,
 } from "../common/plugin"
 import { normalizeLedger } from "../common/ledger_file"
@@ -97,7 +97,7 @@ test("添加前：没有提供数据、提供了车辆数据却没有车辆、id
   assert.equal(addProblem(info("example", ["vehicles", "trips", "vehicle_status"]), added), null)
   assert.equal(addProblem(info("volvo_cn", ["vehicles", "trips", "vehicle_status", "service"]), added), null)
   assert.equal(addProblem(info("ejoy"), added), "「易捷」已经添加过了")
-  assert.deepEqual(pluginRef("FuelNote 示例插件", info("example")), { script: "FuelNote 示例插件", id: "example", name: "示例", capabilities: ["fuel"] })
+  assert.deepEqual(pluginRef("FuelNote 示例插件", info("example")), { script: "FuelNote 示例插件", id: "example", name: "示例", capabilities: ["fuel"], version: "1.0.0" })
 })
 
 test("显示：提供的数据、连接状态；上次调用的结果", () => {
@@ -210,4 +210,14 @@ test("fuel_price（2.4）：地区、生效时间、各标号的挂牌价；不�
   const d = parseDescribe({ ok: true, contract: 1, id: "ejoy", name: "易捷", version: "0.3.0", capabilities: ["fuel", "fuel_price"] })
   assert.ok(d.ok && d.value.capabilities.includes("fuel_price"))
   assert.equal(capabilityLine(["fuel", "fuel_price"]), "加油交易、油价")
+})
+
+test("插件更新后（2.4）：版本变了重新 describe，名称、提供的数据、版本跟着更新；id 变了或不合规时保留原来的", () => {
+  const old: PluginRef = { script: "FuelNoteEjoy", id: "ejoy", name: "易捷", capabilities: ["fuel"] }
+  assert.deepEqual(refreshedRef(old, { id: "ejoy", name: "易捷", version: "0.3.0", capabilities: ["fuel", "fuel_price"] }, [old]),
+    { script: "FuelNoteEjoy", id: "ejoy", name: "易捷", capabilities: ["fuel", "fuel_price"], version: "0.3.0" })
+  assert.equal(refreshedRef(old, { id: "other", name: "别的", version: "1.0", capabilities: ["fuel"] }, [old]), null)
+  assert.equal(refreshedRef(old, { id: "ejoy", name: "易捷", version: "0.3.0", capabilities: ["trips"] }, [old]), null)
+  const same = { ...old, version: "0.3.0", capabilities: ["fuel", "fuel_price"] as PluginCapability[] }
+  assert.equal(refreshedRef(same, { id: "ejoy", name: "易捷", version: "0.3.0", capabilities: ["fuel", "fuel_price"] }, [same]), null)
 })

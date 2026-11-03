@@ -358,7 +358,18 @@ export function addProblem(info: PluginInfo, plugins: PluginRef[]): string | nul
 }
 
 export function pluginRef(script: string, info: PluginInfo): PluginRef {
-  return { script, id: info.id, name: info.name, capabilities: info.capabilities }
+  return { script, id: info.id, name: info.name, capabilities: info.capabilities, version: info.version }
+}
+
+/**
+ * 插件更新后（2.4）重新 describe 的结果：名称、提供的数据、版本换成新的。id 变了、提供的数据不合规（addProblem）、
+ * 都没变时 null（保留原来的）。新版本加了能力（例如易捷 0.3.0 的油价），不用移除再添加
+ */
+export function refreshedRef(ref: PluginRef, info: PluginInfo, plugins: PluginRef[]): PluginRef | null {
+  if (info.id !== ref.id || addProblem(info, plugins.filter(p => p.id !== ref.id))) return null
+  const next = pluginRef(ref.script, info)
+  const same = next.name === ref.name && next.version === ref.version && next.capabilities.join() === ref.capabilities.join()
+  return same ? null : next
 }
 
 // ---------- 状态 ----------

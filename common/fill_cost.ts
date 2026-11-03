@@ -69,9 +69,9 @@ function since(p: FuelPrices): string {
 
 /** 显-1～显-9：不知道剩余油量或油箱容量时 null（没有这一组） */
 export function fillView(i: FillInput): FillView | null {
-  const exact = fillLitres(i.fuel, i.tank)
-  if (exact == null) return null
-  const litres = Math.round(exact)
+  if (fillLitres(i.fuel, i.tank) == null) return null
+  // 显示的升数和「剩余 33 L」对得上（油箱 − 取整后的剩余）；金额按没取整的算
+  const litres = Math.max(0, Math.round(i.tank!) - Math.round(i.fuel!))
   const only = (note: string): FillView => ({ litres, amount: null, priceLabel: null, price: null, note })
   if (!i.plugin) return only("添加提供油价的数据源插件后，按所在地区的挂牌价算出加满金额。")
   if (i.grade == null) return only("在车辆设置里选好默认标号后，按它的挂牌价算出加满金额。")

@@ -58,7 +58,7 @@ import { StorePicker } from "../../pages/store_picker"
 import { StoreDetail } from "../../pages/store_detail"
 import { ServicePick } from "../../pages/service_pick"
 import { autoTitle, categoryName, DataSource, entryTitle, expenseDuplicateText, findExpenseDuplicate, oilChangeNumbers, saveServiceVisit, serviceForm, ServiceVisit, toExpenseData, toFuelData } from "../../common/model"
-import { addPlugin, connectPlugin, EXAMPLE_PLUGIN, installedPlugins, pluginsOf, pluginState, pluginStatus, removePlugin } from "../../common/model"
+import { addPlugin, connectPlugin, EXAMPLE_PLUGIN, installedPlugins, pluginsOf, pluginState, pluginStatus, refreshPlugins, removePlugin } from "../../common/model"
 import { cachedStatus, dataSourceById, missingSources, readVehicleStatus, savePerk, serviceSourceOf, vehicleStops, vehicleTank } from "../../common/model"
 import { pluginFuel } from "../../app/plugins"
 import { commit } from "../../app/store"
@@ -85,7 +85,7 @@ const SANDBOX = "FuelNoteCheck"
 setDataRoot(SANDBOX)
 
 /** 改了这个值，手机重新运行后报到的 STAMP 跟着变（确认跑的是新代码） */
-export const STAMP = "59"
+export const STAMP = "60"
 const PORT = 3200
 const DAY = 86400e3
 const BJ_OFFSET = 8 * 3600e3
@@ -1292,14 +1292,18 @@ const FILL_CAR = "check-fill-car"
 /** 检查用的车型：车型参数缓存里只有油箱 55 L，和车况的示例 32.5 L 配着算 */
 const FILL_MODEL = 990001
 
-/** 加满金额：示例插件的油价（95# 8.00）× 示例车况空出来的 22.5 L = ¥180；移除插件后只写升数（显-5）；小组件的摘要里有价格 */
+/** 加满金额：示例插件的油价（95# 8.00）× 示例车况空出来的 22.5 L = ¥180（写 22 L，和「剩余 33 L」对得上）；插件更新后重读提供的数据；移除插件后只写升数（显-5）；小组件的摘要里有价格 */
 async function runFill(): Promise<{ steps: Step[] }> {
   const steps: Step[] = []
   let data = loadData().data
   const getData = () => data
   if (!pluginsOf(data).some(p => p.script === EXAMPLE_PLUGIN)) data = await addPlugin(getData, EXAMPLE_PLUGIN)
+  // 像 2.3 添加的插件：没有记版本，提供的数据是旧的。打开油记时 refreshPlugins 按 script.json 的版本发现更新，重新 describe
+  data = updateSettings(data, { plugins: pluginsOf(data).map(p => (p.script === EXAMPLE_PLUGIN ? { script: p.script, id: p.id, name: p.name, capabilities: p.capabilities.filter(c => c !== "fuel_price") } : p)) })
+  data = (await refreshPlugins(getData)) ?? data
   const ref = pluginsOf(data).find(p => p.script === EXAMPLE_PLUGIN)
-  add(steps, "示例插件提供油价", !!ref && ref.capabilities.includes("fuel_price"), ref ? ref.capabilities.join("、") : "没有添加")
+  add(steps, "插件更新后：版本和上次的不同，重新 describe，提供的数据多了油价（不用移除再添加）", !!ref && ref.capabilities.includes("fuel_price") && !!ref.version,
+    ref ? `${ref.capabilities.join("、")} · ${ref.version ?? "没有版本"}` : "没有添加")
   if (!ref) return { steps }
 
   const catalog = readCache<Record<string, any>>("catalog_cache.json") || { schema_version: 1 }
@@ -1325,8 +1329,8 @@ async function runFill(): Promise<{ steps: Step[] }> {
   add(steps, "再读一次：地区没变、不到一天，不调插件（价-2）", !again)
 
   const view = fillViewFor(data, car, snap ? snap.status : null)
-  add(steps, "车况详情「加满」：¥180 · 23 L，95# 挂牌价 8.00，说明写地区和插件（显-1 或显-2）",
-    !!view && view.amount === 180 && view.litres === 23 && view.price === 8 && view.priceLabel === "95# 挂牌价" && view.note.includes("油价来自示例"),
+  add(steps, "车况详情「加满」：¥180 · 22 L（剩余写 33 L），95# 挂牌价 8.00，说明写地区和插件（显-1 或显-2）",
+    !!view && view.amount === 180 && view.litres === 22 && view.price === 8 && view.priceLabel === "95# 挂牌价" && view.note.includes("油价来自示例"),
     view ? `¥${view.amount} · ${view.litres} L；${view.note}` : "没有这一组")
 
   saveWidgetSnapshot(data)

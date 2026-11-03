@@ -324,8 +324,8 @@ export type FuelPrices = { region: string; effective: number | null; items: Fuel
 /** 交给插件查油价的地区：省、市的短名（「上海」「广西」「南宁」，加满金额设计第 3 节） */
 export type PriceRegion = { province: string; city: string }
 
-/** 添加的插件：脚本名（`Script.run` 用）、插件自己的 id、名称、提供的数据 */
-export type PluginRef = { script: string; id: string; name: string; capabilities: PluginCapability[] }
+/** 添加的插件：脚本名（`Script.run` 用）、插件自己的 id、名称、提供的数据；version 是上次 describe 时的版本（2.4 起，插件更新后重读） */
+export type PluginRef = { script: string; id: string; name: string; capabilities: PluginCapability[]; version?: string }
 
 /** 账本（2.0 的格式，ledger2.json）：所有车辆的记录、保险、权益、门店都在这里 */
 export type LedgerFile = {

@@ -100,6 +100,11 @@ test("显-3：没有地区、也没有缓存；显-5：没添加提供油价的�
   assert.equal(fillView(input({ grade: null }))!.note, "在车辆设置里选好默认标号后，按它的挂牌价算出加满金额。")
 })
 
+test("显示的升数和取整后的剩余油量对得上：剩 32.5 L（写 33 L）、油箱 55 L 写 22 L，金额按 22.5 L 算", () => {
+  const v = fillView(input({ fuel: 32.5, cache: cache({ prices: { region: "上海", effective: OCT29, items: [{ grade: 95, price: 8 }] } }) }))!
+  assert.deepEqual({ litres: v.litres, amount: v.amount }, { litres: 22, amount: 180 })
+})
+
 test("显-4：剩余不小于油箱容量写 ¥0 · 0 L", () => {
   const v = fillView(input({ fuel: 55.4 }))!
   assert.deepEqual({ litres: v.litres, amount: v.amount }, { litres: 0, amount: 0 })

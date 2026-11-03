@@ -7,7 +7,7 @@
   "localizedDescriptions" : {
     "zh" : "油记数据源的示例插件：返回编的加油交易，用来试用和当作写插件的模板。"
   },
-  "version" : "1.0.0",
+  "version" : "1.1.0",
   "entry" : "index.tsx",
   "icon" : "puzzlepiece.extension.fill",
   "color" : "systemGray",

@@ -2,7 +2,7 @@
 // 排队、超时和缓存在 common/plugin_source.ts，这里注入 Script.run 和缓存文件。FuelNote Check 的数据文件夹里只放行示例插件。
 import { joinPath } from "../common/files"
 import { AppData } from "../common/ledger"
-import { addProblem, FuelTxn, PLUGIN_MARKER, pluginRef, PluginResult, PluginState, PluginStatus } from "../common/plugin"
+import { addProblem, FuelTxn, PLUGIN_MARKER, pluginRef, PluginResult, PluginState, PluginStatus, refreshedRef } from "../common/plugin"
 import { createPluginSource, PluginCacheFile } from "../common/plugin_source"
 import { FuelPrices, PluginCapability, PluginRef, PriceRegion } from "../common/types"
 import { callPlugin } from "../platform/plugin_bridge"
@@ -72,6 +72,26 @@ export async function addPlugin(getData: () => AppData, script: string): Promise
   const problem = addProblem(r.value, pluginsOf(data))
   if (problem) throw new Error(problem)
   return updateSettings(data, { plugins: [...pluginsOf(data), pluginRef(script, r.value)] })
+}
+
+/**
+ * 插件更新以后重读它的名称和提供的数据（2.4）：只看 script.json 的版本，和上次 describe 时不同才调 describe（2.4 以前添加的没有记版本，调一次）。
+ * 打开油记、回到前台时调；有变化时返回新的数据，没有时 null
+ */
+export async function refreshPlugins(getData: () => AppData): Promise<AppData | null> {
+  const stale = pluginsOf(getData()).filter(p => {
+    const v = pluginVersion(p.script)
+    return !!v && v !== p.version
+  })
+  const updates = new Map<string, PluginRef>()
+  for (const ref of stale) {
+    const r = await source.describe(ref.script)
+    const next = r.ok ? refreshedRef(ref, r.value, pluginsOf(getData())) : null
+    if (next) updates.set(ref.id, next)
+  }
+  if (!updates.size) return null
+  const data = getData()
+  return updateSettings(data, { plugins: pluginsOf(data).map(p => updates.get(p.id) ?? p) })
 }
 
 /** 移除：只从油记里去掉，清掉它的缓存；不删脚本，也不动插件里的凭据，已记的加油不受影响 */

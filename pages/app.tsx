@@ -3,7 +3,7 @@
 import { AppEvents, Navigation, Script, Tab, TabView, Widget, useEffect, useMemo, useObservable, useRef, useState } from "scripting"
 import {
   addVehicle, AppData, batchInfo, batchPerks, cachedStatus, canReadStatus, categoriesFor, categoryName, currentVehicle, defaultCategory, defaultUse,
-  deleteInsurance, deletePerks, deleteRecord, deleteStore, deleteUse, dismissRenewal, expenseEntries, ExpenseEntry, fillViewFor, pricePluginId, refreshFuelPrice,
+  deleteInsurance, deletePerks, deleteRecord, deleteStore, deleteUse, dismissRenewal, expenseEntries, ExpenseEntry, fillViewFor, pricePluginId, refreshFuelPrice, refreshPlugins,
   ExpenseRecord, expenseUses, finishAutoBackup, flushAutoBackup, fmtDate, fmtDateTime, insuranceForRecord, InsuranceYear, LedgerRecord, loadData, MAINTENANCE_CATEGORY, newId,
   NewVehicle, Perk, perkBook, PerkUse, readVehicleStatus, remaining, sameName, saveBatch, saveExpense, saveFuel,
   saveInsurance, savePerk, savePerks, saveStore, saveUse, saveWidgetSnapshot, scheduleAutoBackup, sourceOf, Store, toExpenseData, toFuelData, updateSettings,
@@ -148,7 +148,14 @@ export function App({ action, image, notice }: { action: string | null; image: U
 
   /** 当前车辆的车况（2.3 起打开油记时不再读行程：记录页没有加油停车提示了，插件化设计 D2） */
   function refreshVehicle(force = false) {
-    void refreshPrice()
+    void (async () => {
+      // 插件更新以后先重读它提供的数据（2.4，例如易捷 0.3.0 加了油价），再读油价
+      try {
+        const next = await refreshPlugins(getData)
+        if (next) setData(next)
+      } catch { /* 下次打开再读 */ }
+      await refreshPrice()
+    })()
     return refreshStatus(force)
   }
 
