@@ -80,7 +80,7 @@ const SANDBOX = "FuelNoteCheck"
 setDataRoot(SANDBOX)
 
 /** 改了这个值，手机重新运行后报到的 STAMP 跟着变（确认跑的是新代码） */
-export const STAMP = "52"
+export const STAMP = "53"
 const PORT = 3200
 const DAY = 86400e3
 const BJ_OFFSET = 8 * 3600e3
@@ -1000,7 +1000,7 @@ async function runPlugin(): Promise<{ steps: Step[] }> {
 
   data = await addPlugin(getData, EXAMPLE_PLUGIN)
   const ref = pluginsOf(data).find(p => p.script === EXAMPLE_PLUGIN)
-  add(steps, "添加：调一次 describe，存进设置（id、名称、提供的数据）", !!ref && ref.id === "example" && ref.capabilities.join() === "fuel,vehicles,trips,vehicle_status",
+  add(steps, "添加：调一次 describe，存进设置（id、名称、提供的数据）", !!ref && ref.id === "example" && ref.capabilities.join() === "fuel,vehicles,trips,vehicle_status,service",
     ref ? JSON.stringify(ref) : "没有")
   if (!ref) return { steps }
   let dup = ""
@@ -1038,6 +1038,13 @@ async function runPlugin(): Promise<{ steps: Step[] }> {
     Array.isArray(stops) ? `${stops.length} 次停车，最后一次 ${lastStop ? lastStop.odometer_km : "—"} km` : stops)
   add(steps, "车况：剩余 32.5 L，里程是最后一趟熄火时的", !!snap && typeof snap === "object" && snap.status.fuel_l === 32.5 && !!lastStop && snap.status.odometer_km === lastStop.odometer_km,
     snap && typeof snap === "object" ? `${snap.status.fuel_l} L · ${snap.status.odometer_km} km` : String(snap))
+  // 2.3.0-beta.2：养修走契约（插件化设计 3.4 节）：经过 Script.run 调示例插件的 service，校验、整理以后给记费用
+  const sv = src ? await src.service("example-car", true) : null
+  const sv0 = sv && sv.ok ? sv.value : []
+  add(steps, "养修：示例插件给两次已结算的进店，新的在前；保养那次要记两笔，只有第一笔带保养记录；保修那次对照只有名称",
+    sv0.length === 2 && sv0[0].arrive_ts > sv0[1].arrive_ts && sv0[0].expenses.length === 2 && !!sv0[0].expenses[0].maintenance && !sv0[0].expenses[1].maintenance
+    && sv0[1].expenses[0].own === 0 && sv0[1].expenses[0].settlement.coupons[0]?.amount === null,
+    sv && sv.ok ? sv0.map(v => `${v.title} ${v.expenses.length} 笔`).join("；") : sv ? sv.error.message : "没有这个数据源")
 
   let blocked = ""
   try { await addPlugin(getData, "FuelNote") } catch (e) { blocked = errorText(e) }
