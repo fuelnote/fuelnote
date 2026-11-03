@@ -334,7 +334,7 @@ export function ExpenseForm({ getData, vehicle, record, maintenance, odometer: d
         </HStack> : null}
       </Section>
       {isMaint && (!draft || draft.main.items.length || items.length) ? <Section key="maintenance" header={<Text>保养</Text>}
-        {...(draft ? {} : { footer: <Text>{locked ? "保养记录和这笔费用一起改。" : "里程默认取车况的里程表。填了项目才另存一条保养记录，费用页里和这笔费用合成一行；不填只记费用。"}</Text> })}>
+        {...(draft ? {} : { footer: <Text>{locked ? "保养记录和这笔费用一起改。" : `${defaultOdometer != null ? "里程默认取车况的里程表。" : ""}填了项目才另存一条保养记录，费用页里和这笔费用合成一行；不填只记费用。`}</Text> })}>
         <FieldRow title="里程" unit="km">
           <TextField title="里程" value={odometer} onChanged={setOdometer} prompt="0" keyboardType="numberPad" multilineTextAlignment="trailing" />
         </FieldRow>
