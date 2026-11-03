@@ -9,7 +9,7 @@
   },
   "version" : "2.3.0-beta.3",
   "remoteResource" : {
-    "url" : "https:\/\/github.com\/shulkx\/fuel-note\/releases\/latest\/download\/FuelNote.zip",
+    "url" : "https:\/\/github.com\/fuelnote\/fuelnote\/releases\/latest\/download\/FuelNote.zip",
     "autoUpdateInterval" : 86400
   },
   "entry" : "index.tsx",

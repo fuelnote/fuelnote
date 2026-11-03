@@ -17,7 +17,7 @@ test("发布：script.json 的远程资源指向最新 Release 的安装包，�
   const script = JSON.parse(readFileSync(join(ROOT, "script.json"), "utf8"))
   assert.equal(env("PACKAGE_FILE"), "FuelNote.zip")
   assert.deepEqual(script.remoteResource, {
-    url: `https://github.com/shulkx/fuel-note/releases/latest/download/${env("PACKAGE_FILE")}`,
+    url: `https://github.com/fuelnote/fuelnote/releases/latest/download/${env("PACKAGE_FILE")}`,
     autoUpdateInterval: Number(env("AUTO_UPDATE_INTERVAL")),
   })
 })

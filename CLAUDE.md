@@ -118,7 +118,7 @@ On-device checks (`tools/check/README.md`): run these before asking the user to 
   3. Run `npm run check` and `XXYH_ROOT=E:/GitHub/xxyh npm test`, and commit only if both exit 0 (never chain them with `;`). Commit `release: x.y.z`.
   4. `git tag -s vx.y.z -m x.y.z`.
   5. Push `main` and the tag only when the user asks. The tag triggers `.github/workflows/release.yml` (same flow as Tiny Kick Counter): it checks the tag is on `main`, the version and `remoteResource`, runs `npm test`, zips only the runtime files into `FuelNote.zip`, and publishes a GitHub Release with that version's CHANGELOG section as notes. Afterwards wait for the run (`gh run watch`) and download `releases/latest/download/FuelNote.zip` to check `script.json` `version` (on the dev PC curl needs `--ssl-no-revoke`).
-- `script.json` `remoteResource` points to `https://github.com/shulkx/fuel-note/releases/latest/download/FuelNote.zip` with `autoUpdateInterval` 86400. Data lives in the App Group directory and the Keychain, so updates never touch it; keep it that way (never store data under `Script.directory`).
+- `script.json` `remoteResource` points to `https://github.com/fuelnote/fuelnote/releases/latest/download/FuelNote.zip` with `autoUpdateInterval` 86400. Data lives in the App Group directory and the Keychain, so updates never touch it; keep it that way (never store data under `Script.directory`).
 - A new top-level runtime directory must be added to the workflow's 「Prepare package」 step; `tests/release.test.ts` fails otherwise. Pre-releases use `x.y.z-beta.n`.
 - Tags: `v1.0.0` is cc2bdb4, the last commit before the v1.1 work.
 

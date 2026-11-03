@@ -18,21 +18,21 @@
 安装包固定地址（总是最新版本）：
 
 ```text
-https://github.com/shulkx/fuel-note/releases/latest/download/FuelNote.zip
+https://github.com/fuelnote/fuelnote/releases/latest/download/FuelNote.zip
 ```
 
 在 Scripting 中用这个地址导入脚本。`script.json` 的远程资源也是这个地址，Scripting 每天检查一次更新：
 
 ```json
 "remoteResource": {
-  "url": "https://github.com/shulkx/fuel-note/releases/latest/download/FuelNote.zip",
+  "url": "https://github.com/fuelnote/fuelnote/releases/latest/download/FuelNote.zip",
   "autoUpdateInterval": 86400
 }
 ```
 
 更新只替换脚本文件。记录、小熊的导入状态和缓存在 Scripting 的 App Group 目录，凭据在钥匙串，都不受影响（见「凭据与数据」）。
 
-各版本的改动见 [CHANGELOG.md](CHANGELOG.md) 和 [Releases](https://github.com/shulkx/fuel-note/releases)。
+各版本的改动见 [CHANGELOG.md](CHANGELOG.md) 和 [Releases](https://github.com/fuelnote/fuelnote/releases)。
 
 ## 入口
 
