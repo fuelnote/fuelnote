@@ -8,7 +8,7 @@ import {
   NewVehicle, Perk, perkBook, PerkUse, providerById, readVehicleStatus, remaining, sameName, saveBatch, saveExpense, saveFuel,
   saveInsurance, savePerk, savePerks, saveStore, saveUse, saveWidgetSnapshot, scheduleAutoBackup, sourceOf, Store, toExpenseData, toFuelData, updateSettings,
   maintenanceOf, usageLine, Use, usedOf, useText, Vehicle, vehicleById, vehicleRecords, vehicleTank, yearLabel, yuan,
-  cachedService, canReadService, refreshService, saveServiceVisit, serviceCandidates, serviceForm, serviceOfExpense, ServiceVisit,
+  connectPlugin, DataSource, pluginsOf, saveServiceVisit, serviceSourceOf,
 } from "../common/model"
 import { AppActions, errorMessage, money, showError } from "./components"
 import { BatchPage } from "./benefit_batch"
@@ -21,10 +21,11 @@ import { UseSheet } from "./benefit_use"
 import { InsuranceDetail, InsuranceDetailActions } from "./insurance_detail"
 import { InsuranceForm, InsuranceFormResult } from "./insurance_form"
 import { InsuranceTab } from "./insurance_tab"
-import { ExpenseForm, ExpenseFormResult, ServiceForm } from "./expense_form"
+import { ExpenseForm, ExpenseFormResult } from "./expense_form"
 import { ExpenseTab } from "./expense_tab"
 import { FuelForm, FuelFormResult } from "./fuel_form"
 import { StatusSheet, StatusView } from "./fuel_status"
+import { ProviderSheet } from "./provider_settings"
 import { FuelTab } from "./fuel_tab"
 import { SettingsPage } from "./settings"
 import { VehicleAdd } from "./vehicle_add"
@@ -49,8 +50,6 @@ export function App({ action, image, notice }: { action: string | null; image: U
   const [statusBusy, setStatusBusy] = useState(false)
   const [statusError, setStatusError] = useState<string | null>(null)
   const [statusVersion, setStatusVersion] = useState(0)
-  // 养修（2.1.0-beta.5）：先显示上次缓存的结果；打开费用页、回到前台（在费用页时）、下拉时按规则读取
-  const [serviceVersion, setServiceVersion] = useState(0)
 
   /** 数据放回去；label 不是 undefined 时标题下方的提示一起换（同一次渲染） */
   const setData = (d: AppData, label?: string | null) => {
@@ -141,21 +140,6 @@ export function App({ action, image, notice }: { action: string | null; image: U
     })
   }
 
-  /** 读养修记录（2.1 设计第 6 节）：按规则读，force（下拉）时一定读。读完只刷新费用页那一组和养修记录页 */
-  async function refreshServiceNow(force = false) {
-    const d = getData()
-    const v = currentVehicle(d)
-    if (!v || !canReadService(v)) return
-    // 读到新的（或出了错）才刷新费用页；按规则不用读时什么都没变，不重新渲染（2.1.0-beta.8）
-    const mark = () => { const s = cachedService(v); return s ? `${s.list_ts}|${s.error ?? ""}` : "" }
-    const before = mark()
-    try {
-      await refreshService(d, v, force)
-    } finally {
-      if (force || mark() !== before) setServiceVersion(Date.now())
-    }
-  }
-
   /** 当前车辆的车况（2.3 起打开油记时不再读行程：记录页没有加油停车提示了，插件化设计 D2） */
   function refreshVehicle(force = false) {
     return refreshStatus(force)
@@ -186,9 +170,9 @@ export function App({ action, image, notice }: { action: string | null; image: U
       element: <FuelForm
         data={getData()}
         vehicle={vehicle}
-        record={record && record.kind === "fuel" ? { ...toFuelData(record), id: record.id } : null}
+        record={record && record.kind === "fuel" ? { ...toFuelData(record), id: record.id, ...(record.data_source ? { data_source: record.data_source } : {}) } : null}
         initialImage={image}
-        onSave={res => saveFrom(() => mutate(saveFuel(getData(), vehicle, record ? record.id : null, res.fuel, res.newStation)))}
+        onSave={res => saveFrom(() => mutate(saveFuel(getData(), vehicle, record ? record.id : null, res.fuel, res.newStation, res.source)))}
       />,
     })
   }
@@ -199,8 +183,20 @@ export function App({ action, image, notice }: { action: string | null; image: U
     remove: id => setData(deleteStore(getData(), id)),
   }
 
+  /** 连接数据源（选进店页的「连接」「重新连接」）：插件打开它自己的连接页；内置的打开凭据页 */
+  async function connectSource(source: DataSource) {
+    if (!source.builtin) {
+      const ref = pluginsOf(getData()).find(p => p.id === source.id)
+      if (ref) await connectPlugin(ref)
+      return
+    }
+    const p = providerById(source.id)
+    if (p) await Navigation.present({ element: <ProviderSheet data={getData()} app={app} provider={p} /> })
+  }
+
   /**
    * 记费用、编辑费用。preset：权益详情「用于记费用」时勾上的那一项和预选的门店、类别（设计文档 22.10 节）。
+   * 新记时这辆车关联的数据源提供养修，表单里有「从<数据源名>选」（插件化设计 3.4 节）；选了进店的，几笔、保养记录、用了的权益一起写。
    * 保存时一起写用了的权益和门店（金额是实付，门店存在费用上）
    */
   async function openExpense(vehicle: Vehicle, record: LedgerRecord | null, preset: { use: Use; store: Store | null; category: number } | null = null) {
@@ -208,57 +204,34 @@ export function App({ action, image, notice }: { action: string | null; image: U
     // 带保养记录的费用（2.1）：保养和费用一起改；新记保养时里程默认取车况的里程表
     const maintenance = record && record.kind === "expense" ? maintenanceOf(d.ledger.records, record.id) : null
     const odometer = vehicle.provider && canReadStatus(d, vehicle) ? cachedStatus(d, vehicle)?.status.odometer_km ?? null : null
-    // 关联了养修的费用（2.1.0-beta.5）：照从养修填写显示，金额是实付，沃尔沃结算取账本里存下的那份
-    const linked = record && record.kind === "expense" ? serviceOfExpense(d.ledger, record.id) : null
-    const view = linked ? cachedService(vehicle) : null
-    const service: ServiceForm | null = linked ? {
-      title: providerById(linked.record.provider)?.serviceTitle ?? "养修", arrive: linked.record.arrive_ts, dealer: linked.record.dealer?.short ?? "",
-      ticketCount: linked.record.tickets.length, tickets: linked.tickets, draft: null, dealerPoint: null, sources: {}, notes: [],
-      vocabulary: view ? serviceCandidates(d, vehicle, view) : null,
-    } : null
+    const source = !record ? serviceSourceOf(d, vehicle) : null
+    const expense = record && record.kind === "expense" ? record : null
     await Navigation.present<ExpenseFormResult | null>({
       element: <ExpenseForm
         getData={getData}
         vehicle={vehicle}
-        record={record && record.kind === "expense" ? { ...toExpenseData(record), id: record.id, ...(record.store_id ? { store_id: record.store_id } : {}) } : null}
+        record={expense ? {
+          ...toExpenseData(expense), id: expense.id, ...(expense.store_id ? { store_id: expense.store_id } : {}),
+          ...(expense.settlement ? { settlement: expense.settlement } : {}), ...(expense.data_source ? { data_source: expense.data_source } : {}),
+        } : null}
         maintenance={maintenance}
         odometer={odometer}
         initialCategory={preset?.category ?? defaultCategory(expenseEntries(vehicleRecords(d, vehicle)), categoriesFor(d))}
         preset={preset ? { use: preset.use, store: preset.store } : null}
         stores={storeActions}
-        service={service}
-        onSave={res => saveFrom(() => mutate(saveExpense(getData(), vehicle, record ? record.id : null, res.expense, { uses: res.uses, store: res.store }, res.maintenance)))}
+        service={source ? { source, connect: () => connectSource(source) } : null}
+        onSave={res => saveFrom(() => {
+          if (res.service) {
+            mutate(saveServiceVisit(getData(), vehicle, {
+              from: res.service.from, others: res.service.others,
+              main: { expense: res.expense, uses: res.uses, store: res.store, maintenance: res.maintenance, settlement: res.service.settlement },
+            }), "已记下")
+          } else {
+            mutate(saveExpense(getData(), vehicle, record ? record.id : null, res.expense, { uses: res.uses, store: res.store }, res.maintenance))
+          }
+        })}
       />,
     })
-  }
-
-  /** 从养修填写的记费用（2.1 设计第 8、9 节）：保存时保养记录和费用、另记的工单、用了的权益、结算一起写 */
-  async function recordVisit(visit: ServiceVisit) {
-    const d = getData()
-    const v = currentVehicle(d)
-    const view = cachedService(v)
-    if (!v || !view) return
-    const { draft, vocabulary } = serviceForm(d, v, view, visit)
-    const dealer = visit.dealer
-    const service: ServiceForm = {
-      title: view.title, arrive: visit.arrive_ts, dealer: dealer?.short ?? "", ticketCount: visit.tickets.length, tickets: draft.main.tickets, draft,
-      dealerPoint: dealer && dealer.lng != null && dealer.lat != null ? [dealer.lng, dealer.lat] : null,
-      sources: Object.fromEntries(draft.main.items.map(i => [i.name, i.labour])), notes: draft.main.notes, vocabulary,
-    }
-    await Navigation.present<ExpenseFormResult | null>({
-      element: <ExpenseForm getData={getData} vehicle={v} record={null} maintenance={null} odometer={null} initialCategory={MAINTENANCE_CATEGORY}
-        preset={null} stores={storeActions} service={service}
-        onSave={res => saveFrom(() => {
-          mutate(saveServiceVisit(getData(), v, visit, { main: { expense: res.expense, uses: res.uses, store: res.store, maintenance: res.maintenance }, others: res.others ?? [] }), "已记下")
-          setServiceVersion(Date.now())
-        })} />,
-    })
-  }
-
-  /** 养修记录页里已记的一次：打开那条记录（费用在记费用里改，没配上费用的保养只能查看） */
-  function openRecordById(id: string) {
-    const r = getData().ledger.records.find(x => x.id === id)
-    if (r) void edit(r)
   }
 
   // ---------- 保险（设计文档第 20 节） ----------
@@ -526,21 +499,14 @@ export function App({ action, image, notice }: { action: string | null; image: U
       const params = (details.queryParameters || {}) as Record<string, string>
       if (params.action === "add_fuel") addFuel()
     })
-    // 打开费用页时读养修记录（按规则，不一定发请求）
-    const onTab = (tab: number) => { if (tab === TAB_EXPENSE) void refreshServiceNow() }
-    selection.subscribe(onTab)
     const onPhase = (phase: string) => {
-      if (phase === "active") {
-        refreshVehicle()
-        if (selection.value === TAB_EXPENSE) void refreshServiceNow()
-      }
+      if (phase === "active") refreshVehicle()
       // 离开油记：还没备份的修改马上写
       if (phase === "background") void flushAutoBackup(getData)
     }
     AppEvents.scenePhase.addListener(onPhase)
     return () => {
       AppEvents.scenePhase.removeListener(onPhase)
-      selection.unsubscribe(onTab)
       offResume()
     }
   }, [])
@@ -598,22 +564,13 @@ export function App({ action, image, notice }: { action: string | null; image: U
       refresh: async () => { await refreshVehicle(true) },
     }} />, [fuel.data, fuel.subtitle, statusBusy, statusError, statusVersion])
 
-  const expenseTab = useMemo(() => {
-    // 费用页最上面的养修一组：当前车辆能读养修时才有（读缓存，不发请求）
-    const v = currentVehicle(exp.data)
-    const serviceView = v && canReadService(v) ? cachedService(v) : null
-    const service = v && serviceView ? {
-      vehicle: v, view: serviceView,
-      actions: { record: (x: ServiceVisit) => { void recordVisit(x) }, open: openRecordById, refresh: () => refreshServiceNow(true) },
-    } : null
-    return <ExpenseTab data={exp.data} subtitle={exp.subtitle} service={service} actions={{
-      addExpense: () => { const v = requireVehicle(); if (v) openExpense(v, null) },
-      open: openEntry,
-      // 保养和它的费用一起删
-      remove: e => { const r = e.expense ?? e.maintenance; if (r) void remove(r) },
-      ...vehicleActions,
-    }} />
-  }, [exp.data, exp.subtitle, serviceVersion])
+  const expenseTab = useMemo(() => <ExpenseTab data={exp.data} subtitle={exp.subtitle} actions={{
+    addExpense: () => { const v = requireVehicle(); if (v) openExpense(v, null) },
+    open: openEntry,
+    // 保养和它的费用一起删
+    remove: e => { const r = e.expense ?? e.maintenance; if (r) void remove(r) },
+    ...vehicleActions,
+  }} />, [exp.data, exp.subtitle])
 
   const insuranceTab = useMemo(() => <InsuranceTab data={ins.data} subtitle={ins.subtitle} actions={{
     getData,

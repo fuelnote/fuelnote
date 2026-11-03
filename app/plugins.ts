@@ -8,7 +8,7 @@ import { PluginCapability, PluginRef } from "../common/types"
 import { callPlugin } from "../platform/plugin_bridge"
 import { isMainDataRoot, readCache, writeCache } from "../platform/storage"
 import { PROVIDERS } from "../providers/registry"
-import { RemoteVehicle, Trip, VehicleDataProvider, VehicleStatus } from "../providers/types"
+import { RemoteVehicle, ServiceVisit, Trip, VehicleDataProvider, VehicleStatus } from "../providers/types"
 import { updateSettings } from "./store"
 
 /** 示例插件的脚本名（tools/plugin_example）：Check 的数据文件夹里只调它 */
@@ -69,7 +69,7 @@ export function pluginsWith(data: AppData, cap: PluginCapability): PluginRef[] {
 export function providerCapabilities(p: VehicleDataProvider): PluginCapability[] {
   const caps: PluginCapability[] = ["vehicles", "trips"]
   if (p.vehicleStatus) caps.push("vehicle_status")
-  if (p.serviceVisits) caps.push("service")
+  if (p.service) caps.push("service")
   return caps
 }
 
@@ -104,3 +104,8 @@ export function pluginTrips(ref: PluginRef, vehicle: string, range: { from: numb
 }
 
 export const pluginVehicleStatus = (ref: PluginRef, vehicle: string): Promise<PluginResult<VehicleStatus>> => source.vehicleStatus(ref, vehicle)
+
+/** 已结算的进店（缓存 10 分钟）；force：选进店页下拉时不看缓存 */
+export function pluginService(ref: PluginRef, vehicle: string, force = false): Promise<PluginResult<ServiceVisit[]>> {
+  return source.service(ref, vehicle, { force })
+}

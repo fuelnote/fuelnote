@@ -4,7 +4,8 @@ import { createHash, createHmac } from "node:crypto"
 import { hmacSha256, md5, sha256 } from "../common/hash"
 import { bd09ToWgs84, gcj02ToBd09, gcj02ToWgs84, metres, wgs84ToGcj02 } from "../common/geo"
 import { averageConsumption, consumptionById, fuelSegments } from "../common/fuel"
-import { checkExpense, checkFuel, completeTriple, parseNum } from "../common/form"
+import { checkExpense, checkFuel, completeTriple, expenseDuplicateText, findExpenseDuplicate, parseNum } from "../common/form"
+import { ExpenseRecord } from "../common/types"
 import { fuel } from "./helpers"
 
 test("哈希与 Node crypto 一致", () => {
@@ -141,4 +142,23 @@ test("费用的金额：要填，可以是 0，不能是负数", () => {
   assert.deepEqual(checkExpense(parseNum("0")), [])
   assert.deepEqual(checkExpense(12.5), [])
   assert.deepEqual(checkExpense(-1), ["金额不能是负数"])
+})
+
+test("费用的可能重复（插件化设计第 7 节，费-1～费-7）：同一辆车、同一天（北京时间）、同一类、同样金额；编辑时不和自己比，日期、类别、金额都没改时不查", () => {
+  const bj = (s: string) => Date.parse(`${s}+08:00`)
+  const e = (id: string, ts: string, category_id: number, amount: number, vehicle_id = "v1"): ExpenseRecord => ({ kind: "expense", id, vehicle_id, ts: bj(ts), category_id, amount, remark: "" })
+  const records = [e("a", "2026-04-03T10:26:00", 100001, 0), e("p1", "2026-05-01T09:00:00", 100000, 10), e("other-car", "2026-06-01T09:00:00", 100001, 50, "v2")]
+  const dup = (ts: string, category_id: number, amount: number, before: ExpenseRecord | null = null) =>
+    findExpenseDuplicate(records, "v1", { ts: bj(ts), category_id, amount }, before)?.id ?? null
+  assert.equal(dup("2026-04-03T23:59:00", 100001, 0), "a", "费-1：同一天（北京时间）、同一类、同样金额")
+  assert.equal(expenseDuplicateText(records[0], "维修保养"), "4月3日 已有一笔 ¥0.00 的维修保养，可能重复")
+  assert.equal(dup("2026-04-03T12:00:00", 100001, 380), null, "费-2：金额不同")
+  assert.equal(dup("2026-04-03T12:00:00", 100003, 0), null, "费-3：类别不同")
+  assert.equal(dup("2026-04-04T00:01:00", 100001, 0), null, "第二天")
+  assert.equal(dup("2026-06-01T10:00:00", 100001, 50), null, "别的车")
+  assert.equal(dup("2026-04-03T10:26:00", 100001, 0, records[0]), null, "费-6：编辑时日期、类别、金额都不改")
+  assert.equal(dup("2026-05-01T18:00:00", 100000, 10), "p1", "费-7：同一天两次 10 元的停车费")
+  const second = e("p2", "2026-05-01T18:00:00", 100000, 10)
+  assert.equal(findExpenseDuplicate([...records, second], "v1", { ts: second.ts, category_id: 100000, amount: 10 }, second), null, "两笔一样的停车费，编辑其中一笔、这三项都没改")
+  assert.equal(findExpenseDuplicate([...records, second], "v1", { ts: second.ts, category_id: 100000, amount: 10 }, { ...second, amount: 12 })?.id, "p1", "改了金额：和别的比，不和自己比")
 })

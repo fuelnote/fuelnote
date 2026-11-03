@@ -56,10 +56,8 @@ import { BenefitTab } from "../../pages/benefit_tab"
 import { UseSheet } from "../../pages/benefit_use"
 import { StorePicker } from "../../pages/store_picker"
 import { StoreDetail } from "../../pages/store_detail"
-import { ServiceVisitsPage } from "../../pages/service_visits"
-import { ServiceForm } from "../../pages/expense_form"
-import { volvoCn } from "../../providers/volvo_cn"
-import { categoryName, entryTitle, oilChangeNumbers, saveServiceVisit, serviceForm, ServiceVisit, ServiceView, settlementRefs, visitState } from "../../common/model"
+import { ServicePick } from "../../pages/service_pick"
+import { autoTitle, categoryName, DataSource, entryTitle, expenseDuplicateText, findExpenseDuplicate, oilChangeNumbers, saveServiceVisit, serviceForm, ServiceVisit, toExpenseData, toFuelData } from "../../common/model"
 import { addPlugin, connectPlugin, EXAMPLE_PLUGIN, installedPlugins, pluginsOf, pluginState, pluginStatus, removePlugin } from "../../common/model"
 import { dataSourceById, readVehicleStatus, vehicleStops } from "../../common/model"
 import { pluginFuel } from "../../app/plugins"
@@ -82,7 +80,7 @@ const SANDBOX = "FuelNoteCheck"
 setDataRoot(SANDBOX)
 
 /** 改了这个值，手机重新运行后报到的 STAMP 跟着变（确认跑的是新代码） */
-export const STAMP = "51"
+export const STAMP = "52"
 const PORT = 3200
 const DAY = 86400e3
 const BJ_OFFSET = 8 * 3600e3
@@ -555,7 +553,7 @@ async function runBenefits(plan: BenefitsPlan): Promise<{ steps: Step[] }> {
   const now = Date.now()
 
   // 门店是地图上的地点：名称用全称（不用手写的简称）；这里没有位置
-  const s = saveStore(data, { id: "", name: plan.store.full_name, full_name: plan.store.full_name, address: plan.store.address, phone: "", hours: "", poi_id: "", lng: null, lat: null, dealer: null })
+  const s = saveStore(data, { id: "", name: plan.store.full_name, full_name: plan.store.full_name, address: plan.store.address, phone: "", hours: "", poi_id: "", lng: null, lat: null })
   data = s.data
   const year = insuranceYears(data.ledger.insurance, v.id).find(y => yearOf(y) === plan.gift.year)
   add(steps, `${plan.gift.year} 年的保险在`, !!year)
@@ -688,7 +686,7 @@ async function runExportCheck(body: ExportBody): Promise<{ steps: Step[]; ledger
   fills[0].remark = `${fills[0].remark}（检查）`
   const oldest = ledger.records.filter((r): r is ExpenseRecord => r.kind === "expense" && r.vehicle_id === v.id).sort((a, b) => a.ts - b.ts)[0]
   ledger.records = ledger.records.filter(r => r.id !== oldest.id)
-  ledger.stores.push({ id: "st-check", name: "检查用门店", full_name: "", address: "", phone: "", hours: "", poi_id: "", lng: null, lat: null, dealer: null })
+  ledger.stores.push({ id: "st-check", name: "检查用门店", full_name: "", address: "", phone: "", hours: "", poi_id: "", lng: null, lat: null })
   ledger.stations.push({ id: "check-station", name: "检查用油站", address: "", province: "", city: "", district: "", lng: 121.6, lat: 31.3, last_used_ts: body.now })
   ledger.records.push(
     { kind: "expense", id: "e-check", vehicle_id: v.id, ts: body.now, category_id: 100003, amount: 12.5, remark: "检查", store_id: "st-check" },
@@ -820,7 +818,8 @@ function benefitScreen(screen: string, data: AppData): VirtualNode | null {
   return null
 }
 
-// ---------- 2.1.0-beta.5 养修（/run/service）：电脑发来整理好的沃尔沃养修记录（真实数据，结算备注里的电话已去掉），不联网、不读钥匙串 ----------
+// ---------- 养修（/run/service，2.3.0-beta.2 起）：电脑把沃尔沃的探测数据（真实数据，结算备注里的电话已去掉）按契约整理成要记的几笔费用发来，
+// 在这里当作沃尔沃这个数据源；不联网、不读钥匙串 ----------
 
 type ServiceBody = { visits: ServiceVisit[] }
 const serviceFile = () => `${dataDirectory()}/service_check.json`
@@ -829,128 +828,157 @@ function readServiceVisits(): ServiceVisit[] {
   try { return JSON.parse(FileManager.readAsStringSync(serviceFile())) as ServiceVisit[] } catch { return [] }
 }
 
-function checkServiceView(visits: ServiceVisit[]): ServiceView {
-  return { title: volvoCn.serviceTitle!, visits, naming: volvoCn.serviceNaming!(visits.flatMap(v => v.tickets.flatMap(t => t.labours))), error: null, list_ts: Date.now() }
+/** 检查用的沃尔沃：养修是电脑发来的探测数据，别的都不读 */
+function checkSource(visits: ServiceVisit[]): DataSource {
+  return {
+    id: "volvo_cn", name: "沃尔沃", builtin: true, capabilities: ["vehicles", "trips", "vehicle_status", "service"],
+    readable: () => true, state: () => "connected",
+    vehicles: async () => [], trips: async () => [],
+    vehicleStatus: async () => { throw new Error("检查里不读车况") },
+    service: async () => ({ ok: true, value: visits }),
+  }
 }
 
 const bjDate = (ts: number) => new Date(ts + BJ_OFFSET).toISOString().slice(0, 10)
+const sumLines = (lines: Array<{ amount: number }>) => Math.round(lines.reduce((t, l) => t + l.amount, 0) * 100) / 100
+
+/** 这辆车费用页的标题（费用和保养合成一行），按时间倒序 */
+function expenseTitles(data: AppData, v: Vehicle): Array<{ ts: number; id: string; title: string; maintenance: boolean }> {
+  const numbers = oilChangeNumbers(data.ledger, v.id)
+  return expenseEntries(vehicleRecords(data, v)).map(x => ({
+    ts: x.ts, id: x.id, title: entryTitle(numbers, x, categoryName(data, x.category_id)), maintenance: !!x.maintenance,
+  }))
+}
 
 /**
  * 要在 split、benefits 之后（导入的那辆车、2026 车险的赠送、检查用的门店）：
- * 记没记、2026/4/3 从养修填写的内容、保存（保养记录和费用、门店写进经销商代码、结算存进账本）、删除后回到没记、另记的工单；
- * 最后记下 2025/7/3（留着给截图里的「已记」）
+ * 从沃尔沃选 → 2026/4/3 填好的内容（标题、项目、说明、先勾的卡、门店、结算明细）→ 保存 → 编辑标题 → 再选一次看「可能重复」→ 删掉；
+ * 2024/10/11 另记的两笔；最后记下 2024/10/11（三笔，给截图里编辑补漆的标题和来源）
  */
 async function runService(body: ServiceBody): Promise<{ steps: Step[] }> {
   const steps: Step[] = []
   let data = loadData().data
   const v = data.ledger.vehicles.find(x => x.xxyh_car)
   if (!v || !data.ledger.perks.length) throw new Error("先跑 split 和 benefits")
-  if (data.ledger.service_records.length) throw new Error("已经跑过养修，先重新跑 split")
+  if (data.ledger.records.some(r => r.kind === "expense" && r.data_source)) throw new Error("已经跑过养修，先重新跑 split")
   FileManager.writeAsStringSync(serviceFile(), JSON.stringify(body.visits))
-  const view = checkServiceView(body.visits)
-  const kinds = view.visits.map(x => visitState(data.ledger, v.id, x).kind)
-  const todo = kinds.filter(k => k === "todo").length
-  add(steps, `读到的进店：结算过的 ${view.visits.length} 次，没记 ${todo} 次`, view.visits.length === 10 && todo === 7, kinds.join(","))
-
-  const v0403 = view.visits.find(x => bjDate(x.arrive_ts) === "2026-04-03")
-  const v1011 = view.visits.find(x => bjDate(x.arrive_ts) === "2024-10-11")
-  const v0703 = view.visits.find(x => bjDate(x.arrive_ts) === "2025-07-03")
-  add(steps, "2026/4/3、2024/10/11、2025/7/3 都在", !!v0403 && !!v1011 && !!v0703)
-  if (!v0403 || !v1011 || !v0703) return { steps }
+  const visits = body.visits
+  const source = checkSource(visits)
+  const sorted = visits.every((x, i) => i === 0 || x.arrive_ts <= visits[i - 1].arrive_ts)
+  add(steps, "从沃尔沃选：结算过的 10 次进店，新的在前；每次要记几笔（保养合成一笔，其余每张工单一笔）", visits.length === 10 && sorted,
+    visits.map(x => `${bjDate(x.arrive_ts)} ${x.title} ${x.expenses.length} 笔`).slice(0, 4).join("；"))
+  const at = (day: string) => visits.find(x => bjDate(x.arrive_ts) === day)
+  const v0403 = at("2026-04-03")
+  const v1011 = at("2024-10-11")
+  add(steps, "2026/4/3、2024/10/11 都在", !!v0403 && !!v1011)
+  if (!v0403 || !v1011) return { steps }
   const store = data.ledger.stores[0]
 
-  const { draft, vocabulary } = serviceForm(data, v, view, v0403)
-  add(steps, "2026/4/3：项目照沃尔沃的叫法，检查写进备注，自付为 0 时实付填 0，里程是到店里程",
-    draft.main.items.map(i => i.name).join("、") === "机油 0W20、机油滤清器、火花塞、燃油滤清器" && draft.main.remark === "检查空调不制冷" && draft.main.amount === 0 && draft.main.odometer === 79471,
-    `${draft.main.items.map(i => i.name).join("、")} · ${draft.main.remark} · ${draft.main.amount} · ${draft.main.odometer}`)
-  add(steps, "先勾好的权益：这里维修保养券只剩 ¥300、基础保养已用完，都不勾", !draft.main.uses.length, JSON.stringify(draft.main.uses))
-  add(steps, "门店按经销商的名称找到（标橙）", draft.store?.id === store?.id && draft.storePending, draft.store?.name ?? "没有")
-  add(steps, "项目页的候选：沃尔沃的叫法在前", vocabulary[0] === "机油滤清器", vocabulary.slice(0, 5).join("、"))
+  const d = serviceForm(data, v, source, v0403)
+  const items = d.main.items.map(i => i.name)
+  const auto = autoTitle(data.ledger, { vehicleId: v.id, maintenanceId: null, ts: d.main.source.ts, items, remark: d.main.source.remark, category: "维修保养" })
+  add(steps, "2026/4/3：项目照沃尔沃的叫法，检查写进说明，自付为 0 时实付填 0，里程是到店里程；换了机油，标题空着，灰字写第几次保养",
+    items.join("、") === "机油 0W20、机油滤清器、火花塞、燃油滤清器" && d.main.source.remark === "检查空调不制冷" && d.main.amount === 0 && d.main.odometer === 79471
+    && d.main.title === "" && /^第.+次保养$/.test(auto),
+    `${items.join("、")} · ${d.main.source.remark} · ${d.main.amount} · ${d.main.odometer} · ${auto}`)
+  add(steps, "先勾好的权益：这里维修保养券只剩 ¥300、基础保养已用完，都不勾", !d.main.uses.length, JSON.stringify(d.main.uses))
+  add(steps, "门店按经销商的名称找到（旁边标沃尔沃）", !!store && d.store?.id === store.id, d.store?.name ?? "没有")
+  const s = d.main.source.settlement
+  add(steps, "结算明细：原价在前，各行加起来是自付 0；对照列出这一笔的券", s.lines[0]?.label === "原价" && sumLines(s.lines) === 0 && s.coupons.length > 0,
+    `${s.lines.map(l => `${l.label} ${l.amount}`).join("、")}；对照 ${s.coupons.map(c => c.name).join("、")}`)
 
-  data = saveServiceVisit(data, v, v0403, {
-    main: { expense: { ts: draft.main.ts, category_id: MAINTENANCE_CATEGORY, amount: 0, remark: draft.main.remark }, uses: [], store: draft.store,
-      maintenance: { odometer: draft.main.odometer ?? 0, items: draft.main.items.map(i => i.name), remark: draft.main.remark } },
-    others: [],
+  data = saveServiceVisit(data, v, {
+    from: d.from, others: [],
+    main: {
+      expense: { ts: d.main.source.ts, category_id: MAINTENANCE_CATEGORY, amount: 0, remark: d.main.source.remark, title: "" }, uses: [], store: d.store,
+      maintenance: { odometer: d.main.odometer ?? 0, items, remark: d.main.source.remark }, settlement: s,
+    },
   })
-  const rec = data.ledger.service_records.find(s => s.order_id === v0403.order_id)
-  const e = rec ? data.ledger.records.find((r): r is ExpenseRecord & LedgerRecord => r.kind === "expense" && r.id === rec.tickets[0].record_id) : undefined
+  const e = data.ledger.records.find((r): r is ExpenseRecord & LedgerRecord => r.kind === "expense" && r.vehicle_id === v.id && r.ts === d.main.source.ts && !!r.data_source)
   const m = e ? maintenanceOf(data.ledger.records, e.id) : null
-  add(steps, "保存：一笔维修保养费用和它的保养记录，门店写进经销商代码，结算原样存进账本",
-    !!e && e.amount === 0 && !!m && m.items.length === 4 && m.odometer === 79471 && !!rec && rec.tickets.length === 2 && rec.tickets.every(t => t.record_id === e.id)
-    && data.ledger.stores.find(s => s.id === store?.id)?.dealer?.code === v0403.dealer_code,
-    `${rec?.tickets.length ?? 0} 张工单 · 经销商 ${data.ledger.stores.find(s => s.id === store?.id)?.dealer?.code ?? "没写"}`)
-  add(steps, "记下以后：这次进店算已记", visitState(data.ledger, v.id, v0403).kind === "recorded")
-  if (e) data = deleteRecord(data, e)
-  add(steps, "删掉那笔费用：保养记录一起删，这次进店回到没记", !data.ledger.service_records.some(s => s.order_id === v0403.order_id) && visitState(data.ledger, v.id, v0403).kind === "todo"
-    && !data.ledger.records.some(r => r.kind === "maintenance" && r.items.includes("燃油滤清器")))
-
-  const d2 = serviceForm(data, v, view, v1011).draft
-  add(steps, "2024/10/11：保养一笔（自付 ¥380，实付要填），另记两张补漆工单（自付 0 的填 0、¥300 的要填），时间是各自的开单时间",
-    d2.main.amount == null && d2.others.length === 2 && d2.others.map(o => String(o.amount)).sort().join() === "0,null" && d2.others.every(o => o.ts !== d2.main.ts),
-    d2.others.map(o => `${bjDate(o.ts)} ${o.remark} ${o.amount ?? "必填"}`).join("；"))
-
-  const d3 = serviceForm(data, v, view, v0703).draft
-  data = saveServiceVisit(data, v, v0703, {
-    main: { expense: { ts: d3.main.ts, category_id: MAINTENANCE_CATEGORY, amount: 0, remark: d3.main.remark }, uses: [], store: d3.store,
-      maintenance: { odometer: d3.main.odometer ?? 0, items: d3.main.items.map(i => i.name), remark: d3.main.remark } },
-    others: [],
-  })
-  add(steps, "记下 2025/7/3（给截图的「已记」）", visitState(data.ledger, v.id, v0703).kind === "recorded")
-  const numbers = oilChangeNumbers(data.ledger, v.id)
-  const titled = expenseEntries(vehicleRecords(data, v)).map(x => ({ x, title: entryTitle(data.ledger, numbers, x, categoryName(data, x.category_id)) }))
+  add(steps, "保存：一笔维修保养费用和它的保养记录；存下结算明细和来源「沃尔沃」，没有标题；门店不写经销商代码",
+    !!e && e.amount === 0 && !e.title && e.data_source?.id === "volvo_cn" && e.data_source?.name === "沃尔沃" && JSON.stringify(e.settlement) === JSON.stringify(s)
+    && !!m && m.items.length === 4 && m.odometer === 79471 && !!store && !("dealer" in (data.ledger.stores.find(x => x.id === store.id) ?? {})),
+    e ? `${e.data_source?.name ?? "没有来源"} · ${e.settlement?.lines.length ?? 0} 行结算明细` : "没存下")
+  if (!e) return { steps }
   const nth = (t: string) => /^第.+次保养$/.test(t)
-  add(steps, "费用页的标题：换了机油的保养写第几次保养（2025/7/3 记下的那笔也是），不用备注",
-    numbers.size > 0 && titled.filter(t => t.x.maintenance && numbers.has(t.x.maintenance.id)).every(t => nth(t.title)) && titled.some(t => bjDate(t.x.ts) === "2025-07-03" && nth(t.title)),
-    titled.slice(0, 4).map(t => `${bjDate(t.x.ts)} ${t.title}`).join("；"))
+  const titleOf = (id: string) => expenseTitles(data, v).find(x => x.id === id)?.title ?? ""
+  const before = titleOf(e.id)
+  data = saveExpense(data, v, e.id, { ...toExpenseData(e), title: "年度保养" })
+  const renamed = titleOf(e.id)
+  const kept = data.ledger.records.find((r): r is ExpenseRecord & LedgerRecord => r.kind === "expense" && r.id === e.id)
+  data = saveExpense(data, v, e.id, { ...toExpenseData(e), title: "" })
+  add(steps, "编辑：填了标题「年度保养」费用页写它，结算明细和来源不变；清空后回到第几次保养",
+    nth(before) && renamed === "年度保养" && JSON.stringify(kept?.settlement) === JSON.stringify(s) && kept?.data_source?.name === "沃尔沃" && titleOf(e.id) === before,
+    `${before} → ${renamed} → ${titleOf(e.id)}`)
+  const dup = findExpenseDuplicate(data.ledger.records, v.id, { ts: d.main.source.ts, category_id: MAINTENANCE_CATEGORY, amount: 0 })
+  const dupText = dup ? expenseDuplicateText(dup, categoryName(data, dup.category_id)) : ""
+  add(steps, "再选一次这次进店，实付一样：保存时提示可能重复", dupText === "4月3日 已有一笔 ¥0.00 的维修保养，可能重复", dupText || "没有提示")
+  data = deleteRecord(data, e)
+  add(steps, "删掉那笔费用：保养记录一起删", !data.ledger.records.some(r => r.id === e.id || (r.kind === "maintenance" && r.expense_id === e.id)))
+
+  const d2 = serviceForm(data, v, source, v1011)
+  add(steps, "2024/10/11：保养一笔（自付 ¥380，实付要填），另记两笔补漆（自付 0 的填 0、¥300 的要填），标题是沃尔沃给的，时间是各自的开单时间",
+    d2.main.amount == null && d2.others.length === 2 && d2.others.map(o => String(o.amount)).sort().join() === "0,null"
+    && d2.others.every(o => o.title.startsWith("补漆") && o.source.ts !== d2.main.source.ts),
+    d2.others.map(o => `${o.title} · ${o.amount ?? "必填"}`).join("；"))
+  data = saveServiceVisit(data, v, {
+    from: d2.from,
+    main: {
+      expense: { ts: d2.main.source.ts, category_id: MAINTENANCE_CATEGORY, amount: d2.main.source.own, remark: d2.main.source.remark, title: d2.main.title }, uses: [], store: d2.store,
+      maintenance: { odometer: d2.main.odometer ?? 0, items: d2.main.items.map(i => i.name), remark: d2.main.source.remark }, settlement: d2.main.source.settlement,
+    },
+    others: d2.others.map(o => ({
+      expense: { ts: o.source.ts, category_id: MAINTENANCE_CATEGORY, amount: o.amount ?? o.source.own, remark: o.source.remark, title: o.title }, uses: [], settlement: o.source.settlement,
+    })),
+  })
+  const saved = data.ledger.records.filter((r): r is ExpenseRecord & LedgerRecord => r.kind === "expense" && r.vehicle_id === v.id && r.data_source?.id === "volvo_cn")
+  const titles = expenseTitles(data, v)
+  const paints = saved.filter(x => x.title).map(x => titleOf(x.id))
+  add(steps, "记下 2024/10/11：三笔的来源都是沃尔沃；费用页的标题：保养写第几次保养，补漆写沃尔沃给的",
+    saved.length === 3 && saved.filter(x => !x.title).length === 1 && paints.length === 2 && paints.every(t => t.startsWith("补漆"))
+    && titles.filter(t => t.maintenance && nth(t.title)).length > 0,
+    titles.filter(t => bjDate(t.ts) === "2024-10-11").map(t => t.title).join("；"))
   const problems = ledgerProblems(data.ledger)
   add(steps, "账本里的引用都找得到", !problems.length, problems.slice(0, 3).join("；"))
   return { steps }
 }
 
-/** 养修的截图（/run/service 之后）：费用页一组、养修记录、从养修填写（2026/4/3、2024/10/11）、使用权益、保养项目、选择门店、门店详情 */
+/** 养修的截图（/run/service 之后）：选进店页、填好的记费用（2024/10/11）、编辑补漆（标题、来源、结算明细）、使用权益的对照、保养项目、门店详情 */
 function serviceScreen(screen: string, data: AppData): VirtualNode | null {
   const v = data.ledger.vehicles.find(x => x.xxyh_car)
   const visits = readServiceVisits()
   if (!v || !visits.length) return null
-  const view = checkServiceView(visits)
-  const actions = { record: noop, open: noop, refresh: async () => undefined }
+  const source = checkSource(visits)
   const stores = benefitStub(data).stores
-  const at = (day: string) => visits.find(x => bjDate(x.arrive_ts) === day)!
-  const formOf = (visit: ServiceVisit) => {
-    const { draft, vocabulary } = serviceForm(data, v, view, visit)
-    const service: ServiceForm = {
-      title: view.title, arrive: visit.arrive_ts, dealer: visit.dealer?.short ?? "", ticketCount: visit.tickets.length, tickets: draft.main.tickets, draft,
-      dealerPoint: visit.dealer && visit.dealer.lng != null && visit.dealer.lat != null ? [visit.dealer.lng, visit.dealer.lat] : null,
-      sources: Object.fromEntries(draft.main.items.map(i => [i.name, i.labour])), notes: draft.main.notes, vocabulary,
-    }
-    return { draft, vocabulary, service }
+  const at = (day: string) => visits.find(x => bjDate(x.arrive_ts) === day)
+  if (screen === "service-pick") return <ServicePick source={source} vehicle={v} connect={async () => undefined} />
+  const v1011 = at("2024-10-11")
+  if (screen === "service-filled" && v1011) {
+    return <ExpenseForm getData={() => data} vehicle={v} record={null} maintenance={null} odometer={null} initialCategory={MAINTENANCE_CATEGORY} preset={null} stores={stores}
+      service={{ source, connect: async () => undefined, initial: v1011 }} />
   }
-  if (screen === "service-expense") {
-    const d = { ...data, ledger: { ...data.ledger, settings: { ...data.ledger.settings, current_vehicle_id: v.id } } }
-    return <ExpenseTab data={d} subtitle={v.name} actions={expenseStub} service={{ vehicle: v, view, actions }} />
+  if (screen === "service-edit") {
+    const e = data.ledger.records.find((r): r is ExpenseRecord & LedgerRecord => r.kind === "expense" && r.vehicle_id === v.id && !!r.data_source && !!r.title)
+    return e ? expenseFormOf(data, v, e) : null
   }
-  if (screen === "service-visits") return <NavigationStack><ServiceVisitsPage data={data} vehicle={v} view={view} actions={actions} /></NavigationStack>
-  if (screen === "service-import" || screen === "service-split") {
-    const { service } = formOf(at(screen === "service-import" ? "2026-04-03" : "2024-10-11"))
-    return <ExpenseForm getData={() => data} vehicle={v} record={null} maintenance={null} odometer={null} initialCategory={MAINTENANCE_CATEGORY} preset={null} stores={stores} service={service} />
+  const v0403 = at("2026-04-03")
+  if (screen === "service-perks" && v0403) {
+    const d = serviceForm(data, v, source, v0403)
+    return <NavigationStack><PerkPick usable={usablePerks(perkBook(data.ledger), v.id, v0403.arrive_ts, null)} uses={d.main.uses} amount={null} onChange={noop}
+      refs={d.main.source.settlement.coupons} refsSource="沃尔沃" linked /></NavigationStack>
   }
-  if (screen === "service-pick") {
-    const visit = at("2026-04-03")
-    const { draft } = formOf(visit)
-    return <NavigationStack><PerkPick usable={usablePerks(perkBook(data.ledger), v.id, visit.arrive_ts, null)} uses={draft.main.uses} amount={null} onChange={noop}
-      refs={settlementRefs(draft.main.tickets)} linked /></NavigationStack>
+  const old = at("2023-04-21")
+  if (screen === "service-perks-old" && old) {
+    return <NavigationStack><PerkPick usable={usablePerks(perkBook(data.ledger), v.id, old.arrive_ts, null)} uses={[]} amount={null} onChange={noop}
+      refs={old.expenses.flatMap(x => x.settlement.coupons)} refsSource="沃尔沃" linked /></NavigationStack>
   }
-  if (screen === "service-pick-old") {
-    const visit = at("2023-04-21")
-    return <NavigationStack><PerkPick usable={usablePerks(perkBook(data.ledger), v.id, visit.arrive_ts, null)} uses={[]} amount={null} onChange={noop}
-      refs={settlementRefs(visit.tickets)} linked /></NavigationStack>
+  if (screen === "service-items" && v0403) {
+    const d = serviceForm(data, v, source, v0403)
+    return <NavigationStack><MaintenanceItems items={d.main.items.map(i => i.name)} used={usedItems(data.ledger.records, v.id)} onChange={noop}
+      sources={Object.fromEntries(d.main.items.map(i => [i.name, i.from]))} notes={d.main.notes} onNote={noop} /></NavigationStack>
   }
-  if (screen === "service-items") {
-    const { draft, vocabulary, service } = formOf(at("2026-04-03"))
-    return <NavigationStack><MaintenanceItems items={draft.main.items.map(i => i.name)} used={vocabulary} onChange={noop} sources={service.sources} notes={draft.main.notes} onNote={noop} /></NavigationStack>
-  }
-  const store = data.ledger.stores.find(s => s.dealer) ?? data.ledger.stores[0]
-  if (screen === "service-picker") return <NavigationStack><StorePicker getData={() => data} selected={store ?? null} near={null} query="" onPick={noop} stores={stores} /></NavigationStack>
+  const store = data.ledger.stores[0]
   if (screen === "service-store" && store) return <NavigationStack><StoreDetail getData={() => data} storeId={store.id} stores={stores} close={noop} /></NavigationStack>
   return null
 }
@@ -1164,7 +1192,7 @@ async function runMap(): Promise<{ steps: Step[] }> {
   // 截图用：像 2.1 从高德选的门店，存着营业时间
   data = saveStore(data, {
     id: "", name: "检查用门店（2.1）", full_name: "检查用门店（2.1）", address: "示例路 1 号", phone: "021-00000000", hours: "08:30-17:30", poi_id: "check-amap",
-    lng: center[0] + 0.02, lat: center[1], dealer: null,
+    lng: center[0] + 0.02, lat: center[1],
   }).data
   return { steps }
 }
@@ -1199,12 +1227,20 @@ function pluginScreen(screen: string, data: AppData): VirtualNode | null {
   if (screen === "plugin-filled" && v && pickShot) {
     return <FuelForm data={data} vehicle={v} record={null} initialPick={{ plugin: pickShot.plugin, result: { txn: pickShot.txn, parts: pickShot.parts } }} />
   }
+  // 2.3.0-beta.2：编辑从示例插件记的加油，最上面一行「来源」（画稿 SvFuelSourceTop；用最近一次加油，只在截图里带上来源）
+  const last = v ? fuelRecords(data, v)[0] : undefined
+  if (screen === "plugin-fuel-source" && v && last) {
+    return <FuelForm data={data} vehicle={v} record={{ ...toFuelData(last), id: last.id, data_source: { id: "example", name: "示例" } }} />
+  }
   return null
 }
 
-/** 打开一笔费用（带门店） */
+/** 打开一笔费用（带门店；从数据源记的带标题、结算明细和来源） */
 function expenseFormOf(data: AppData, v: Vehicle, e: ExpenseRecord): VirtualNode {
-  return <ExpenseForm getData={() => data} vehicle={v} record={{ ts: e.ts, category_id: e.category_id, amount: e.amount, remark: e.remark, id: e.id, ...(e.store_id ? { store_id: e.store_id } : {}) }}
+  return <ExpenseForm getData={() => data} vehicle={v} record={{
+    ...toExpenseData(e), id: e.id, ...(e.store_id ? { store_id: e.store_id } : {}),
+    ...(e.settlement ? { settlement: e.settlement } : {}), ...(e.data_source ? { data_source: e.data_source } : {}),
+  }}
     maintenance={maintenanceOf(data.ledger.records, e.id)} odometer={null}
     initialCategory={e.category_id} preset={null} stores={benefitStub(data).stores} />
 }

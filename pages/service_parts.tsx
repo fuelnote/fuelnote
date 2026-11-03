@@ -1,6 +1,6 @@
-// 养修页面共用的部件（2.1 设计第 8 节，画布第十五轮）：一次进店的一行、来源一行、沃尔沃结算一组。
-import { DynamicShapeStyle, HStack, Image, Section, Spacer, Text, VirtualNode, VStack } from "scripting"
-import { BJ_OFFSET, prefLabel, ServiceTicket, ServiceVisit, settlementOf, TicketNaming, visitItems, visitTitle, yuan } from "../common/model"
+// 养修页面共用的部件（插件化设计 3.4 节，画布第十八轮 Sv*）：记费用里「从<数据源名>选」一行和选好以后的一行、选进店页的一次进店、结算明细一组。
+import { Button, DynamicShapeStyle, HStack, Image, Section, Spacer, Text, VStack } from "scripting"
+import { BJ_OFFSET, PluginState, ServiceVisit, Settlement, yuan } from "../common/model"
 import { km } from "./components"
 
 /** 维修保养的颜色（同费用页、费用统计） */
@@ -12,34 +12,55 @@ export function serviceDay(ts: number): string {
   return `${d.getUTCFullYear()}/${d.getUTCMonth() + 1}/${d.getUTCDate()}`
 }
 
-/** 第二行：到店里程 · 保养项目（没有保养工单时写工单的项目名） */
-export function visitSub(v: ServiceVisit, naming: TicketNaming): string {
-  const items = visitItems(v.tickets.filter(t => t.type === "保养"), naming).items.map(i => i.name)
-  const what = items.length ? items.join("、") : v.tickets.flatMap(t => t.projects).join("、")
+/** 选进店页的第二行：到店里程 · 保养项目（第一笔不带保养记录时写各笔的备注） */
+function visitSub(v: ServiceVisit): string {
+  const m = v.expenses[0].maintenance
+  const items = m ? m.items.map(i => i.name) : []
+  const what = items.length ? items.join("、") : v.expenses.map(e => e.remark).filter(Boolean).join("、")
   return [v.odometer ? km(v.odometer) : "", what].filter(Boolean).join(" · ")
 }
 
-/** 一次进店的一行：扳手图标（维修保养的颜色）、日期 · 叫法、第二行里程和项目，右边由调用方给（「记下」、金额、箭头） */
-export function VisitRow({ visit, naming, right }: { visit: ServiceVisit; naming: TicketNaming; right: VirtualNode | null }) {
+/** 选进店页的一次进店：扳手图标（维修保养的颜色）、日期 · 叫法，第二行里程和项目，右边要记几笔 */
+export function VisitRow({ visit }: { visit: ServiceVisit }) {
   return <HStack spacing={12} foregroundStyle="label">
-    <Image systemName="wrench.and.screwdriver.fill" foregroundStyle={MAINTENANCE_COLOR} frame={{ width: 24 }} />
+    <Image systemName="wrench.adjustable" foregroundStyle={MAINTENANCE_COLOR} frame={{ width: 24 }} />
     <VStack alignment="leading" spacing={3}>
-      <Text font="body">{`${serviceDay(visit.arrive_ts)} · ${visit.tickets.length ? visitTitle(visit) : visit.state}`}</Text>
-      <Text font="caption" foregroundStyle="secondaryLabel" lineLimit={1}>{visit.tickets.length ? visitSub(visit, naming) : visit.dealer?.short ?? ""}</Text>
+      <Text font="body">{`${serviceDay(visit.arrive_ts)} · ${visit.title}`}</Text>
+      <Text font="caption" foregroundStyle="secondaryLabel" lineLimit={1}>{visitSub(visit)}</Text>
     </VStack>
     <Spacer />
-    {right}
+    <Text foregroundStyle="secondaryLabel" monospacedDigit>{`${visit.expenses.length} 笔`}</Text>
   </HStack>
 }
 
-/** 表单最上面：这次是从哪一次养修填的 */
-export function SourceRow({ title, arrive, tickets, dealer }: { title: string; arrive: number; tickets: number; dealer: string }) {
+/** 记费用里还没选时：「从<数据源名>选」，右边按上次调用的结果写「未连接」（灰）「已过期」（橙），都可以点开，在选进店页中连接 */
+export function ServiceEntry({ name, state, onTap }: { name: string; state: PluginState | null; onTap: () => void }) {
+  return <Button action={onTap}>
+    <HStack spacing={10}>
+      <Image systemName="wrench.adjustable" foregroundStyle="accentColor" />
+      <Text foregroundStyle="accentColor">{`从${name}选`}</Text>
+      <Spacer />
+      {state === "not_connected" ? <Text foregroundStyle="secondaryLabel">未连接</Text> : null}
+      {state === "expired" ? <HStack spacing={4}>
+        <Image systemName="exclamationmark.triangle.fill" font="footnote" foregroundStyle="systemOrange" />
+        <Text foregroundStyle="systemOrange">已过期</Text>
+      </HStack> : null}
+    </HStack>
+  </Button>
+}
+
+/** 选好以后：「已填入<数据源名> · 到店日期」，第二行是叫法、到店里程和要记几笔，右边「更换」重新选一次进店、整张表重新填 */
+export function ServiceFilled({ name, visit, onChange }: { name: string; visit: ServiceVisit; onChange: () => void }) {
   return <HStack spacing={12}>
-    <Image systemName="list.clipboard" foregroundStyle="accentColor" font="title3" />
+    <Image systemName="wrench.adjustable" font="title3" foregroundStyle="accentColor" />
     <VStack alignment="leading" spacing={2}>
-      <Text>{`来自${title}`}</Text>
-      <Text font="caption" foregroundStyle="secondaryLabel">{[`${serviceDay(arrive)} 到店`, `工单 ${tickets} 张`, dealer].filter(Boolean).join(" · ")}</Text>
+      <Text font="subheadline" fontWeight="semibold" lineLimit={2}>{`已填入${name} · ${serviceDay(visit.arrive_ts)}`}</Text>
+      <Text font="caption" foregroundStyle="secondaryLabel" lineLimit={1}>
+        {[visit.title, visit.odometer ? km(visit.odometer) : "", `${visit.expenses.length} 笔`].filter(Boolean).join(" · ")}
+      </Text>
     </VStack>
+    <Spacer />
+    <Button title="更换" action={onChange} buttonStyle="bordered" controlSize="small" />
   </HStack>
 }
 
@@ -51,18 +72,18 @@ function MoneyLine({ label, value, strong }: { label: string; value: string; str
   </HStack>
 }
 
-const minus = (n: number) => `−${yuan(n)}`
+/** 一行的金额：减免和优惠「−¥957.00」；原价照写；后面的正数（抹零往上）「+¥0.50」 */
+function lineValue(amount: number, first: boolean): string {
+  if (amount < 0) return `−${yuan(-amount)}`
+  return first ? yuan(amount) : `+${yuan(amount)}`
+}
 
-/** 沃尔沃结算一组（只读）：原价、工时优惠、其他减免、每一条券和活动优惠、抹零、自付，下面是结算备注 */
-export function SettlementSection({ title, tickets, note }: { title: string; tickets: ServiceTicket[]; note: string }) {
-  const s = settlementOf(tickets)
-  return <Section key="settlement" header={<HStack><Text>{title}</Text><Spacer /><Text>{`工单 ${tickets.length} 张`}</Text></HStack>}
-    footer={<Text>{[note, s.remark ? `结算备注：${s.remark}` : ""].filter(Boolean).join("")}</Text>}>
-    <MoneyLine label="原价" value={yuan(s.total)} />
-    {s.labour_discount ? <MoneyLine label="工时优惠" value={minus(s.labour_discount)} /> : null}
-    {s.discounts.map((d, i) => <MoneyLine key={`d${i}`} label={d.name} value={minus(d.amount)} />)}
-    {s.prefs.map((p, i) => <MoneyLine key={`p${i}`} label={prefLabel(p.name)} value={minus(p.amount)} />)}
-    {s.rounding ? <MoneyLine label="抹零" value={s.rounding > 0 ? minus(s.rounding) : `+${yuan(-s.rounding)}`} /> : null}
-    <MoneyLine label="自付" value={yuan(s.own)} strong />
+/** 结算明细一组（只读）：数据源给的各行，最后是自付（各行加起来），下面写说明和结算备注 */
+export function SettlementSection({ settlement, note }: { settlement: Settlement; note: string }) {
+  const own = Math.round(settlement.lines.reduce((t, l) => t + l.amount, 0) * 100) / 100
+  return <Section key="settlement" header={<Text>结算明细</Text>}
+    footer={<Text>{[note, settlement.note ? `结算备注：${settlement.note}` : ""].filter(Boolean).join("")}</Text>}>
+    {settlement.lines.map((l, i) => <MoneyLine key={`l${i}`} label={l.label} value={lineValue(l.amount, i === 0)} />)}
+    <MoneyLine label="自付" value={yuan(own)} strong />
   </Section>
 }

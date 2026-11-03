@@ -80,3 +80,14 @@ test("源码之间没有循环导入", () => {
   for (const n of graph.keys()) if (!state.get(n)) visit(n)
   assert.deepEqual(cycles, [])
 })
+
+test("沃尔沃的代码只在 providers/ 里，别处经过 providers/registry.ts 用；common/ 的代码里没有沃尔沃的规则（插件化设计 D19，2.3.0-beta.2）", () => {
+  const graph = importGraph()
+  const bad = [...graph].flatMap(([f, deps]) => deps.filter(d => d.startsWith("providers/volvo_") && !f.startsWith("providers/")).map(d => `${f} → ${d}`))
+  assert.deepEqual(bad, [])
+  const mentions = readdirSync(join(ROOT, "common")).filter(n => n.endsWith(".ts")).filter(n => {
+    const code = readFileSync(join(ROOT, "common", n), "utf8").replace(/\/\*[\s\S]*?\*\//g, "").split(/\r?\n/).map(l => l.replace(/\/\/.*$/, "")).join("\n")
+    return /沃尔沃|volvo/i.test(code)
+  })
+  assert.deepEqual(mentions, [])
+})

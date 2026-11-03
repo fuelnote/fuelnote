@@ -1,7 +1,7 @@
 // 账本的纯逻辑（2.0 设计第 3、4 节）：所有车辆的记录都存在本机；记录有固定的 id，保险、权益使用、保养按费用的 id 关联。
 import { newId } from "./ids"
 import {
-  ExpenseCategory, ExpenseData, ExpenseRecord, FuelData, FuelRecord, InsuranceYear, LedgerFile, LedgerRecord, Station, Vehicle, VehicleProfile,
+  DataSourceMark, ExpenseCategory, ExpenseData, ExpenseRecord, FuelData, FuelRecord, InsuranceYear, LedgerFile, LedgerRecord, Settlement, Station, Vehicle, VehicleProfile,
 } from "./types"
 import { expenseFor } from "./insurance"
 import { XxyhState } from "../sync/xxyh/types"
@@ -55,7 +55,6 @@ export function vehicleDeletion(ledger: LedgerFile, id: string): VehicleDeletion
     insurance: ledger.insurance.filter(y => y.vehicle_id !== id),
     perks: ledger.perks.filter(p => !perkIds.has(p.id)),
     perk_uses: ledger.perk_uses.filter(u => !perkIds.has(u.perk_id)),
-    service_records: (ledger.service_records ?? []).filter(s => s.vehicle_id !== id),
     settings: { ...ledger.settings, current_vehicle_id: current !== id && vehicles.some(x => x.id === current) ? current : vehicles.find(x => !x.hidden)?.id ?? null },
   }
   return { ledger: next, records, insurance, perks: perkIds.size }
@@ -101,9 +100,13 @@ export function toFuelData(r: FuelData): FuelData {
   }
 }
 
+/** 表单里的费用字段；存着标题时带上 */
 export function toExpenseData(r: ExpenseData): ExpenseData {
-  return { ts: r.ts, category_id: r.category_id, amount: r.amount, remark: r.remark }
+  return { ts: r.ts, category_id: r.category_id, amount: r.amount, remark: r.remark, ...(r.title ? { title: r.title } : {}) }
 }
+
+/** 从数据源记下时另存的：结算明细和来源（插件化设计 3.4、3.5 节） */
+export type ExpenseMeta = { settlement?: Settlement; data_source?: DataSourceMark }
 
 /** 一次修改的结果。recordId：新建或修改的记录 id；removedInsurance：一起删掉的保险年度（用来删保单原件） */
 export type Change = { ledger: LedgerFile; recordId?: string | null; removedInsurance?: string[] }
@@ -120,7 +123,8 @@ function upsertStation(ledger: LedgerFile, station: Station, ts: number): void {
 }
 
 /** 保存加油记录。recordId 为 null 表示新增；newStation 是这次要新建的油站。编辑时保留表单以外的字段（小熊的原样） */
-export function putFuel(data: AppData, vehicle: Vehicle, recordId: string | null, fuel: FuelData, newStation: Station | null): Change {
+/** source：从数据源选了交易来填的（插件化设计 3.5 节）；不传时不改，编辑时保留原来的 */
+export function putFuel(data: AppData, vehicle: Vehicle, recordId: string | null, fuel: FuelData, newStation: Station | null, source?: DataSourceMark | null): Change {
   const ledger: LedgerFile = JSON.parse(JSON.stringify(data.ledger))
   if (newStation) upsertStation(ledger, newStation, fuel.ts)
   else if (fuel.station_id) {
@@ -128,20 +132,26 @@ export function putFuel(data: AppData, vehicle: Vehicle, recordId: string | null
     if (s) s.last_used_ts = Math.max(s.last_used_ts, fuel.ts)
   }
   const before = recordId ? ledger.records.find((r): r is FuelRecord => r.id === recordId && r.kind === "fuel") : undefined
-  const rec: FuelRecord = { ...before, ...toFuelData(fuel), kind: "fuel", id: recordId || newId("f"), vehicle_id: vehicle.id }
+  const rec: FuelRecord = { ...before, ...toFuelData(fuel), kind: "fuel", id: recordId || newId("f"), vehicle_id: vehicle.id, ...(source ? { data_source: source } : {}) }
   ledger.records = before ? ledger.records.map(r => (r.id === recordId ? rec : r)) : [...ledger.records, rec]
   return { ledger, recordId: rec.id }
 }
 
 /**
- * 保存费用。store：undefined 不改门店，null 去掉门店，否则是门店的 id。编辑时保留表单以外的字段（小熊的原样）
+ * 保存费用。store：undefined 不改门店，null 去掉门店，否则是门店的 id。标题：expense.title 不传不改，空串去掉。
+ * meta：从数据源记下时的结算明细和来源（给了才写）。编辑时保留表单以外的字段（小熊的原样、结算明细、来源）
  */
-export function putExpense(data: AppData, vehicle: Vehicle, recordId: string | null, expense: ExpenseData, store?: string | null): Change {
+export function putExpense(data: AppData, vehicle: Vehicle, recordId: string | null, expense: ExpenseData, store?: string | null, meta?: ExpenseMeta): Change {
   const ledger: LedgerFile = JSON.parse(JSON.stringify(data.ledger))
   const before = recordId ? ledger.records.find((r): r is ExpenseRecord => r.id === recordId && r.kind === "expense") : undefined
-  const { store_id: oldStore, ...rest } = before ?? ({} as Partial<ExpenseRecord>)
+  const { store_id: oldStore, title: oldTitle, ...rest } = before ?? ({} as Partial<ExpenseRecord>)
   const storeId = store === undefined ? oldStore : store ?? undefined
-  const rec: ExpenseRecord = { ...rest, ...toExpenseData(expense), kind: "expense", id: recordId || newId("e"), vehicle_id: vehicle.id, ...(storeId ? { store_id: storeId } : {}) }
+  const title = (expense.title === undefined ? oldTitle ?? "" : expense.title).trim()
+  const { title: _form, ...fields } = toExpenseData(expense)
+  const rec: ExpenseRecord = {
+    ...rest, ...fields, kind: "expense", id: recordId || newId("e"), vehicle_id: vehicle.id, ...(storeId ? { store_id: storeId } : {}), ...(title ? { title } : {}),
+    ...(meta?.settlement ? { settlement: meta.settlement } : {}), ...(meta?.data_source ? { data_source: meta.data_source } : {}),
+  }
   ledger.records = before ? ledger.records.map(r => (r.id === recordId ? rec : r)) : [...ledger.records, rec]
   return { ledger, recordId: rec.id }
 }
@@ -162,15 +172,7 @@ export function removeRecord(data: AppData, record: LedgerRecord): Change {
   ledger.insurance = ledger.insurance.filter(y => !years.includes(y.id))
   ledger.perk_uses = ledger.perk_uses.filter(u => u.expense_id !== record.id)
   ledger.records = ledger.records.filter(r => !(r.kind === "maintenance" && r.expense_id === record.id))
-  ledger.service_records = dropServiceRecord(ledger.service_records, record.id)
   return { ledger, removedInsurance: years }
-}
-
-/** 删掉一笔养修记成的费用：那张工单不再算记过；这次进店的工单都没有记录了时删掉整条（这次进店回到「没记」，2.1 设计第 11 节） */
-function dropServiceRecord(list: LedgerFile["service_records"], recordId: string): LedgerFile["service_records"] {
-  return list
-    .map(s => (s.tickets.some(t => t.record_id === recordId) ? { ...s, tickets: s.tickets.map(t => (t.record_id === recordId ? { ...t, record_id: null } : t)) } : s))
-    .filter(s => s.tickets.some(t => t.record_id))
 }
 
 // ---------- 保险（设计文档 20.4 节） ----------

@@ -1,4 +1,4 @@
-// FuelNote 示例插件：油记数据源契约（docs/plugins.md）的示例实现，返回按当前时间编的加油交易、一辆示例车的行程和车况。写插件时照这个改。
+// FuelNote 示例插件：油记数据源契约（docs/plugins.md）的示例实现，返回按当前时间编的加油交易、一辆示例车的行程、车况和养修。写插件时照这个改。
 // 被油记调用时 Script.queryParameters 带 fuelnote: 1 和 action；处理完一定 Script.exit(对象)，出错时也一样，否则油记会一直等。
 // 自己打开时是连接页：可以切换「已连接」「已过期」「未连接」，用来看油记在出错时的样子。
 import { Button, HStack, Image, List, Navigation, NavigationStack, Script, Section, Spacer, Text, useState } from "scripting"
@@ -95,6 +95,53 @@ function vehicleStatus(now: number) {
   return { ts: last ? last.end_ts : now, fuel_l: 32.5, range_km: 380, avg_consumption: 9.2, odometer_km: last ? last.end_odometer_km : 82000 }
 }
 
+/** 编的经销商（WGS-84）：离人民广场的示例加油站约 1 km */
+const DEALER = { name: "示例汽车销售服务有限公司", short: "示例汽车", lng: 121.4820, lat: 31.2265 }
+
+/**
+ * 按当前时间编的养修（同一天里不变），只有已结算的，新的在前：20 天前一次换了机油的保养，同一次进店另记一笔补漆
+ * （两种权益提示：车险赠送的储值、油漆面的次数）；60 天前一次自付 0 的保修，对照只有名称、没有金额。结算明细的各行加起来是自付
+ */
+function serviceVisits(now: number) {
+  const day = 86400e3
+  const bj = 8 * 3600e3
+  const today = Math.floor((now + bj) / day) * day - bj
+  const arrive1 = today - 20 * day + 10.5 * 3600e3
+  const arrive2 = today - 60 * day + 14 * 3600e3
+  return [
+    {
+      id: "visit-1", arrive_ts: arrive1, odometer: 81236, title: "保养 · 补漆", dealer: DEALER,
+      expenses: [
+        {
+          ts: arrive1, title: "保养 · 机油 0W20、机油滤清器等", remark: "检查轮胎磨损", own: 380,
+          maintenance: {
+            items: [{ name: "机油 0W20", from: "原厂基础保养" }, { name: "机油滤清器", from: "原厂基础保养" }, { name: "空调滤芯", from: "更换空调滤芯" }],
+            notes: ["检查轮胎磨损"],
+          },
+          settlement: {
+            lines: [{ label: "原价", amount: 1337.22 }, { label: "工时优惠", amount: -100 }, { label: "续保代金券", amount: -857 }, { label: "抹零", amount: -0.22 }],
+            note: "示例结算备注", coupons: [{ name: "续保代金券", amount: 857 }],
+          },
+          perk_hints: [{ kind: "balance", origin: "insurance", amount: 857 }],
+        },
+        {
+          ts: arrive1 + 2 * 3600e3, title: "补漆 · 后保、左后叶", remark: "划痕补漆续保赠送X2", own: 300, maintenance: null,
+          settlement: { lines: [{ label: "原价", amount: 2300 }, { label: "续保赠送油漆券", amount: -2000 }], note: "", coupons: [{ name: "续保赠送油漆券", amount: 2000 }] },
+          perk_hints: [{ kind: "count", name: "油漆面", used: 2 }],
+        },
+      ],
+    },
+    {
+      id: "visit-2", arrive_ts: arrive2, odometer: 79870, title: "保修", dealer: DEALER,
+      expenses: [{
+        ts: arrive2, title: "保修 · 保险丝", remark: "保修更换保险丝", own: 0, maintenance: null,
+        settlement: { lines: [{ label: "原价", amount: 120 }, { label: "保修", amount: -120 }], note: "", coupons: [{ name: "延保服务", amount: null }] },
+        perk_hints: [],
+      }],
+    },
+  ]
+}
+
 /** 未连接、已过期时数据动作都返回错误 */
 function blocked(): Record<string, unknown> | null {
   const s = readState()
@@ -112,7 +159,7 @@ function ConnectPage() {
   }
   return <NavigationStack>
     <List navigationTitle="FuelNote 示例插件" navigationBarTitleDisplayMode="inline" toolbar={{ confirmationAction: <Button title="完成" action={() => dismiss()} /> }}>
-      <Section header={<Text>连接状态</Text>} footer={<Text>示例插件不连任何服务，交易、行程和车况都是按当前时间编的。切换状态，可以看油记在未连接、凭据过期时的样子。</Text>}>
+      <Section header={<Text>连接状态</Text>} footer={<Text>示例插件不连任何服务，交易、行程、车况和养修都是按当前时间编的。切换状态，可以看油记在未连接、凭据过期时的样子。</Text>}>
         {(["connected", "expired", "disconnected"] as State[]).map(s => <Button key={s} action={() => choose(s)}>
           <HStack>
             <Text foregroundStyle="label">{LABELS[s]}</Text>
@@ -130,21 +177,22 @@ function ConnectPage() {
 
 async function handle(action: string, q: Record<string, any>): Promise<unknown> {
   if (action === "describe") {
-    return { ok: true, contract: CONTRACT, id: "example", name: "示例", version: Script.metadata.version, capabilities: ["fuel", "vehicles", "trips", "vehicle_status"] }
+    return { ok: true, contract: CONTRACT, id: "example", name: "示例", version: Script.metadata.version, capabilities: ["fuel", "vehicles", "trips", "vehicle_status", "service"] }
   }
   if (action === "status") return status()
   if (action === "connect") {
     await Navigation.present({ element: <ConnectPage /> })
     return status()
   }
-  const known = ["fuel", "vehicles", "trips", "vehicle_status"]
+  const known = ["fuel", "vehicles", "trips", "vehicle_status", "service"]
   if (!known.includes(action)) return { ok: false, error: "unsupported", message: `示例插件不支持「${action}」` }
   const err = blocked()
   if (err) return err
   const now = Date.now()
   if (action === "vehicles") return { ok: true, items: [CAR] }
-  if ((action === "trips" || action === "vehicle_status") && q.vehicle !== CAR.id) return { ok: false, error: "failed", message: "示例插件没有这辆车" }
+  if (action !== "fuel" && q.vehicle !== CAR.id) return { ok: false, error: "failed", message: "示例插件没有这辆车" }
   if (action === "vehicle_status") return { ok: true, status: vehicleStatus(now) }
+  if (action === "service") return { ok: true, items: serviceVisits(now) }
   const from = Number(q.from)
   const to = Number(q.to)
   if (action === "trips") return { ok: true, items: trips(now).filter(t => t.start_ts <= to && t.end_ts >= from) }

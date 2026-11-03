@@ -6,7 +6,7 @@ import {
 } from "../common/perk_ledger"
 import { yearFiles } from "../common/insurance"
 import { MaintenanceInput, putMaintenance } from "../common/maintenance"
-import { ExpenseData, FuelData, InsuranceYear, LedgerRecord, Perk, PerkUse, ProviderLink, Station, Store, Vehicle, VehicleProfile } from "../common/types"
+import { DataSourceMark, ExpenseData, FuelData, InsuranceYear, LedgerRecord, Perk, PerkUse, ProviderLink, Station, Store, Vehicle, VehicleProfile } from "../common/types"
 import { removePolicyFile } from "../platform/storage"
 import { commit, dropPolicyFiles } from "./store"
 
@@ -56,8 +56,9 @@ export function deleteVehicle(data: AppData, id: string): AppData {
 
 // ---------- 记录 ----------
 
-export function saveFuel(data: AppData, vehicle: Vehicle, recordId: string | null, fuel: FuelData, newStation: Station | null): AppData {
-  return commit(data, putFuel(data, vehicle, recordId, fuel, newStation).ledger)
+/** source：从数据源选了交易来填的（插件化设计 3.5 节）；编辑时不传，保留原来的 */
+export function saveFuel(data: AppData, vehicle: Vehicle, recordId: string | null, fuel: FuelData, newStation: Station | null, source: DataSourceMark | null = null): AppData {
+  return commit(data, putFuel(data, vehicle, recordId, fuel, newStation, source).ledger)
 }
 
 /**

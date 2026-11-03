@@ -1,22 +1,25 @@
 // 调用数据源插件（插件化设计 4.1、5 节；docs/plugins.md 第 4 节）：
 // - 同一个插件同一时间只发一个请求，相同的请求共用一个结果；超时从真正调用时算起，排队的时间不算。超时后放开这个插件，晚回来的结果丢掉；
 // - 加油交易按「插件 + 月份」缓存：缺哪几个月就向插件要哪几个月，取出来再按时间筛。包含最近 2 天的月份 10 分钟，更早的 1 天；出错不缓存；
+// - 养修按「插件 + 车辆」缓存 10 分钟（插件化设计 3.4 节）；下拉不看缓存，出错不缓存；
 // - 车辆、行程、车况这里不缓存：行程、车况的缓存和内置的数据源共用，在 app/vehicle_data.ts（插件化设计第 5 节）；
 // - 记下每个插件上次调用的结果（已连接、未连接、已过期），记加油的入口和设置里显示。
 // 纯逻辑：调用插件、读写缓存、时钟和计时都由调用方注入（照 common/stop_source.ts 的写法），Node 测试可用。
-import { RemoteVehicle, Trip, VehicleStatus } from "../providers/types"
+import { RemoteVehicle, ServiceVisit, Trip, VehicleStatus } from "../providers/types"
 import { BJ_OFFSET } from "./format"
 import {
-  FuelTxn, parseDescribe, parseFuel, parseStatus, parseTrips, parseVehicles, parseVehicleStatus, PluginAction, pluginError, PluginInfo, PluginResult,
+  FuelTxn, parseDescribe, parseFuel, parseService, parseStatus, parseTrips, parseVehicles, parseVehicleStatus, PluginAction, pluginError, PluginInfo, PluginResult,
   PluginState, PluginStatus, PLUGIN_TIMEOUT_MS, stateOfError, stateOfStatus,
 } from "./plugin"
 import { PluginRef } from "./types"
 
 export const RECENT_MONTH_TTL_MS = 10 * 60e3
 export const OLD_MONTH_TTL_MS = 86400e3
+export const SERVICE_TTL_MS = 10 * 60e3
 const RECENT_MS = 2 * 86400e3
 
 export type PluginMonth = { fetched_at: number; items: FuelTxn[] }
+export type PluginServiceCache = { fetched_at: number; items: ServiceVisit[] }
 
 /** cache/plugins.json，不进备份 */
 export type PluginCacheFile = {
@@ -25,6 +28,8 @@ export type PluginCacheFile = {
   months: Record<string, PluginMonth>
   /** 插件 id → 上次调用的结果 */
   states: Record<string, PluginState>
+  /** 「插件 id|车辆」→ 读到的养修（2.3） */
+  services?: Record<string, PluginServiceCache>
 }
 
 export type PluginSourceDeps = {
@@ -49,6 +54,8 @@ export type PluginSource = {
   /** 这段时间的行程，按开始时间从早到晚；vehicle 是 vehicles 给的车辆 id */
   trips(ref: PluginRef, vehicle: string, range: { from: number; to: number }): Promise<PluginResult<Trip[]>>
   vehicleStatus(ref: PluginRef, vehicle: string): Promise<PluginResult<VehicleStatus>>
+  /** 已结算的进店，新的在前；force：不看缓存（选进店页下拉） */
+  service(ref: PluginRef, vehicle: string, opts?: { force?: boolean }): Promise<PluginResult<ServiceVisit[]>>
   lastState(pluginId: string): PluginState | null
   /** 移除插件：清掉它的缓存和状态 */
   forget(pluginId: string): void
@@ -78,7 +85,7 @@ export function monthsBetween(from: number, to: number): string[] {
   return out
 }
 
-const emptyFile = (): PluginCacheFile => ({ schema_version: 1, months: {}, states: {} })
+const emptyFile = (): PluginCacheFile => ({ schema_version: 1, months: {}, states: {}, services: {} })
 
 export function createPluginSource(deps: PluginSourceDeps): PluginSource {
   let file: PluginCacheFile | null = null
@@ -90,7 +97,9 @@ export function createPluginSource(deps: PluginSourceDeps): PluginSource {
     if (file) return file
     let f: PluginCacheFile | null = null
     try { f = deps.load() } catch { f = null }
-    file = f && f.schema_version === 1 && f.months && typeof f.months === "object" ? { schema_version: 1, months: f.months, states: f.states || {} } : emptyFile()
+    file = f && f.schema_version === 1 && f.months && typeof f.months === "object"
+      ? { schema_version: 1, months: f.months, states: f.states || {}, services: f.services && typeof f.services === "object" ? f.services : {} }
+      : emptyFile()
     return file
   }
 
@@ -104,9 +113,11 @@ export function createPluginSource(deps: PluginSourceDeps): PluginSource {
     persist()
   }
 
-  function clearMonths(id: string): void {
-    const months = cache().months
+  /** 重新连接、移除时清掉这个插件读到的交易和养修 */
+  function clearData(id: string): void {
+    const { months, services = {} } = cache()
     for (const k of Object.keys(months)) if (k.startsWith(`${id}|`)) delete months[k]
+    for (const k of Object.keys(services)) if (k.startsWith(`${id}|`)) delete services[k]
     persist()
   }
 
@@ -159,7 +170,7 @@ export function createPluginSource(deps: PluginSourceDeps): PluginSource {
   async function connect(ref: PluginRef): Promise<PluginResult<PluginStatus>> {
     const r = await invoke(ref.script, "connect", {})
     const s = r.ok ? parseStatus(r.value) : r
-    clearMonths(ref.id)
+    clearData(ref.id)
     remember(ref.id, s.ok ? stateOfStatus(s.value) : stateOfError(s.error))
     return s
   }
@@ -207,9 +218,28 @@ export function createPluginSource(deps: PluginSourceDeps): PluginSource {
     })
   }
 
+  /** 养修：「插件 + 车辆」缓存 10 分钟；force 时不看缓存；出错不缓存 */
+  async function service(ref: PluginRef, vehicle: string, opts: { force?: boolean } = {}): Promise<PluginResult<ServiceVisit[]>> {
+    const key = `${ref.id}|${vehicle}`
+    const hit = cache().services?.[key]
+    if (!opts.force && hit && deps.now() - hit.fetched_at < SERVICE_TTL_MS) return { ok: true, value: hit.items }
+    return once(`${ref.script}|service|${vehicle}`, async () => {
+      const at = deps.now()
+      const r = await invoke(ref.script, "service", { vehicle })
+      const parsed = r.ok ? parseService(r.value) : r
+      remember(ref.id, parsed.ok ? "connected" : stateOfError(parsed.error))
+      if (parsed.ok) {
+        const f = cache()
+        f.services = { ...(f.services ?? {}), [key]: { fetched_at: at, items: parsed.value } }
+        persist()
+      }
+      return parsed
+    })
+  }
+
   function forget(pluginId: string): void {
     delete cache().states[pluginId]
-    clearMonths(pluginId)
+    clearData(pluginId)
   }
 
   return {
@@ -217,6 +247,7 @@ export function createPluginSource(deps: PluginSourceDeps): PluginSource {
     vehicles: ref => read(ref, "vehicles", {}, parseVehicles),
     trips: (ref, vehicle, range) => read(ref, "trips", { vehicle, from: range.from, to: range.to }, parseTrips),
     vehicleStatus: (ref, vehicle) => read(ref, "vehicle_status", { vehicle }, parseVehicleStatus),
+    service,
     lastState: id => cache().states[id] ?? null,
     forget,
   }

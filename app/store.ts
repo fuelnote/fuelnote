@@ -3,6 +3,7 @@ import { AppData, makeAppData } from "../common/ledger"
 import { LedgerFile, Settings } from "../common/types"
 import { XxyhState } from "../sync/xxyh/types"
 import { readLedger, readXxyhState, removePolicyFiles, saveLedger, saveXxyhState } from "../platform/storage"
+import { convertServiceRecords } from "../providers/registry"
 
 /** 页面读写当前数据的入口：取最新的、保存后放回去 */
 export type DataRef = { get: () => AppData; set: (d: AppData) => void }
@@ -11,7 +12,10 @@ export type DataRef = { get: () => AppData; set: (d: AppData) => void }
 export function loadData(): { data: AppData; warnings: string[] } {
   const l = readLedger()
   const x = readXxyhState()
-  return { data: makeAppData(l.ledger, x.state), warnings: [l.warning, x.warning].filter((w): w is string => !!w) }
+  // 2.3.0-beta.2：2.2 记下的养修转换一次，马上写回（插件化设计 6.2 节，D22）；恢复的备份也走这里。beta.3 删掉
+  const converted = convertServiceRecords(l.ledger)
+  if (converted) saveLedger(converted)
+  return { data: makeAppData(converted ?? l.ledger, x.state), warnings: [l.warning, x.warning].filter((w): w is string => !!w) }
 }
 
 /** 保存账本（小熊状态不变） */

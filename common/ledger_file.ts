@@ -1,5 +1,5 @@
 // 账本文件（ledger2.json）的纯逻辑：读进来时补齐字段、检查所有引用都找得到。读账本、恢复备份、测试共用（2.0 设计第 3 节）。
-import { DEFAULT_EXPENSE_CATEGORIES, defaultSettings, LedgerFile, Settings } from "./types"
+import { DEFAULT_EXPENSE_CATEGORIES, defaultSettings, LedgerFile, Settlement, Settings } from "./types"
 
 /** 2.0 的账本：车辆和记录必须在（缺了不当作空的，免得恢复出一个空账本）；其余的列表读进来时补齐 */
 export function isLedgerV2(raw: unknown): boolean {
@@ -9,13 +9,40 @@ export function isLedgerV2(raw: unknown): boolean {
 
 const arr = <T,>(v: unknown): T[] => (Array.isArray(v) ? (v as T[]) : [])
 
-/** 补齐以后版本新加的字段；不认识的字段原样保留（从 2.1 回退到 2.0 时不丢东西） */
+const isText = (v: unknown): v is string => typeof v === "string"
+const isNum = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v)
+
+function validSource(v: unknown): boolean {
+  const s = v as { id?: unknown; name?: unknown } | null
+  return !!s && typeof s === "object" && isText(s.id) && !!s.id && isText(s.name)
+}
+
+function validSettlement(v: unknown): boolean {
+  const s = v as Settlement | null
+  return !!s && typeof s === "object" && isText(s.note)
+    && Array.isArray(s.lines) && s.lines.every(x => !!x && isText(x.label) && isNum(x.amount))
+    && Array.isArray(s.coupons) && s.coupons.every(x => !!x && isText(x.name) && (x.amount === null || isNum(x.amount)))
+}
+
+/** 2.3 记录上新加的字段（插件化设计 3.4–3.6 节）：类型不对的去掉，空的标题不留 */
+function cleanRecord(r: Record<string, unknown>): Record<string, unknown> {
+  const out = { ...r }
+  if ("title" in out && !(isText(out.title) && out.title.trim())) delete out.title
+  if ("settlement" in out && !validSettlement(out.settlement)) delete out.settlement
+  if ("data_source" in out && !validSource(out.data_source)) delete out.data_source
+  return out
+}
+
+/**
+ * 补齐以后版本新加的字段；不认识的字段原样保留（从 2.1 回退到 2.0 时不丢东西；没装过 2.3.0-beta.2 的账本里，2.2 的 service_records 和门店的经销商代码留着不用）
+ */
 export function normalizeLedger(raw: Record<string, unknown>): LedgerFile {
   const l = { ...raw } as Record<string, unknown>
   l.schema_version = 2
-  for (const k of ["vehicles", "records", "stations", "insurance", "stores", "perks", "perk_uses", "service_records"]) l[k] = arr(l[k])
+  for (const k of ["vehicles", "records", "stations", "insurance", "stores", "perks", "perk_uses"]) l[k] = arr(l[k])
+  l.records = arr<Record<string, unknown>>(l.records).map(cleanRecord)
   // 2.1 门店新加的字段
-  l.stores = arr<Record<string, unknown>>(l.stores).map(s => ({ hours: "", poi_id: "", dealer: null, ...s }))
+  l.stores = arr<Record<string, unknown>>(l.stores).map(s => ({ hours: "", poi_id: "", ...s }))
   const cats = arr<LedgerFile["expense_categories"][number]>(l.expense_categories)
   l.expense_categories = cats.length ? cats : DEFAULT_EXPENSE_CATEGORIES.map(c => ({ ...c }))
   const settings = { ...defaultSettings(), ...((l.settings as Partial<Settings>) || {}) } as Settings & Record<string, unknown>
@@ -54,13 +81,6 @@ export function ledgerProblems(l: LedgerFile): string[] {
   for (const u of l.perk_uses) {
     if (!perks.has(u.perk_id)) out.push(`使用记录 ${u.id} 的权益不存在`)
     if (u.expense_id && !expenses.has(u.expense_id)) out.push(`使用记录 ${u.id} 对应的费用不存在`)
-  }
-  const orders = new Set<string>()
-  for (const s of l.service_records) {
-    if (!vehicles.has(s.vehicle_id)) out.push(`养修 ${s.order_id} 的车辆不存在`)
-    if (orders.has(`${s.vehicle_id}|${s.order_id}`)) out.push(`养修 ${s.order_id} 重复`)
-    orders.add(`${s.vehicle_id}|${s.order_id}`)
-    for (const t of s.tickets) if (t.record_id && !seen.has(t.record_id)) out.push(`养修 ${s.order_id} 的工单 ${t.ro_no} 记成的记录不存在`)
   }
   return out
 }

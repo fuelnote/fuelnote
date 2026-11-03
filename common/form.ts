@@ -1,5 +1,6 @@
 // 记录表单的计算与核对（纯函数）
-import { FuelData, FuelRecord } from "./types"
+import { BJ_OFFSET, yuan } from "./format"
+import { ExpenseRecord, FuelData, FuelRecord, LocalRecord } from "./types"
 import { fuelSegments, round2 } from "./fuel"
 
 export type TripleField = "price" | "liters" | "amount"
@@ -102,4 +103,27 @@ export function checkFuel(data: FuelData, others: FuelRecord[], selfId = "__draf
 export function checkExpense(amount: number | null): string[] {
   if (amount == null) return ["请填写金额"]
   return amount < 0 ? ["金额不能是负数"] : []
+}
+
+/** 北京时间的哪一天（天数） */
+const bjDay = (ts: number) => Math.floor((ts + BJ_OFFSET) / 86400e3)
+const sameAmount = (a: number, b: number) => Math.abs(a - b) < 0.005
+
+/**
+ * 费用的「可能重复」（插件化设计第 7 节，费-1～费-7）：同一辆车、同一天（北京时间）、同一类、同样金额已有一笔，是警告，确认后可以保存。
+ * before 是编辑前的那一笔：不和自己比；日期、类别、金额都没改时不查。从养修一次存几笔时，每一笔只和账本里已有的比
+ */
+type ExpenseKey = { ts: number; category_id: number; amount: number }
+
+export function findExpenseDuplicate(records: LocalRecord[], vehicleId: string, e: ExpenseKey, before: (ExpenseKey & { id: string }) | null = null): ExpenseRecord | null {
+  const day = bjDay(e.ts)
+  if (before && bjDay(before.ts) === day && before.category_id === e.category_id && sameAmount(before.amount, e.amount)) return null
+  return records.find((r): r is ExpenseRecord => r.kind === "expense" && r.vehicle_id === vehicleId && r.id !== before?.id
+    && bjDay(r.ts) === day && r.category_id === e.category_id && sameAmount(r.amount, e.amount)) ?? null
+}
+
+/** 「4月3日 已有一笔 ¥0.00 的维修保养，可能重复」 */
+export function expenseDuplicateText(r: ExpenseRecord, category: string): string {
+  const d = new Date(r.ts + BJ_OFFSET)
+  return `${d.getUTCMonth() + 1}月${d.getUTCDate()}日 已有一笔 ${yuan(r.amount)} 的${category}，可能重复`
 }

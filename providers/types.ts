@@ -1,5 +1,5 @@
 // 车辆数据提供方接口。界面和停车识别只通过这个接口使用各品牌，不认识具体品牌。
-import { ProviderId, ServiceTicket, ServiceVisit } from "../common/types"
+import { ProviderId, Settlement } from "../common/types"
 import { Http } from "../platform/http"
 
 export type Place = {
@@ -63,14 +63,42 @@ export class ProviderError extends Error {
   }
 }
 
-/** 养修：进店列表的一项（2.1.0-beta.5） */
-export type ServiceVisitHead = { order_id: string; dealer_code: string; arrive_ts: number; state: string; cancelled: boolean }
+/** 先勾哪张卡的提示（docs/plugins.md 第 7 节）：储值的找那一期车险赠送的储值卡，次数的找名字带 name 的次数卡 */
+export type PerkHint =
+  | { kind: "balance"; origin: "insurance"; amount: number }
+  | { kind: "count"; name: string; used: number }
 
-/**
- * 一张工单整理出的保养项目（第二行写来自哪个工时）和写进备注的检查、问题。
- * basic_only：这张工单只做了基础保养（不算不记的检查、照片），用来先勾好基础保养的卡（2.1 设计第 12 节）
- */
-export type TicketItems = { items: Array<{ name: string; labour: string }>; notes: string[]; basic_only: boolean }
+/** 一次进店要记的一笔费用（docs/plugins.md 第 7 节，插件化设计 D19） */
+export type ServiceExpense = {
+  ts: number
+  /** 费用页上的名字，用户可以改；换了机油的保养油记自己写「第 N 次保养」 */
+  title: string
+  /** 备注；带保养记录时是说明 */
+  remark: string
+  /** 自付；不一定是实付 */
+  own: number
+  /** 保养项目（和它来自哪一项）、说明里可以改成项目的几段；只有第一笔可以带 */
+  maintenance: { items: Array<{ name: string; from: string }>; notes: string[] } | null
+  settlement: Settlement
+  perk_hints: PerkHint[]
+}
+
+/** 一次已结算的进店（docs/plugins.md 第 7 节）：编号只用来在列表里区分，油记不存 */
+export type ServiceVisit = {
+  id: string
+  arrive_ts: number
+  /** 到店里程 */
+  odometer: number | null
+  /** 这次进店的叫法，如「保养 · 补漆」 */
+  title: string
+  /** 经销商：全称、简称、位置（WGS-84） */
+  dealer: { name: string | null; short: string | null; lng: number | null; lat: number | null } | null
+  /** 要记的几笔，至少一笔 */
+  expenses: ServiceExpense[]
+}
+
+/** 养修明细的存取（内置的数据源用）：已结算的明细存下来，以后只读列表和新结算的；不进备份 */
+export type ServiceStore = { load(): unknown; save(value: unknown): void }
 
 export type VehicleDataProvider = {
   id: ProviderId
@@ -85,12 +113,6 @@ export type VehicleDataProvider = {
   trips(ctx: ProviderContext, cred: Credential, vehicleId: string, range: { from: number; to: number }): Promise<Trip[]>
   /** 车况（剩余油量等）；不支持的提供方不实现 */
   vehicleStatus?(ctx: ProviderContext, cred: Credential, vehicleId: string): Promise<VehicleStatus>
-  /** 养修（2.1.0-beta.5）：费用页那一组的标题（「沃尔沃养修」）；不支持养修的提供方不写，下面三个也不实现 */
-  serviceTitle?: string
-  /** 进店列表（新的在前，含已取消的） */
-  serviceVisits?(ctx: ProviderContext, cred: Credential, vehicleId: string): Promise<ServiceVisitHead[]>
-  /** 一次进店的明细；提供方已不保留时 null */
-  serviceVisit?(ctx: ProviderContext, cred: Credential, vehicleId: string, head: ServiceVisitHead): Promise<ServiceVisit | null>
-  /** 保养项目的整理规则：给出全部养修记录的工时（收集别名），返回整理一张工单的函数 */
-  serviceNaming?(labours: string[]): (t: ServiceTicket) => TicketItems
+  /** 养修：已结算的进店和要记的几笔费用，新的在前；不支持养修的提供方不实现 */
+  service?(ctx: ProviderContext, cred: Credential, vehicleId: string, store: ServiceStore): Promise<ServiceVisit[]>
 }

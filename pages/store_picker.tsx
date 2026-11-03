@@ -1,10 +1,10 @@
 // 选择门店（2.1 设计第 10 节，画布 StPicker；2.2 起用系统地图，插件化设计 6.1 节）：记费用、添加权益、记一次使用都推入这一页。
-// 我的门店都是地图上的地点（第二行写地址，ⓘ 进门店详情；带经销商代码的写「沃尔沃经销商」这类标签，2.1.0-beta.5）；
+// 我的门店都是地图上的地点（第二行写地址，ⓘ 进门店详情）；
 // 记费用时列出那时车停的地方附近，从养修填写时列出经销商附近；顶部按输入的文字搜（以手机现在的位置为区域）。选中的地点存进我的门店，
 // 已经在我的门店里的（名称相同、相距 80 m 内）直接用那一家。搜索出错时照常选已有的门店。
 import { Button, EnvironmentValuesReader, HStack, Image, List, ProgressView, Section, Spacer, Text, useEffect, useState, VStack } from "scripting"
 import {
-  AppData, currentVehicle, nearbyStores, parkedPlace, ProviderId, providerById, storeCandidates, storeFromPoi, storeOfPlace, Store, StorePoi, Vehicle,
+  AppData, currentVehicle, nearbyStores, parkedPlace, storeCandidates, storeFromPoi, storeOfPlace, Store, StorePoi, Vehicle,
   vehicleRecords,
 } from "../common/model"
 import { StoreActions } from "./benefit_parts"
@@ -29,13 +29,6 @@ export function StorePicker({ getData, selected, onPick, stores, near, query }: 
 }
 
 export type NearBy = { vehicle: Vehicle; ts: number } | { point: [number, number]; label: string }
-
-/** 门店的标签：带提供方经销商代码的写「沃尔沃经销商」 */
-function dealerTag(s: Store): string | null {
-  if (!s.dealer) return null
-  const p = providerById(s.dealer.provider as ProviderId)
-  return p && p.serviceTitle ? `${p.serviceTitle.replace(/养修$/, "")}经销商` : "经销商"
-}
 
 const nearDetail = (p: StorePoi) => [p.distance != null ? `${Math.round(p.distance)} m` : "", p.kind].filter(Boolean).join(" · ")
 
@@ -102,11 +95,7 @@ function PickerList({ getData, selected, stores, near, query, pick }: {
           <Button action={() => pick(c.store)} buttonStyle="plain">
             <HStack foregroundStyle="label" contentShape="rect">
               <VStack alignment="leading" spacing={2}>
-                <HStack spacing={6}>
-                  <Text lineLimit={1}>{c.store.name}</Text>
-                  {dealerTag(c.store) ? <Text font="caption2" foregroundStyle="secondaryLabel" padding={{ horizontal: 6, vertical: 1 }}
-                    background={{ style: "quaternarySystemFill", shape: { type: "rect", cornerRadius: 5 } }}>{dealerTag(c.store)}</Text> : null}
-                </HStack>
+                <Text lineLimit={1}>{c.store.name}</Text>
                 {c.store.address ? <Text font="caption" foregroundStyle="secondaryLabel" lineLimit={1}>{c.store.address}</Text> : null}
               </VStack>
               <Spacer />

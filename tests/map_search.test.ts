@@ -136,7 +136,7 @@ test("搜索框的区域中心：手机现在的位置；取不到时用最近�
 
 test("图-3、图-4：同一家门店是名称相同、相距 80 m 内；连锁店的另一家、没有位置的门店都不算", () => {
   const p = offset(CENTER, 0, 0)
-  const store: Store = { id: "s1", name: "示例沃尔沃", full_name: "示例沃尔沃 4S 店", address: "", phone: "", hours: "", poi_id: "", lng: p[0], lat: p[1], dealer: null }
+  const store: Store = { id: "s1", name: "示例沃尔沃", full_name: "示例沃尔沃 4S 店", address: "", phone: "", hours: "", poi_id: "", lng: p[0], lat: p[1] }
   const at = (dx: number): LngLat => offset(CENTER, dx, 0)
   assert.equal(sameStorePlace(store, { name: "示例沃尔沃 4S 店", lng: at(20)[0], lat: at(20)[1] }), true)
   assert.equal(sameStorePlace(store, { name: "示例沃尔沃 4S 店", lng: at(2000)[0], lat: at(2000)[1] }), false)

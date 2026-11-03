@@ -120,13 +120,14 @@ function maintenanceRemark(m: MaintenanceRecord): string {
 
 /**
  * 费用写进小熊的备注：用户写的备注；带保养记录的费用由保养的说明、里程、项目生成（导入以后两条都没改过的照原样）；
- * 最后一行是用了的权益和门店（设计第 4 节），都没有时不加
+ * 填了标题的，标题写在第一行（小熊没有标题这一栏，插件化设计 3.6 节）；最后一行是用了的权益和门店（设计第 4 节），都没有时不加
  */
 function exportRemark(e: ExpenseRecord, ctx: Ctx): string {
   let text = e.remark
   const m = ctx.maintOf.get(e.id)
   const untouched = !!e.xxyh_raw && e.remark === String(e.xxyh_raw.description ?? "") && !!m && maintenanceUntouched(m)
   if (m && !untouched) text = maintenanceRemark(m)
+  if (e.title) text = text ? `${e.title}\n${text}` : e.title
   const store = e.store_id ? ctx.ledger.stores.find(s => s.id === e.store_id)?.name ?? null : null
   const line = usageLine(ctx.book.perks, expenseUses(ctx.book, e.vehicle_id, e.id), store)
   if (!line) return text

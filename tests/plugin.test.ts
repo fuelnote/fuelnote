@@ -2,7 +2,7 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
 import {
-  addProblem, capabilityLine, parseDescribe, parseFuel, parseStatus, parseTrips, parseVehicles, parseVehicleStatus, PLUGIN_TIMEOUT_MS, pluginRef,
+  addProblem, capabilityLine, parseDescribe, parseFuel, parseService, parseStatus, parseTrips, parseVehicles, parseVehicleStatus, PLUGIN_TIMEOUT_MS, pluginRef,
   pluginStateText, stateOfError, stateOfStatus,
 } from "../common/plugin"
 import { normalizeLedger } from "../common/ledger_file"
@@ -157,4 +157,36 @@ test("vehicle_status：数字照用，缺的为空；没有 status 是数据不�
   const bad = parseVehicleStatus({ ok: true })
   assert.ok(!bad.ok && bad.error.kind === "invalid")
   assert.equal(capabilityLine(["vehicles", "trips", "vehicle_status", "service"]), "车辆、行程、车况、养修")
+})
+
+test("service：已结算的进店，新的在前；缺字段或类型不对的进店、费用丢掉，第二笔以后的保养记录不用，一笔都不剩的进店丢掉；金额两位小数，文字去掉首尾空白；不对的提示丢掉；等 60 秒", () => {
+  const exp = (d: Record<string, unknown> = {}) => ({
+    ts: T, title: " 补漆 · 后保 ", remark: "划痕补漆X2", own: 300, maintenance: null,
+    settlement: { lines: [{ label: "原价", amount: 2300 }, { label: "续保赠送油漆券", amount: -2000.004 }], note: " 结算备注 ", coupons: [{ name: "续保赠送油漆券", amount: 2000 }, { name: "延保", amount: null }] },
+    perk_hints: [{ kind: "count", name: "油漆面", used: 2 }, { kind: "balance", origin: "insurance", amount: 1297 }, { kind: "other" }],
+    ...d,
+  })
+  const maint = { items: [{ name: "机油 0W20", from: "原厂基础保养" }, { name: "" }], notes: ["检查空调不制冷", 3] }
+  const r = parseService({
+    ok: true, items: [
+      { id: 7, arrive_ts: T - 1000, odometer: "x", title: "保修", dealer: null, expenses: [exp({ own: 0 })] },
+      { id: "v2", arrive_ts: T, odometer: 79471, title: "保养 · 补漆", dealer: { name: "示例汽车销售服务有限公司", short: "示例汽车", lng: 121.4, lat: 91 },
+        expenses: [exp({ maintenance: maint, title: "保养" }), exp({ maintenance: maint }), exp({ ts: "x" }), exp({ settlement: { lines: [{ label: "原价" }], coupons: [] } })] },
+      { id: "v3", arrive_ts: T, title: "一笔都不能用", expenses: [exp({ own: -1 }), exp({ maintenance: "保养" })] },
+      { arrive_ts: T, title: "没有 id", expenses: [exp()] },
+    ],
+  })
+  assert.ok(r.ok)
+  assert.deepEqual(r.value.map(v => v.id), ["v2", "7"])
+  const v = r.value[0]
+  assert.deepEqual([v.odometer, v.dealer], [79471, { name: "示例汽车销售服务有限公司", short: "示例汽车", lng: null, lat: null }])
+  assert.deepEqual(v.expenses.map(e => [e.title, e.maintenance]), [["保养", { items: [{ name: "机油 0W20", from: "原厂基础保养" }], notes: ["检查空调不制冷"] }], ["补漆 · 后保", null]])
+  assert.deepEqual(v.expenses[1].settlement, {
+    lines: [{ label: "原价", amount: 2300 }, { label: "续保赠送油漆券", amount: -2000 }], note: "结算备注", coupons: [{ name: "续保赠送油漆券", amount: 2000 }, { name: "延保", amount: null }],
+  })
+  assert.deepEqual(v.expenses[1].perk_hints, [{ kind: "count", name: "油漆面", used: 2 }, { kind: "balance", origin: "insurance", amount: 1297 }])
+  assert.deepEqual([r.value[1].odometer, r.value[1].dealer, r.value[1].expenses[0].own], [null, null, 0])
+  const bad = parseService({ ok: true })
+  assert.ok(!bad.ok && bad.error.kind === "invalid")
+  assert.equal(PLUGIN_TIMEOUT_MS.service, 60000)
 })

@@ -14,7 +14,7 @@ const T1 = BJ("2026-10-22T10:00:00")
 const T2 = BJ("2026-10-23T15:00:00")
 const END = BJ("2027-01-06T23:59:59.999")
 
-const STORE: Store = { id: "st1", name: "示例沃尔沃", full_name: "示例沃尔沃 4S 店", address: "", phone: "", hours: "", poi_id: "", lng: 121.4737, lat: 31.2304, dealer: null }
+const STORE: Store = { id: "st1", name: "示例沃尔沃", full_name: "示例沃尔沃 4S 店", address: "", phone: "", hours: "", poi_id: "", lng: 121.4737, lat: 31.2304 }
 
 const perk = (id: string, name: string, vehicleId: string, extra: Partial<Perk>): Perk => ({
   id, vehicle_id: vehicleId, name, kind: "count", total: 1, unit: "次", end_ts: END, store_id: "st1",

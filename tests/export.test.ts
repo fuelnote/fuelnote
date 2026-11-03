@@ -121,7 +121,7 @@ test("改了日期的挪到按时间的位置，同一时刻的排在已有的�
 test("费用备注：末尾加一行门店（和权益用量）；只存了用户写的备注，导入的照原样", () => {
   const doc = cloud()
   const ledger = imported(doc)
-  ledger.stores.push({ id: "st1", name: "示例店", full_name: "", address: "", phone: "", hours: "", poi_id: "amap-1", lng: null, lat: null, dealer: null })
+  ledger.stores.push({ id: "st1", name: "示例店", full_name: "", address: "", phone: "", hours: "", poi_id: "amap-1", lng: null, lat: null })
   ledger.records.push({ kind: "expense", id: "e-new", vehicle_id: ledger.vehicles[0].id, ts: 4000, category_id: 100003, amount: 30, remark: "洗车", store_id: "st1" })
   const plan = buildExport(doc, ledger, { now: NOW })
   const row = carOf(plan.doc).expenseRecords!.find(r => r.date === 4000)!
@@ -241,4 +241,25 @@ test("小熊里在上次之后有改动：列出改过的、新记的、删掉�
   // 没有上次的快照：只知道版本变了
   assert.equal(buildExport(now, ledger, { now: NOW, cloudVersion: 12, lastVersion: 11, lastSnapshot: null }).cloud_changed!.items, null)
   assert.equal(buildExport(now, ledger, { now: NOW, cloudVersion: 11, lastVersion: 11, lastSnapshot: snapshot }).cloud_changed, null)
+})
+
+test("题-9～题-11：填了标题的费用，标题写成小熊费用备注的第一行；带保养记录的写在说明前面，小熊的保养记录不写标题；用了权益和门店时最后一行照旧；标题空着的和以前一样", () => {
+  const doc = cloud()
+  const ledger = imported(doc)
+  const vid = ledger.vehicles[0].id
+  ledger.stores.push({ id: "st1", name: "示例店", full_name: "", address: "", phone: "", hours: "", poi_id: "", lng: null, lat: null })
+  ledger.records.push(
+    { kind: "expense", id: "e-t", vehicle_id: vid, ts: 7000, category_id: 100001, amount: 300, remark: "后保划痕", title: "补漆 · 后保、左后叶", store_id: "st1" },
+    { kind: "expense", id: "e-m", vehicle_id: vid, ts: 8000, category_id: 100001, amount: 1200, remark: "检查保养", title: "年度保养" },
+    { kind: "maintenance", id: "m-t", vehicle_id: vid, ts: 8000, odometer: 3000, items: ["机油", "空调滤芯"], amount: 1200, remark: "检查保养", expense_id: "e-m" } as MaintenanceRecord,
+    { kind: "expense", id: "e-n", vehicle_id: vid, ts: 9000, category_id: 100003, amount: 20, remark: "洗车" },
+  )
+  const plan = buildExport(doc, ledger, { now: NOW })
+  assert.deepEqual(plan.problems, [])
+  const car = carOf(plan.doc)
+  const row = (ts: number) => car.expenseRecords!.find(r => r.date === ts)!
+  assert.equal(row(7000).description, "补漆 · 后保、左后叶\n后保划痕\n示例店", "题-9")
+  assert.equal(row(8000).description, "年度保养\n检查保养\n保养里程：3000公里\n保养项目：机油,空调滤芯\n", "题-10")
+  assert.equal(car.maintainRecords!.find(m => m.dateTime === 8000)!.message, "检查保养", "小熊的保养记录不写标题")
+  assert.equal(row(9000).description, "洗车", "题-11")
 })

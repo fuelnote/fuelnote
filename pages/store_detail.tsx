@@ -1,8 +1,8 @@
 // 门店详情（2.1 设计第 10 节，画布 StDetail，从选择门店的 ⓘ 推入）：名称可改，改了到处跟着变；地图上的全称、地址、电话只读，
-// 2.1 从高德选的门店还有营业时间（2.2 起用系统地图，没有这一项，插件化设计 6.1 节）；在系统地图中打开、重新定位（id 不变）；车辆数据提供方的经销商代码（第一次从养修记下时写进来，只读，可以清除，2.1.0-beta.5，画布 YsDetail）；
+// 2.1 从高德选的门店还有营业时间（2.2 起用系统地图，没有这一项，插件化设计 6.1 节）；在系统地图中打开、重新定位（id 不变）；
 // 用到这家店的费用和权益卡；删除后它们变成不选门店。
 import { Button, HStack, Image, List, NavigationLink, Section, Spacer, Text, useState } from "scripting"
-import { AppData, openStoreInMaps, ProviderId, providerById, relocatedStore, storeUsage } from "../common/model"
+import { AppData, openStoreInMaps, relocatedStore, storeUsage } from "../common/model"
 import { StoreActions } from "./benefit_parts"
 import { StoreSearchPage } from "./store_search"
 
@@ -40,18 +40,6 @@ export function StoreDetail({ getData, storeId, stores, close }: { getData: () =
     close()
   }
 
-  async function clearDealer() {
-    const choice = await Dialog.actionSheet({
-      title: "清除经销商代码？",
-      message: "以后从养修填写时，按经销商的名称或位置重新找门店。",
-      actions: [{ label: "清除" }],
-    })
-    if (choice !== 0) return
-    stores.save({ ...store, dealer: null })
-    setVersion(x => x + 1)
-  }
-
-  const brand = store.dealer ? (providerById(store.dealer.provider as ProviderId)?.serviceTitle ?? "").replace(/养修$/, "") || "车辆数据" : ""
   return <List navigationTitle={store.name} navigationSubtitle="我的门店">
     <Section key="name" footer={<Text>费用页和导出到小熊的费用备注里写的都是这个名称，改了以后到处跟着变。</Text>}>
       <Button action={rename}>
@@ -77,11 +65,6 @@ export function StoreDetail({ getData, storeId, stores, close }: { getData: () =
         <HStack><Image systemName="scope" foregroundStyle="accentColor" /><Text foregroundStyle="accentColor">重新定位</Text></HStack>
       </NavigationLink>
     </Section>
-    {store.dealer ? <Section key="dealer" header={<Text>{brand}</Text>}
-      footer={<Text>{`第一次从${brand}养修记下时写进来。以后经销商 ${store.dealer.code} 的进店直接用这家门店；清除后下次按名称或位置重新找。`}</Text>}>
-      <Info title="经销商代码" value={store.dealer.code} />
-      <Button title="清除经销商代码" action={() => { void clearDealer() }} />
-    </Section> : null}
     <Section key="usage" header={<Text>用到这家店</Text>}>
       <Info title="费用" value={`${usage.expenses} 笔`} />
       <Info title="权益卡" value={`${usage.perks} 张`} />

@@ -238,3 +238,48 @@ test("车辆、行程、车况：不缓存，每次都调插件；参数带车�
   assert.equal(h.source.lastState("example"), "expired")
   assert.deepEqual(h.file()?.months, {})
 })
+
+test("养修：「插件 + 车辆」缓存 10 分钟；下拉不看缓存；出错不缓存；重新连接时清掉；参数带车辆 id", async () => {
+  const ref: PluginRef = { script: "FuelNote 示例插件", id: "example", name: "示例", capabilities: ["vehicles", "service"] }
+  let fail = false
+  const visit = {
+    id: "v1", arrive_ts: NOW - DAY, odometer: 100, title: "保养", dealer: null,
+    expenses: [{ ts: NOW - DAY, title: "保养", remark: "", own: 0, maintenance: null, settlement: { lines: [{ label: "原价", amount: 0 }], note: "", coupons: [] }, perk_hints: [] }],
+  }
+  const h = harness({
+    respond: action => (fail ? { ok: false, error: "network", message: "网络连接已中断。" } : action === "service" ? { ok: true, items: [visit] } : { ok: true, connected: true, account: null }),
+  })
+  const services = () => h.calls.filter(c => c.action === "service")
+  const a = await h.source.service(ref, "car-1")
+  assert.ok(a.ok && a.value[0].id === "v1")
+  await h.source.service(ref, "car-1")
+  assert.deepEqual(services().map(c => c.params), [{ vehicle: "car-1" }])
+  await h.source.service(ref, "car-2")
+  await h.source.service(ref, "car-1", { force: true })
+  await h.advance(10 * MIN)
+  await h.source.service(ref, "car-1")
+  assert.equal(services().length, 4)
+  assert.equal(h.source.lastState("example"), "connected")
+  fail = true
+  const e = await h.source.service(ref, "car-1", { force: true })
+  assert.ok(!e.ok && e.error.kind === "network" && e.error.message === "网络连接已中断。")
+  assert.ok((await h.source.service(ref, "car-1")).ok, "出错不缓存：上一次读到的还在")
+  fail = false
+  await h.source.connect(ref)
+  assert.deepEqual(Object.keys(h.file()?.services ?? {}), [])
+  await h.source.service(ref, "car-1")
+  assert.deepEqual([services().length, Object.keys(h.file()?.services ?? {})], [6, ["example|car-1"]])
+})
+
+test("养修等 60 秒：第一次要读全部进店的明细", async () => {
+  const h = harness({ auto: false })
+  const p = h.source.service(REF, "car-1")
+  let done = false
+  void p.then(() => { done = true })
+  await h.flush()
+  await h.advance(30e3)
+  assert.equal(done, false)
+  await h.advance(30e3)
+  const r = await p
+  assert.ok(!r.ok && r.error.kind === "timeout")
+})

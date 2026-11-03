@@ -24,41 +24,41 @@
 
 ## 2.3.0-beta.1：行程、车况走契约（沃尔沃仍是内置）
 
-- [ ] `common/plugin.ts`：按 `docs/plugins.md` 第 4、6 节校验和整理 `vehicles`、`trips`、`vehicle_status`（缺字段或类型不对的项丢掉）；能力检查：有 `trips`、`vehicle_status`、`service` 之一的必须有 `vehicles`；超时按 `docs/plugins.md` 第 4 节。
-- [ ] 数据源接口（`providers/types.ts`）：车辆、行程、车况照契约改成 `vehicles`、`trips`、`vehicleStatus`；养修的几个方法 beta.2 再改。内置的沃尔沃按新接口实现，结果和 2.2 相同。`app/plugins.ts` 把插件包成同一个接口（排队、超时用 `common/plugin_source.ts`）。`ProviderId` 改成字符串（数据源的 id），已有数据不用改。
-- [ ] `app/vehicle_data.ts`：读行程、车况都经过数据源接口，缓存照旧（设计第 5 节）。能不能读按数据源的能力和连接状态：内置的看凭据在不在，插件看上次调用是不是「未连接」。
-- [ ] 去掉加油停车提示（D2）：记录页顶部的提示，`detectOpenStop`、`openStopNow`、`dismissStop`；`settings.dismissed_stops` 去掉（读到时丢掉）；打开油记时不再读行程。记加油「自动填写」照旧用 `openStopIn` 显示最近 2 天没记的加油停车。
-- [ ] 设置 › 数据源、车辆的「车辆数据」列出能提供车辆数据的数据源：内置的沃尔沃和带车辆能力的插件。
-- [ ] 示例插件（`tools/plugin_example/`）：加上 `vehicles`、`trips`、`vehicle_status`，返回按当前时间生成的假数据；`docs/plugins.md` 第 9 节写上。
-- [ ] 测试：契约新动作的校验和整理（`tests/plugin.test.ts`）；内置沃尔沃按新接口返回的行程、车况和 2.2 相同；行程回放照样通过；分层测试照旧：只有 `providers/registry.ts` 引用 `providers/volvo_*`。
-- [ ] FuelNote Check：记录页（没有加油停车提示）、记加油自动填写截图核对；`plugin` 一项加上用示例插件读车辆、行程、车况。
-- [ ] `CHANGELOG.md`、`README.md`、`CLAUDE.md`。
+- [x] `common/plugin.ts`：按 `docs/plugins.md` 第 4、6 节校验和整理 `vehicles`、`trips`、`vehicle_status`（缺字段或类型不对的项丢掉）；能力检查：有 `trips`、`vehicle_status`、`service` 之一的必须有 `vehicles`；超时按 `docs/plugins.md` 第 4 节。
+- [x] 数据源接口（`providers/types.ts`）：车辆、行程、车况照契约改成 `vehicles`、`trips`、`vehicleStatus`；养修的几个方法 beta.2 再改。内置的沃尔沃按新接口实现，结果和 2.2 相同。`app/plugins.ts` 把插件包成同一个接口（排队、超时用 `common/plugin_source.ts`）。`ProviderId` 改成字符串（数据源的 id），已有数据不用改。
+- [x] `app/vehicle_data.ts`：读行程、车况都经过数据源接口，缓存照旧（设计第 5 节）。能不能读按数据源的能力和连接状态：内置的看凭据在不在，插件看上次调用是不是「未连接」。
+- [x] 去掉加油停车提示（D2）：记录页顶部的提示，`detectOpenStop`、`openStopNow`、`dismissStop`；`settings.dismissed_stops` 去掉（读到时丢掉）；打开油记时不再读行程。记加油「自动填写」照旧用 `openStopIn` 显示最近 2 天没记的加油停车。
+- [x] 设置 › 数据源、车辆的「车辆数据」列出能提供车辆数据的数据源：内置的沃尔沃和带车辆能力的插件。
+- [x] 示例插件（`tools/plugin_example/`）：加上 `vehicles`、`trips`、`vehicle_status`，返回按当前时间生成的假数据；`docs/plugins.md` 第 9 节写上。
+- [x] 测试：契约新动作的校验和整理（`tests/plugin.test.ts`）；内置沃尔沃按新接口返回的行程、车况和 2.2 相同；行程回放照样通过；分层测试照旧：只有 `providers/registry.ts` 引用 `providers/volvo_*`。
+- [x] FuelNote Check：记录页（没有加油停车提示）、记加油自动填写截图核对；`plugin` 一项加上用示例插件读车辆、行程、车况。
+- [x] `CHANGELOG.md`、`README.md`、`CLAUDE.md`。
 
 ## 2.3.0-beta.2：养修挪进记费用，记录的来源，费用的标题
 
-- [ ] 契约 `service`：`common/plugin.ts` 按 `docs/plugins.md` 第 7 节校验和整理（缺字段或类型不对的进店、费用丢掉；第二笔以后的 `maintenance` 不用；一笔都不剩的进店丢掉）；超时 60 秒。
-- [ ] 内置的沃尔沃按 `service` 实现（设计第 2 节、D19）：
+- [x] 契约 `service`：`common/plugin.ts` 按 `docs/plugins.md` 第 7 节校验和整理（缺字段或类型不对的进店、费用丢掉；第二笔以后的 `maintenance` 不用；一笔都不剩的进店丢掉）；超时 60 秒。
+- [x] 内置的沃尔沃按 `service` 实现（设计第 2 节、D19）：
   - `serviceTitle`、`serviceVisits`、`serviceVisit`、`serviceNaming` 合成 `service`，只返回已结算的进店。每次进店给要记的几笔费用：保养工单合成第一笔，没有保养工单时第一张工单是第一笔，其余每张工单一笔；每笔给标题、项目和来自哪项工时、写进说明的检查和问题、备注、自付、结算明细（同名的行相加）和对照、权益提示。结果和 2.2 相同。
   - 读懂沃尔沃工单的规则从 `common/service.ts` 挪进 `providers/` 的沃尔沃：叫法、`ticketTitle`、项目整理和别名、合成工单、结算明细和对照（`settlementOf`、`settlementRefs`）、先勾卡的提示。beta.3 整包搬走。
   - 名称改成「沃尔沃」。
   - 已结算的明细照旧存在 `service_visits.json`（不进备份），以后只读列表和新结算的。
-- [ ] 油记的规则（`common/service.ts`，设计 3.4 节）只用契约的字段：按进店整理表单（这一笔、另记一笔、实付的默认值、标题）；按权益提示挑卡（养-5～养-7）；找门店（养-8～养-10）；保存（每一笔存标题、结算明细和对照、来源；不写 `service_records`，门店不写经销商代码）。去掉 `visitState`、`serviceRecordFor`、`serviceVocabulary`、`serviceOfExpense`。
-- [ ] 费用的标题（设计 3.6 节）：`entryTitle` 改成存着标题的写存下的，空着时照 2.2 自己记的规则；去掉「从养修记下的」两个分支。`oilChangeNumbers` 留在油记。
-- [ ] 数据（`common/types.ts`）：`ExpenseRecord` 加可选的 `title`、`settlement`（`lines`、`note`、`coupons`）、`data_source`（`id`、`name`）；`FuelRecord` 加可选的 `data_source`；去掉 `ServiceRecord`、`LedgerFile.service_records`、`Store.dealer`。读账本时校验新字段（`common/ledger_file.ts`）；删除记录、车辆时不再管 `service_records`（`common/ledger.ts`）。
-- [ ] 来源（设计 3.5 节）：记加油从插件选来填的，保存时写 `data_source`（填表时带着插件的 id 和名称）；从养修存下的每一笔也写。编辑时保留。备份照常带着；导出到小熊不带。
-- [ ] 已记下的养修转换一次（设计 6.2 节，转-1～转-6）：打开账本时有 `service_records` 就转换，马上写回。转换的代码放在 `providers/` 的沃尔沃里，用它的规则算结算明细和对照；标题写 2.2 费用页显示的（没换机油的保养按现在的项目写「保养 · 前两个项目等」，另记的工单用 `ticketTitle`，换了机油的不写）；经 `providers/registry.ts` 调用。beta.3 随沃尔沃一起删掉。
-- [ ] 读养修（`app/service.ts`）：只在选进店页读，缓存按设计 3.4 节（`common/plugin_source.ts`）。去掉后台读取：`serviceDue`、`refreshService`、切到费用页时的读取。
-- [ ] 页面（按第十八轮稿）：
+- [x] 油记的规则（`common/service.ts`，设计 3.4 节）只用契约的字段：按进店整理表单（这一笔、另记一笔、实付的默认值、标题）；按权益提示挑卡（养-5～养-7）；找门店（养-8～养-10）；保存（每一笔存标题、结算明细和对照、来源；不写 `service_records`，门店不写经销商代码）。去掉 `visitState`、`serviceRecordFor`、`serviceVocabulary`、`serviceOfExpense`。
+- [x] 费用的标题（设计 3.6 节）：`entryTitle` 改成存着标题的写存下的，空着时照 2.2 自己记的规则；去掉「从养修记下的」两个分支。`oilChangeNumbers` 留在油记。
+- [x] 数据（`common/types.ts`）：`ExpenseRecord` 加可选的 `title`、`settlement`（`lines`、`note`、`coupons`）、`data_source`（`id`、`name`）；`FuelRecord` 加可选的 `data_source`；去掉 `ServiceRecord`、`LedgerFile.service_records`、`Store.dealer`。读账本时校验新字段（`common/ledger_file.ts`）；删除记录、车辆时不再管 `service_records`（`common/ledger.ts`）。
+- [x] 来源（设计 3.5 节）：记加油从插件选来填的，保存时写 `data_source`（填表时带着插件的 id 和名称）；从养修存下的每一笔也写。编辑时保留。备份照常带着；导出到小熊不带。
+- [x] 已记下的养修转换一次（设计 6.2 节，转-1～转-6）：打开账本时有 `service_records` 就转换，马上写回。转换的代码放在 `providers/` 的沃尔沃里，用它的规则算结算明细和对照；标题写 2.2 费用页显示的（没换机油的保养按现在的项目写「保养 · 前两个项目等」，另记的工单用 `ticketTitle`，换了机油的不写）；经 `providers/registry.ts` 调用。beta.3 随沃尔沃一起删掉。
+- [x] 读养修（`app/service.ts`）：只在选进店页读，缓存按设计 3.4 节（`common/plugin_source.ts`）。去掉后台读取：`serviceDue`、`refreshService`、切到费用页时的读取。
+- [x] 页面（按第十八轮稿）：
   - 记费用（`pages/expense_form.tsx`）：最上面一行「标题」，空着时灰字写自动生成的标题；编辑时标题下面一行只读的「来源」；「从沃尔沃选」一行；选好以后照 2.2 的从养修填写，另记一笔的每组加「标题」；有结算明细时只读显示（标题「结算明细」），使用权益页上面列出对照；去掉 2.2 编辑关联了养修的费用时的来源一行和「沃尔沃结算」。
   - 记加油（`pages/fuel_form.tsx`）：编辑时最上面一行只读的「来源」。
   - 新的选进店页（`pages/service_pick.tsx`）。
   - 去掉费用页的养修一组（`pages/expense_records.tsx`）、养修记录页（`pages/service_visits.tsx`）、选择门店里的经销商标签（`pages/store_picker.tsx`）、门店详情里的经销商代码（`pages/store_detail.tsx`）。
   - `pages/app.tsx`：去掉 `refreshServiceNow`、`recordVisit`；打开记费用时不再找关联的养修。
-- [ ] 导出到小熊（`sync/xxyh/export.ts`）：填了标题的，标题写成小熊费用备注的第一行，带保养记录的写在说明前面；小熊的保养记录不写（设计 3.6 节）。
-- [ ] 费用的「可能重复」（设计第 7 节，费-1～费-7）：`common/form.ts` 找同一辆车、同一天、同一类、同样金额的费用；记费用保存时警告，确认后保存；从养修一次存几笔时每一笔都查。
-- [ ] 文案：填表时的「沃尔沃写的自付是 …」用数据源的名称。
-- [ ] 示例插件：加上 `service`，返回按当前时间生成的假进店（一次换了机油的保养带另记的补漆、一次自付 0 的保修、两种权益提示、一条只有名称的对照）；`docs/plugins.md` 第 9 节写上。
-- [ ] 测试：
+- [x] 导出到小熊（`sync/xxyh/export.ts`）：填了标题的，标题写成小熊费用备注的第一行，带保养记录的写在说明前面；小熊的保养记录不写（设计 3.6 节）。
+- [x] 费用的「可能重复」（设计第 7 节，费-1～费-7）：`common/form.ts` 找同一辆车、同一天、同一类、同样金额的费用；记费用保存时警告，确认后保存；从养修一次存几笔时每一笔都查。
+- [x] 文案：填表时的「沃尔沃写的自付是 …」用数据源的名称。
+- [x] 示例插件：加上 `service`，返回按当前时间生成的假进店（一次换了机油的保养带另记的补漆、一次自付 0 的保修、两种权益提示、一条只有名称的对照）；`docs/plugins.md` 第 9 节写上。
+- [x] 测试：
   - `tests/plugin.test.ts`：`service` 的校验和整理。
   - `tests/service.test.ts`：设计 3.4 节的用例（养-1～养-15）；来源（源-1～源-7）；标题（题-1～题-8）；转换（转-1～转-6）。
   - `tests/export.test.ts`：题-9～题-11。
@@ -66,8 +66,8 @@
   - `tests/real_data.test.ts`：内置沃尔沃按 `service` 返回的 10 次进店，叫法、标题、项目、备注、结算明细、对照、先勾的卡和 2.2 相同。
   - 用到门店 `dealer`、`service_records` 的测试跟着改（门店、备份、账本、导出、权益）。
   - 分层测试：`common/` 里没有沃尔沃的规则；只有 `providers/registry.ts` 引用 `providers/volvo_*`。
-- [ ] FuelNote Check：`service` 一项改成：记费用 → 从沃尔沃选（探测数据）→ 选 2026/4/3 那次 → 核对标题、项目、备注、先勾的卡、门店、结算明细 → 保存 → 编辑，看标题和来源 → 再选一次，看「可能重复」→ 删掉。截图：选进店页、填好的记费用、编辑时的标题和来源、结算明细、「可能重复」、编辑从示例插件记的加油时的来源。
-- [ ] `CHANGELOG.md` 写明：养修挪进记费用，费用页的养修一组和养修记录页去掉；费用可以填标题，导出到小熊时写在备注第一行；从数据源记的加油和费用记下来源；费用的「可能重复」；门店不再存经销商代码。`README.md`、`CLAUDE.md`。
+- [x] FuelNote Check：`service` 一项改成：记费用 → 从沃尔沃选（探测数据）→ 选 2026/4/3 那次 → 核对标题、项目、备注、先勾的卡、门店、结算明细 → 保存 → 编辑，看标题和来源 → 再选一次，看「可能重复」→ 删掉。截图：选进店页、填好的记费用、编辑时的标题和来源、结算明细、编辑从示例插件记的加油时的来源。「可能重复」是系统的操作表，截不到，在手机上看（手机上的验收第 7 条）。
+- [x] `CHANGELOG.md` 写明：养修挪进记费用，费用页的养修一组和养修记录页去掉；费用可以填标题，导出到小熊时写在备注第一行；从数据源记的加油和费用记下来源；费用的「可能重复」；门店不再存经销商代码。`README.md`、`CLAUDE.md`。
 
 ## 2.3.0-beta.3：沃尔沃搬成私有插件
 

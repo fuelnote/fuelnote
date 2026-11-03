@@ -2,21 +2,15 @@
 // 车险（关联了保险年度的、只有金额的）在保险页（pages/insurance_tab.tsx）；年检、牌照这类没有保单的照常在这里。
 // 费用和保养合成一笔一行（common/expense_stats.ts 的 expenseEntries），保养只算一次；保养只能查看，不能左滑删除（2.1 起可以编辑）。
 // 只读费用和保养：加油在「油耗」标签（pages/fuel_records.tsx）。
-// 2.1.0-beta.5：关联了支持养修的车辆数据时，最上面一组「沃尔沃养修」（画布 YsExpense）：几次没记、最近一次没记的进店和「记下」、全部养修记录；
-// 都记下后这一组不显示。下拉重新读一次养修记录。
-// 2.1.0-beta.6：标题不再用备注：换了机油的保养是「第 N 次保养」，养修记下的按做了什么（common/service.ts 的 entryTitle）。
-import { Button, ContentUnavailableView, DynamicShapeStyle, HStack, Image, List, NavigationLink, Section, Spacer, Text, VStack, useMemo, useState } from "scripting"
+// 2.1.0-beta.6：标题不再用备注：换了机油的保养是「第 N 次保养」；2.3 起费用可以填标题（common/expense_title.ts 的 entryTitle，插件化设计 3.6 节）。
+// 2.3 起没有养修一组：养修在记费用里从数据源选（插件化设计 3.4 节）。
+import { Button, ContentUnavailableView, DynamicShapeStyle, HStack, Image, List, Section, Spacer, Text, VStack, useMemo, useState } from "scripting"
 import {
-  AppData, categoryName, currentVehicle, entryTitle, expenseEntries, ExpenseEntry, expenseStoreName, expenseYears, fmtDay, insuranceYears, oilChangeNumbers, ServiceView, Vehicle,
-  vehicleRecords, visitState, withoutCarInsurance, yuan,
+  AppData, categoryName, currentVehicle, entryTitle, expenseEntries, ExpenseEntry, expenseStoreName, expenseYears, fmtDay, insuranceYears, oilChangeNumbers,
+  vehicleRecords, withoutCarInsurance, yuan,
 } from "../common/model"
 import { km, swipeToDelete, TabNav } from "./components"
 import { categoryPalette, Palette } from "./expense_parts"
-import { VisitRow } from "./service_parts"
-import { ServiceActions, ServiceVisitsPage } from "./service_visits"
-
-/** 费用页最上面的养修一组；车辆不支持养修时 null */
-export type ServiceSection = { vehicle: Vehicle; view: ServiceView; actions: ServiceActions }
 
 const PAGE = 120
 
@@ -56,7 +50,7 @@ function ExpenseRow({ data, entry, palette, numbers }: { data: AppData; entry: E
   const icon = CATEGORY_ICONS[entry.category_id] ?? "yensign.circle.fill"
   const color = palette.color(entry.category_id)
   const category = categoryName(data, entry.category_id)
-  const title = entryTitle(data.ledger, numbers, entry, category)
+  const title = entryTitle(numbers, entry, category)
   const m = entry.maintenance
   if (m) {
     return <EntryRow icon={icon} color={color} title={title}
@@ -67,30 +61,8 @@ function ExpenseRow({ data, entry, palette, numbers }: { data: AppData; entry: E
     detail={[category, fmtDay(entry.ts), store ?? ""].filter(Boolean).join(" · ")} amount={yuan(entry.amount)} />
 }
 
-/** 最上面一组：组头写几次没记；第一行是最近一次没记的进店，右边「记下」；第二行推入养修记录 */
-function ServiceGroup({ data, service }: { data: AppData; service: ServiceSection }) {
-  const { view, vehicle, actions } = service
-  const states = view.visits.map(v => ({ v, kind: visitState(data.ledger, vehicle.id, v).kind }))
-  const todo = states.filter(x => x.kind === "todo").map(x => x.v)
-  const settled = states.filter(x => x.kind !== "unsettled").length
-  if (!todo.length) return null
-  const brand = view.title.replace(/养修$/, "")
-  return <Section key="service" header={<HStack><Text>{view.title}</Text><Spacer /><Text>{`${todo.length} 次没记`}</Text></HStack>}
-    footer={<Text>{`${brand} App 里有、油记里还没记的进店。轻点「记下」打开填好的记费用；都记下后这一组不显示。`}</Text>}>
-    <VisitRow visit={todo[0]} naming={view.naming} right={<Button title="记下" action={() => actions.record(todo[0])} buttonStyle="bordered" />} />
-    <NavigationLink destination={<ServiceVisitsPage data={data} vehicle={vehicle} view={view} actions={actions} />}>
-      <HStack>
-        <Text>全部养修记录</Text>
-        <Spacer />
-        <Text foregroundStyle="secondaryLabel">{`${settled} 次`}</Text>
-      </HStack>
-    </NavigationLink>
-  </Section>
-}
-
-export function ExpenseRecords({ data, nav, subtitle, actions, service = null }: {
+export function ExpenseRecords({ data, nav, subtitle, actions }: {
   data: AppData; nav: TabNav; subtitle: string | null; actions: ExpenseRecordsActions
-  service?: ServiceSection | null
 }) {
   const vehicle = currentVehicle(data)
   const [limit, setLimit] = useState(PAGE)
@@ -123,9 +95,7 @@ export function ExpenseRecords({ data, nav, subtitle, actions, service = null }:
     {...(subtitle ? { navigationSubtitle: subtitle } : {})}
     toolbar={nav.toolbar}
     {...(empty ? { overlay: empty } : {})}
-    {...(service ? { refreshable: service.actions.refresh } : {})}
   >
-    {service ? <ServiceGroup data={data} service={service} /> : null}
     {years.map(g => <Section key={String(g.year)} header={<HStack><Text>{`${g.year}年`}</Text><Spacer /><Text monospacedDigit>{yuan(totals.get(g.year) ?? 0)}</Text></HStack>}>
       {g.items.map(e => <Button
         key={e.id}

@@ -17,15 +17,15 @@ function east(p: StorePoi, dx: number): StorePoi {
 }
 
 /** 2.1 从高德选的门店：改过名称，存着营业时间和高德地点 id */
-const MINE: Store = { ...storeFromPoi(POI), id: "st1", name: "我起的名字", hours: "08:30-17:00", poi_id: "B00155L3J1", dealer: { provider: "volvo_cn", code: "SHK" } }
+const MINE: Store = { ...storeFromPoi(POI), id: "st1", name: "我起的名字", hours: "08:30-17:00", poi_id: "B00155L3J1" }
 
-test("从地图上的地点建门店：名称去掉末尾括号里的分店名；全称、地址、电话、坐标照地图；没有营业时间、地点 id 和经销商代码", () => {
+test("从地图上的地点建门店：名称去掉末尾括号里的分店名；全称、地址、电话、坐标照地图；没有营业时间和地点 id，2.3 起也没有经销商代码", () => {
   assert.equal(shortStoreName("优车美装（正大乐城）"), "优车美装")
   assert.equal(shortStoreName("示例汽车销售服务有限公司"), "示例汽车销售服务有限公司")
   assert.equal(shortStoreName("（只有括号）"), "（只有括号）")
   const s = storeFromPoi(POI)
-  assert.deepEqual([s.id, s.name, s.full_name, s.address, s.phone, s.hours, s.poi_id, s.lng, s.lat, s.dealer],
-    ["", "示例汽车销售服务有限公司", "示例汽车销售服务有限公司（滨江店）", "示例路100号", "+86 21 0000 0000", "", "", 121.4737, 31.2304, null])
+  assert.deepEqual([s.id, s.name, s.full_name, s.address, s.phone, s.hours, s.poi_id, s.lng, s.lat, "dealer" in s],
+    ["", "示例汽车销售服务有限公司", "示例汽车销售服务有限公司（滨江店）", "示例路100号", "+86 21 0000 0000", "", "", 121.4737, 31.2304, false])
 })
 
 test("图-3、图-4：同名、相距 20 m 的用已有的那一家（改过名称的按全称认）；同名相距 2 km 的是连锁店的另一家，新加一家", () => {
@@ -38,20 +38,22 @@ test("图-3、图-4：同名、相距 20 m 的用已有的那一家（改过名�
   assert.deepEqual([other.stores.length, other.store.id], [2, "st2"])
 })
 
-test("重新定位：id、名称、经销商代码不变，全称、地址、电话、位置换成新的；以前高德的营业时间和地点 id 清掉", () => {
+test("重新定位：id、名称不变，全称、地址、电话、位置换成新的；以前高德的营业时间和地点 id 清掉", () => {
   const moved = relocatedStore(MINE, { ...east(POI, 500), name: "新地点", address: "新路1号", phone: "" })
-  assert.deepEqual([moved.id, moved.name, moved.dealer, moved.full_name, moved.address, moved.phone, moved.hours, moved.poi_id],
-    ["st1", "我起的名字", MINE.dealer, "新地点", "新路1号", "", "", ""])
+  assert.deepEqual([moved.id, moved.name, moved.full_name, moved.address, moved.phone, moved.hours, moved.poi_id],
+    ["st1", "我起的名字", "新地点", "新路1号", "", "", ""])
   assert.ok(moved.lng! > MINE.lng!)
 })
 
-test("用到这家店的费用和权益卡；读账本时给门店补上 2.1 的字段", () => {
+test("用到这家店的费用和权益卡；读账本时给门店补上 2.1 的字段；2.2 存着的经销商代码原样留着（没装过 2.3.0-beta.2 的账本不转换）", () => {
   const l = emptyLedger()
   l.records.push({ kind: "expense", id: "e1", vehicle_id: "v1", ts: 1, category_id: 100003, amount: 10, remark: "", store_id: "st1" })
   l.perks.push({ id: "p1", vehicle_id: "v1", name: "洗车", kind: "count", total: 1, unit: "次", end_ts: null, store_id: "st1", source: "", insurance_id: null, origin: "other", raw: "", note: "", created_ts: 0 })
   assert.deepEqual(storeUsage(l, "st1"), { expenses: 1, perks: 1 })
   const n = normalizeLedger({ ...l, stores: [{ id: "st1", name: "示例店", full_name: "", address: "", phone: "", lng: null, lat: null }] })
-  assert.deepEqual([n.stores[0].hours, n.stores[0].poi_id, n.stores[0].dealer], ["", "", null])
+  assert.deepEqual([n.stores[0].hours, n.stores[0].poi_id, "dealer" in n.stores[0]], ["", "", false])
+  const old = normalizeLedger({ ...l, stores: [{ id: "st1", name: "示例店", dealer: { provider: "volvo_cn", code: "SHK" } }] })
+  assert.deepEqual((old.stores[0] as unknown as { dealer: unknown }).dealer, { provider: "volvo_cn", code: "SHK" })
 })
 
 test("记费用那时停车的地方：停车之后、开走之前；最后一站还没开走也算；在路上时没有", () => {

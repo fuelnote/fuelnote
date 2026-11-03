@@ -1,22 +1,26 @@
-// 记费用 / 编辑费用（设计文档 22.9 节）：第一行是类别的分段（小熊的类别按 sortId，不含保险和交通规费；车险在「保险」页记），
+// 记费用 / 编辑费用（设计文档 22.9 节；插件化设计 3.4–3.6 节，画布第十八轮 Ttl*Top、Sv*）：第一行是类别的分段（小熊的类别按 sortId，不含保险和交通规费；车险在「保险」页记），
 // 下面的字段按规则变：1.6 每类都是 时间 · 金额 · 备注；1.7 每类加门店，有能用的权益时加「使用权益」和「实付」；2.1 维修保养多一组「保养」（里程、项目）。
 // 填了项目才另存一条保养记录（common/maintenance.ts）；带保养记录的费用编辑时类别锁住，备注是保养的说明（导出时小熊的费用备注由它和里程、项目生成）。
+// 2.3：最上面一行「标题」，空着时灰字写自动生成的标题（common/expense_title.ts）；从数据源记下的费用编辑时，标题下面一行只读的「来源」，结算明细只读显示。
+// 新记时，这辆车关联的数据源提供养修，「自动填写」里有「从<数据源名>选」：选一次进店整次填好（这一笔、另记一笔、先勾的卡、门店、结算明细），
+// 金额一栏叫「实付」，用了的权益不从实付里减；保存时每一笔查「可能重复」（插件化设计第 7 节）。
 // 超过 4 类时（以后在小熊里再建类别，或编辑一笔保险和交通规费的费用）改成第一组的单选列表。切换类别时已填的内容保留；编辑时也能改类别。
 // 「使用权益」列出所有还能用的卡（不按门店、类别筛选，权益设计第 4 节）；「用于记费用」预选的、在使用权益里新勾上的储值，手动改之前抵扣跟着金额走。
 // 保存的金额是实付；门店存在费用的 store_id，备注只是用户写的内容（2.0 起；导出到小熊时才把用量和门店写进备注最后一行）。
 import {
-  Button, DatePicker, Form, HStack, Navigation, NavigationLink, NavigationStack, Picker, Rectangle, Section, Spacer, Text, TextField, Toggle, useRef, useState, VStack,
+  Button, DatePicker, Form, HStack, Navigation, NavigationLink, NavigationStack, Picker, Rectangle, Section, Spacer, Text, TextField, Toggle, useEffect, useRef, useState, VStack,
 } from "scripting"
 import {
-  AppData, categoriesFor, checkExpense, deductOf, ExpenseData, expenseUses, followAmount, formCategories, keptNumber, lastStoreFor, MAINTENANCE_CATEGORY,
-  MaintenanceInput, MaintenanceRecord, numText, parseNum, perkBook, ServiceDraft, ServiceTicket, settlementRefs, Store, ticketLabel, usablePerks, usedItems, Use,
-  Vehicle, vehicleRecords, yuan,
+  AppData, autoTitle, BJ_OFFSET, categoriesFor, categoryName, checkExpense, DataSource, DataSourceMark, deductOf, ExpenseData, expenseDuplicateText, expenseUses,
+  findExpenseDuplicate, fmtTime, followAmount, formCategories, isOilChange, keptNumber, lastStoreFor, MAINTENANCE_CATEGORY, MaintenanceInput, MaintenanceRecord, numText,
+  parseNum, perkBook, ServiceDraft, serviceForm, ServiceVisit, Settlement, Store, usablePerks, usedItems, Use, Vehicle, vehicleRecords, yuan,
 } from "../common/model"
 import { StoreActions } from "./benefit_parts"
 import { PerkPick } from "./benefit_pick"
-import { FieldRow } from "./components"
+import { FieldRow, SourceTag } from "./components"
 import { MaintenanceItems } from "./maintenance_items"
-import { serviceDay, SettlementSection, SourceRow } from "./service_parts"
+import { serviceDay, ServiceEntry, ServiceFilled, SettlementSection } from "./service_parts"
+import { ServicePick } from "./service_pick"
 import { StorePicker } from "./store_picker"
 
 /** 分段最多几段：iPhone 上不超过 5 段、各段文字长短相近（HIG · Segmented controls）；类别名长短不一，4 段为止 */
@@ -25,44 +29,33 @@ const round2 = (n: number) => Math.round(n * 100) / 100
 
 /**
  * maintenance：维修保养、填了项目时的「保养」一组，其他情况 null（保存时删掉这笔费用原来的保养记录）。
- * others：从养修填写时另记的工单（关掉的 expense 为 null）
+ * service：从数据源选了进店时，来源、这一笔的结算明细和打开的另记一笔（关掉的不在里面）
  */
 export type ExpenseFormResult = {
   expense: ExpenseData; uses: Use[]; store: Store | null; maintenance: MaintenanceInput | null
-  others?: Array<{ ro_no: string; expense: ExpenseData | null; uses: Use[] }>
+  service?: { from: DataSourceMark; settlement: Settlement; others: Array<{ expense: ExpenseData; uses: Use[]; settlement: Settlement }> }
 }
 
-/**
- * 从养修填写（draft：新记）或编辑关联了养修的费用（2.1 设计第 8 节，画布 YsImport、YsSplit）：上面一行写来源，金额一栏叫「实付」，
- * 用了的权益不从金额里减，沃尔沃结算只读；新记时还有另记的工单
- */
-export type ServiceForm = {
-  title: string
-  arrive: number
-  dealer: string
-  /** 这次进店的工单张数 */
-  ticketCount: number
-  /** 这笔费用对应的工单 */
-  tickets: ServiceTicket[]
-  draft: ServiceDraft | null
-  /** 经销商的坐标（WGS-84）：还没找到门店时，选择门店的「附近」按它 */
-  dealerPoint: [number, number] | null
-  /** 项目页：项目来自哪个工时、写进备注的检查和问题、候选（沃尔沃的叫法） */
-  sources: Record<string, string>
-  notes: string[]
-  vocabulary: string[] | null
-}
+/** 新记时这辆车关联的、提供养修的数据源（「从<数据源名>选」）：连接时内置的打开凭据页，插件打开它自己的连接页。initial：打开时已经选好的进店（FuelNote Check 截图用） */
+export type ServiceEntryProps = { source: DataSource; connect: () => Promise<void>; initial?: ServiceVisit | null }
 
 const itemsText = (items: string[]) => (items.length <= 2 ? items.join("、") : `${items[0]} 等 ${items.length} 项`)
 const usesSig = (list: Use[]) => list.map(u => `${u.perk_id}:${u.used}`).sort().join("|")
 
-/** 另记一笔的工单（从养修填写时） */
-type OtherState = { on: boolean; amount: string; uses: Use[] }
+/** 另记一笔（从数据源选了进店时）：开关、标题、实付、使用权益 */
+type OtherState = { on: boolean; title: string; amount: string; uses: Use[] }
+
+/** 另记一笔的时间：和进店同一天的只写时刻 */
+function otherWhen(ts: number, arrive: number): string {
+  const day = (t: number) => Math.floor((t + BJ_OFFSET) / 86400e3)
+  return day(ts) === day(arrive) ? fmtTime(ts) : `${serviceDay(ts)} ${fmtTime(ts)}`
+}
 
 export function ExpenseForm({ getData, vehicle, record, maintenance, odometer: defaultOdometer, initialCategory, preset, stores, service = null, onSave }: {
   getData: () => AppData
   vehicle: Vehicle
-  record: (ExpenseData & { id: string; store_id?: string }) | null
+  /** 编辑时的原记录：表单的字段、门店；从数据源记下的还有结算明细和来源（只读显示） */
+  record: (ExpenseData & { id: string; store_id?: string; settlement?: Settlement; data_source?: DataSourceMark }) | null
   /** 这笔费用的保养记录（编辑时）；有时类别锁住 */
   maintenance: MaintenanceRecord | null
   /** 新记保养时里程的默认值：车况的里程表；没有时 null */
@@ -72,8 +65,8 @@ export function ExpenseForm({ getData, vehicle, record, maintenance, odometer: d
   /** 权益详情「用于记费用」：勾上这一项、预选门店 */
   preset: { use: Use; store: Store | null } | null
   stores: StoreActions
-  /** 从养修填写，或编辑关联了养修的费用；平时 null */
-  service?: ServiceForm | null
+  /** 新记时提供养修的数据源；平时 null */
+  service?: ServiceEntryProps | null
   /** 保存时先调它（写进账本、刷新列表），返回 false 时表单不关；不传时把结果交回去（2.1.0-beta.8） */
   onSave?: (r: ExpenseFormResult) => Promise<boolean>
 }) {
@@ -82,42 +75,70 @@ export function ExpenseForm({ getData, vehicle, record, maintenance, odometer: d
   const book = perkBook(data.ledger)
   const records = vehicleRecords(data, vehicle)
   const categories = formCategories(categoriesFor(data), record?.category_id ?? null)
-  // 关联了养修：金额就是实付，用了的权益不从金额里减（2.1 设计第 12 节）
-  const linked = !!service
-  const draft = service?.draft ?? null
 
-  // 打开时的内容：门店取 store_id，用过的权益按这笔费用的 id 找，金额加回抵扣（存的是实付；关联了养修的不加回）
+  // 打开时的内容：门店取 store_id，用过的权益按这笔费用的 id 找，金额加回抵扣（存的是实付）
   const [opened] = useState(() => {
     if (!record) {
-      if (draft) return { body: draft.main.remark, store: draft.store, uses: draft.main.uses, amount: draft.main.amount }
       return { body: "", store: preset?.store ?? lastStoreFor(records, initialCategory, data.ledger.stores), uses: preset ? [preset.use] : [], amount: null as number | null }
     }
     const uses: Use[] = expenseUses(book, vehicle.id, record.id).flatMap(u => {
       const p = book.perks.find(x => x.id === u.perk_id)
       return p ? [{ perk_id: u.perk_id, used: u.used, deduct: deductOf(p, u.used) }] : []
     })
-    const amount = linked ? record.amount : round2(record.amount + uses.reduce((t, u) => t + u.deduct, 0))
+    const amount = round2(record.amount + uses.reduce((t, u) => t + u.deduct, 0))
     const store = record.store_id ? data.ledger.stores.find(s => s.id === record.store_id) ?? null : null
-    return { body: maintenance ? maintenance.remark : record.remark, store, uses, amount }
+    return { body: maintenance ? maintenance.remark : record.remark, store, uses, amount: amount as number | null }
   })
-  const [ts, setTs] = useState(record?.ts ?? draft?.main.ts ?? Date.now())
-  const [category, setCategory] = useState<number>(record?.category_id ?? (draft ? MAINTENANCE_CATEGORY : initialCategory))
+  const [ts, setTs] = useState(record?.ts ?? Date.now())
+  const [category, setCategory] = useState<number>(record?.category_id ?? initialCategory)
+  const [title, setTitle] = useState(record?.title ?? "")
   const [amount, setAmount] = useState(opened.amount != null ? numText(opened.amount) : "")
   const [remark, setRemark] = useState(opened.body)
   const [store, setStore] = useState<Store | null>(opened.store)
   const [uses, setUses] = useState<Use[]>(opened.uses)
-  // 跟着金额走的储值：「用于记费用」预选的，和在使用权益里新勾上、还没手动改过的（关联了养修的不跟着金额走）
+  // 跟着金额走的储值：「用于记费用」预选的，和在使用权益里新勾上、还没手动改过的（从数据源选了进店的不跟着金额走）
   const [follow, setFollow] = useState<string[]>(() => (preset ? [preset.use.perk_id] : []))
   const openedAmount = useRef(amount)
-  const draftOdometer = draft?.main.odometer ?? null
-  const openedOdometer = maintenance ? String(maintenance.odometer) : draftOdometer != null ? String(draftOdometer) : draft ? "" : defaultOdometer != null ? String(Math.floor(defaultOdometer)) : ""
+  const openedOdometer = maintenance ? String(maintenance.odometer) : defaultOdometer != null ? String(Math.floor(defaultOdometer)) : ""
   const [odometer, setOdometer] = useState(openedOdometer)
-  const [items, setItems] = useState<string[]>(maintenance?.items ?? draft?.main.items.map(i => i.name) ?? [])
-  const [notes, setNotes] = useState<string[]>(service?.notes ?? [])
-  const [others, setOthers] = useState<OtherState[]>(() => (draft ? draft.others.map(o => ({ on: true, amount: o.amount != null ? numText(o.amount) : "", uses: o.uses })) : []))
-  const locked = !!maintenance || !!draft
+  const [items, setItems] = useState<string[]>(maintenance?.items ?? [])
+  // 从数据源选的进店：整理好的表单内容，和项目页的来源、还没改成项目的说明、另记的几笔
+  const [draft, setDraft] = useState<ServiceDraft | null>(null)
+  const [notes, setNotes] = useState<string[]>([])
+  const [others, setOthers] = useState<OtherState[]>([])
+
+  /** 选中一次进店：整张表重新填（D18） */
+  function fill(visit: ServiceVisit) {
+    if (!service) return
+    const d = serviceForm(getData(), vehicle, service.source, visit)
+    setDraft(d)
+    setCategory(MAINTENANCE_CATEGORY)
+    setTs(d.main.source.ts)
+    setTitle(d.main.title)
+    setAmount(d.main.amount != null ? numText(d.main.amount) : "")
+    setRemark(d.main.source.remark)
+    setStore(d.store)
+    setUses(d.main.uses)
+    setFollow([])
+    setOdometer(d.main.odometer != null ? String(d.main.odometer) : "")
+    setItems(d.main.items.map(i => i.name))
+    setNotes(d.main.notes)
+    setOthers(d.others.map(o => ({ on: true, title: o.title, amount: o.amount != null ? numText(o.amount) : "", uses: o.uses })))
+  }
+
+  useEffect(() => { if (service?.initial) fill(service.initial) }, [])
+
+  async function pickVisit() {
+    if (!service) return
+    const visit = await Navigation.present<ServiceVisit | null>({ element: <ServicePick source={service.source} vehicle={vehicle} connect={service.connect} /> })
+    if (visit) fill(visit)
+  }
+
+  const linked = !!draft
+  const locked = !!maintenance || linked
   const isMaint = category === MAINTENANCE_CATEGORY
-  const used = service?.vocabulary ?? usedItems(data.ledger.records, vehicle.id)
+  const used = usedItems(data.ledger.records, vehicle.id)
+  const catName = categoryName(data, category)
 
   const usable = usablePerks(book, vehicle.id, ts, record?.id ?? null)
   const value = keptNumber(amount, openedAmount.current, opened.amount ?? undefined)
@@ -126,16 +147,18 @@ export function ExpenseForm({ getData, vehicle, record, maintenance, odometer: d
   const deduct = round2(active.reduce((t, u) => t + u.deduct, 0))
   const paid = value == null ? null : linked ? value : round2(value - deduct)
   const usesText = (list: Use[]) => list.map(u => `${u.perk_id}:${u.used}:${u.deduct}`).sort().join("|")
-  // 按工单先勾好、还没改过的标橙（2.1 设计第 12 节）；按经销商找到、还没换过的门店标橙（第 10 节）
+  // 按数据源的提示先勾好、还没改过的标橙（插件化设计 3.4 节）；按经销商找到、还没换过的门店标数据源的名称
   const usesSuggested = !!draft && active.length > 0 && usesSig(active) === usesSig(draft.main.uses)
-  const storeSuggested = !!draft && draft.storePending && !!store && store.id === draft.store?.id
+  const storeFound = !!draft && !!store && store.id === draft.store?.id
+  const saveItems = isMaint ? items : []
+  const auto = autoTitle(data.ledger, { vehicleId: vehicle.id, maintenanceId: maintenance?.id ?? null, ts, items: saveItems, remark, category: catName })
 
-  // 有改动时禁止下滑关闭（从养修填写的一打开就算：内容都是填好的）
+  // 有改动时禁止下滑关闭（从数据源填好的一打开就算：内容都是填好的）
   const dirty = record
-    ? ts !== record.ts || category !== record.category_id || paid !== record.amount || remark !== opened.body
+    ? ts !== record.ts || category !== record.category_id || paid !== record.amount || remark !== opened.body || title.trim() !== (record.title ?? "")
       || (store?.id ?? null) !== (opened.store?.id ?? null) || usesText(active) !== usesText(opened.uses)
       || odometer !== openedOdometer || items.join("\n") !== (maintenance?.items ?? []).join("\n")
-    : !!(draft || amount || remark.trim() || active.length || items.length)
+    : !!(draft || amount || remark.trim() || title.trim() || active.length || items.length)
 
   function pickChanged(next: Use[], manual: string | null) {
     const added = next.filter(u => !uses.some(x => x.perk_id === u.perk_id)).map(u => u.perk_id)
@@ -147,10 +170,24 @@ export function ExpenseForm({ getData, vehicle, record, maintenance, odometer: d
     setOthers(others.map((o, j) => (j === i ? { ...o, ...patch } : o)))
   }
 
-  /** 项目页里把一条写进备注的检查改成项目：从「写进备注」里去掉，也从备注里去掉 */
+  /** 项目页里把说明里的一段改成项目：从「写进说明」里去掉，也从备注里去掉 */
   function noteToItem(note: string) {
     setNotes(notes.filter(n => n !== note))
     setRemark(remark.split("；").filter(x => x.trim() !== note).join("；"))
+  }
+
+  /** 打开的另记一笔：时间、备注、结算明细用数据源给的，类别是维修保养；用了的权益只算那一笔的时间还能用的 */
+  function otherResults(d: ServiceDraft): Array<{ expense: ExpenseData; uses: Use[]; settlement: Settlement }> {
+    return d.others.flatMap((o, i) => {
+      const st = others[i]
+      if (!st || !st.on) return []
+      const usableO = usablePerks(book, vehicle.id, o.source.ts, null)
+      return [{
+        expense: { ts: o.source.ts, category_id: MAINTENANCE_CATEGORY, amount: parseNum(st.amount) as number, remark: o.source.remark, title: st.title.trim() },
+        uses: st.uses.filter(u => usableO.some(x => x.perk.id === u.perk_id)),
+        settlement: o.source.settlement,
+      }]
+    })
   }
 
   async function save() {
@@ -164,26 +201,34 @@ export function ExpenseForm({ getData, vehicle, record, maintenance, odometer: d
       draft.others.forEach((o, i) => {
         if (!others[i].on) return
         const e = checkExpense(parseNum(others[i].amount))
-        if (e.length) errors.push(`另记的「${ticketLabel(o.ticket)}」（${serviceDay(o.ts)} 开单）：${e[0].replace("金额", "实付")}`)
+        if (e.length) errors.push(`另记的「${others[i].title.trim() || o.source.title}」（${otherWhen(o.source.ts, draft.visit.arrive_ts)} 开单）：${e[0].replace("金额", "实付")}`)
       })
     }
     if (errors.length) {
       await Dialog.alert({ title: "还不能保存", message: errors.join("\n") })
       return
     }
+    // 可能重复（插件化设计第 7 节）：同一辆车、同一天、同一类、同样金额已有一笔；从养修一次存几笔时每一笔只和账本里已有的比
+    const all = data.ledger.records
+    const dups: string[] = []
+    const mainDup = findExpenseDuplicate(all, vehicle.id, { ts, category_id: category, amount: paid as number }, record)
+    if (mainDup) dups.push(expenseDuplicateText(mainDup, categoryName(data, mainDup.category_id)))
+    const otherList = draft ? otherResults(draft) : []
+    for (const o of otherList) {
+      const dup = findExpenseDuplicate(all, vehicle.id, o.expense)
+      if (dup) dups.push(expenseDuplicateText(dup, categoryName(data, dup.category_id)))
+    }
+    if (dups.length) {
+      const i = await Dialog.actionSheet({ title: "请确认", message: dups.join("\n"), actions: [{ label: "仍然保存" }] })
+      if (i !== 0) return
+    }
     // 备注没改就保留原样（导入的费用备注里有小熊写的「保养里程」「保养项目」两行，保养的说明也照旧）
     const keptRemark = record && remark === opened.body ? record.remark : remark.trim()
     const maintRemark = maintenance && remark === opened.body ? maintenance.remark : remark.trim()
     const result: ExpenseFormResult = {
-      expense: { ts, category_id: category, amount: paid as number, remark: keptRemark }, uses: active, store,
+      expense: { ts, category_id: category, amount: paid as number, remark: keptRemark, title: title.trim() }, uses: active, store,
       maintenance: isMaint && items.length ? { odometer: Math.round(odo), items, remark: maintRemark } : null,
-      ...(draft ? {
-        others: draft.others.map((o, i) => ({
-          ro_no: o.ticket.ro_no,
-          expense: others[i].on ? { ts: o.ts, category_id: MAINTENANCE_CATEGORY, amount: parseNum(others[i].amount) as number, remark: o.remark } : null,
-          uses: others[i].on ? others[i].uses.filter(u => usablePerks(book, vehicle.id, o.ts, null).some(x => x.perk.id === u.perk_id)) : [],
-        })),
-      } : {}),
+      ...(draft ? { service: { from: draft.from, settlement: draft.main.source.settlement, others: otherList } } : {}),
     }
     // 先写进账本、刷新列表再关表单：表单滑走时下面已经是新的
     if (onSave && !(await onSave(result))) return
@@ -191,20 +236,33 @@ export function ExpenseForm({ getData, vehicle, record, maintenance, odometer: d
   }
 
   const options = categories.map(c => <Text key={String(c.id)} tag={c.id}>{c.name}</Text>)
-  const lockNote = draft ? "从养修填写，类别固定为维修保养。" : "这笔费用带保养记录，类别固定为维修保养。去掉全部项目保存后只留下费用，就能改类别。"
-  const own = draft ? draft.main.own : null
+  const sourceName = draft ? draft.from.name : ""
+  const lockNote = draft ? `从${sourceName}选的进店，类别固定为维修保养。` : "这笔费用带保养记录，类别固定为维修保养。去掉全部项目保存后只留下费用，就能改类别。"
+  const own = draft ? draft.main.source.own : null
   const usesValue = active.length ? `${active.length} 项${deduct ? ` · 抵扣 ${yuan(deduct)}` : ""}` : `可用 ${usable.length} 项`
-  // 选择门店：从养修填写、还没找到门店时，「附近」按经销商的坐标（第 10 节）
-  const dealerPoint = draft && !store && service?.dealerPoint ? service.dealerPoint : null
+  // 选择门店：从数据源选了进店、还没找到门店时，「附近」按经销商的位置
+  const dealerPoint = draft && !store && draft.dealerPoint ? draft.dealerPoint : null
+  const dealerName = draft?.visit.dealer ? draft.visit.dealer.short ?? draft.visit.dealer.name : null
   const fieldsFooter = draft
     ? [
-      own != null && own !== 0 ? `沃尔沃写的自付是 ${yuan(own)}。套餐、赠送付过的工单也照全额写自付，请填实际付的钱。` : "",
-      storeSuggested || usesSuggested
-        ? `标橙的请核对：${[storeSuggested ? "门店按经销商的位置或名称找到，保存后记下经销商代码" : "", usesSuggested ? "使用权益按工单先勾好了" : ""].filter(Boolean).join("；")}。`
-        : "",
-      `使用权益只列 ${serviceDay(ts)} 有效的权益，用了的不从实付里减。`,
-    ].filter(Boolean).join("")
-    : linked ? "金额是实付，用了的权益不从里面减。" : active.length ? "保存的金额是实付。导出到小熊油耗时，用了哪些权益和门店写在备注最后一行。" : ""
+      own != null && own !== 0 ? `${sourceName}写的自付是 ${yuan(own)}，请填实际付的钱。` : "",
+      usesSuggested ? `使用权益按${sourceName}的提示先勾好了（标橙）。` : "",
+    ].join("")
+    : active.length ? "保存的金额是实付。导出到小熊油耗时，用了哪些权益和门店写在备注最后一行。" : ""
+  // 标题一组的说明（画稿 SvForm、SvFilled、TtlEditTop）
+  const oil = isOilChange(saveItems)
+  const sourceRow = !draft && record?.data_source ? record.data_source : null
+  const titleFooter = [
+    draft && oil && !title.trim()
+      ? "换了机油的保养不填标题，费用页自动写第几次保养；也可以自己填。"
+      : title.trim()
+        ? `费用页显示这个标题，可以改；清空后${oil ? "写第几次保养" : "用备注的第一行"}。`
+        : "费用页显示这个标题。空着时自动写：换了机油的保养写第几次保养，其余用备注的第一行，都没有时写类别名。",
+    sourceRow ? "来源是填入时的数据源，不能改。" : "",
+  ].join("")
+  const settlement = draft ? draft.main.source.settlement : record?.settlement ?? null
+  const refsSource = draft ? sourceName : record?.data_source?.name ?? ""
+
   return <NavigationStack interactiveDismissDisabled={dirty}>
     <Form
       navigationTitle={record ? "编辑费用" : "记费用"}
@@ -228,17 +286,31 @@ export function ExpenseForm({ getData, vehicle, record, maintenance, odometer: d
             {options}
           </Picker>
         </Section>}
-      {service ? <Section key="source">
-        <SourceRow title={service.title} arrive={service.arrive} tickets={service.ticketCount} dealer={service.dealer} />
+      {!record && service ? <Section key="autofill" header={<Text>自动填写</Text>}>
+        {draft
+          ? <ServiceFilled name={sourceName} visit={draft.visit} onChange={() => { void pickVisit() }} />
+          : <ServiceEntry name={service.source.name} state={service.source.state()} onTap={() => { void pickVisit() }} />}
       </Section> : null}
+      <Section key="title" footer={<Text>{titleFooter}</Text>}>
+        <HStack>
+          <Text>标题</Text>
+          <TextField title="标题" value={title} onChanged={setTitle} prompt={auto} multilineTextAlignment="trailing" />
+        </HStack>
+        {sourceRow ? <HStack>
+          <Text>来源</Text>
+          <Spacer />
+          <Text foregroundStyle="secondaryLabel">{sourceRow.name}</Text>
+        </HStack> : null}
+      </Section>
       <Section key="fields" {...(fieldsFooter ? { footer: <Text>{fieldsFooter}</Text> } : {})}>
         <DatePicker title="时间" value={ts} onChanged={setTs} displayedComponents={["date", "hourAndMinute"]} />
         <NavigationLink destination={<StorePicker getData={getData} selected={store} onPick={setStore} stores={stores}
-          near={dealerPoint ? { point: dealerPoint, label: `${service?.dealer || "经销商"}附近` } : { vehicle, ts }} query="" />}>
+          near={dealerPoint ? { point: dealerPoint, label: `${dealerName || "经销商"}附近` } : { vehicle, ts }} query="" />}>
           <HStack>
             <Text>门店</Text>
+            {storeFound ? <SourceTag title={sourceName} /> : null}
             <Spacer />
-            <Text foregroundStyle={storeSuggested ? "systemOrange" : store ? "label" : "secondaryLabel"} lineLimit={1}>{store?.name ?? "不选"}</Text>
+            <Text foregroundStyle={store ? "label" : "secondaryLabel"} lineLimit={1}>{store?.name ?? "不选"}</Text>
           </HStack>
         </NavigationLink>
         <FieldRow title={linked ? "实付" : "金额"} unit="元">
@@ -247,7 +319,7 @@ export function ExpenseForm({ getData, vehicle, record, maintenance, odometer: d
         </FieldRow>
         {usable.length || active.length
           ? <NavigationLink destination={<PerkPick usable={usable} uses={active} amount={linked ? null : value} onChange={pickChanged}
-            {...(service ? { refs: settlementRefs(service.tickets), linked: true } : {})} />}>
+            {...(settlement && settlement.coupons.length ? { refs: settlement.coupons, refsSource } : {})} {...(linked ? { linked: true } : {})} />}>
             <HStack>
               <Text>使用权益</Text>
               <Spacer />
@@ -262,12 +334,12 @@ export function ExpenseForm({ getData, vehicle, record, maintenance, odometer: d
         </HStack> : null}
       </Section>
       {isMaint && (!draft || draft.main.items.length || items.length) ? <Section key="maintenance" header={<Text>保养</Text>}
-        footer={<Text>{draft ? "里程是工单上的到店里程，项目按沃尔沃工单上的叫法整理。" : locked ? "保养记录和这笔费用一起改。" : "里程默认取车况的里程表。填了项目才另存一条保养记录，费用页里和这笔费用合成一行；不填只记费用。"}</Text>}>
+        {...(draft ? {} : { footer: <Text>{locked ? "保养记录和这笔费用一起改。" : "里程默认取车况的里程表。填了项目才另存一条保养记录，费用页里和这笔费用合成一行；不填只记费用。"}</Text> })}>
         <FieldRow title="里程" unit="km">
           <TextField title="里程" value={odometer} onChanged={setOdometer} prompt="0" keyboardType="numberPad" multilineTextAlignment="trailing" />
         </FieldRow>
         <NavigationLink destination={<MaintenanceItems items={items} used={used} onChange={setItems}
-          {...(service ? { sources: service.sources, notes, onNote: noteToItem } : {})} />}>
+          {...(draft ? { sources: Object.fromEntries(draft.main.items.map(i => [i.name, i.from])), notes, onNote: noteToItem } : {})} />}>
           <HStack>
             <Text>项目</Text>
             <Spacer />
@@ -275,49 +347,48 @@ export function ExpenseForm({ getData, vehicle, record, maintenance, odometer: d
           </HStack>
         </NavigationLink>
       </Section> : null}
-      {service && service.tickets.length ? <SettlementSection
-        title={service.tickets.every(t => t.type === "保养") ? "沃尔沃结算" : `沃尔沃结算 · ${ticketLabel(service.tickets[0])}`}
-        tickets={service.tickets} note="只读，对照着勾使用权益。" /> : null}
-      {draft && draft.others.length ? <Section key="others" header={<Text>同一次进店的其他工单</Text>}
-        footer={<Text>每张工单各记一笔维修保养费用（时间是开单时间，备注写项目和优惠），各有自己的使用权益；关掉的不记。</Text>}>
-        {draft.others.flatMap((o, i) => {
-          const st = others[i]
-          const usableO = usablePerks(book, vehicle.id, o.ts, null)
-          const activeO = st.uses.filter(u => usableO.some(x => x.perk.id === u.perk_id))
-          const suggested = activeO.length > 0 && usesSig(activeO) === usesSig(o.uses)
-          const sub = [`${serviceDay(o.ts)} 开单`, o.ticket.projects.join("、"), ...o.ticket.prefs.map(p => `${p.name} −${yuan(p.amount)}`), `自付 ${yuan(o.ticket.own)}`]
-            .filter(Boolean).join(" · ")
-          const rows = [<Toggle key={`on-${i}`} value={st.on} onChanged={on => setOther(i, { on })}>
+      {settlement ? <SettlementSection settlement={settlement} note={draft ? "只读，对照着勾使用权益。" : `只读，从${refsSource || "数据源"}填入时存下。`} /> : null}
+      {draft ? draft.others.map((o, i) => {
+        const st = others[i]
+        if (!st) return null
+        const usableO = usablePerks(book, vehicle.id, o.source.ts, null)
+        const activeO = st.uses.filter(u => usableO.some(x => x.perk.id === u.perk_id))
+        const suggested = activeO.length > 0 && usesSig(activeO) === usesSig(o.uses)
+        const coupons = o.source.settlement.coupons.map(c => (c.amount != null ? `${c.name} −${yuan(c.amount)}` : c.name))
+        const sub = [`${otherWhen(o.source.ts, draft.visit.arrive_ts)} 开单`, ...coupons, `自付 ${yuan(o.source.own)}`].join(" · ")
+        const last = i === draft.others.length - 1
+        return <Section key={`other-${i}`} {...(i === 0 ? { header: <Text>同一次进店</Text> } : {})}
+          {...(last ? { footer: <Text>{`这次进店的其他几笔，各记成一笔维修保养费用：时间、标题和备注按${sourceName}给的，标题可以改。关掉的不记，以后也不再提醒。`}</Text> } : {})}>
+          <Toggle value={st.on} onChanged={on => setOther(i, { on })}>
             <VStack alignment="leading" spacing={2}>
-              <Text>{`${ticketLabel(o.ticket)} · 另记一笔`}</Text>
+              <Text>另记一笔</Text>
               <Text font="caption" foregroundStyle="secondaryLabel">{sub}</Text>
             </VStack>
-          </Toggle>]
-          if (st.on) {
-            rows.push(<FieldRow key={`amount-${i}`} title="实付" unit="元">
-              <TextField title="实付" value={st.amount} onChanged={a => setOther(i, { amount: a })} prompt={o.amount == null ? "必填" : "0.00"}
-                keyboardType="decimalPad" multilineTextAlignment="trailing" />
-            </FieldRow>)
-            if (usableO.length || activeO.length) {
-              rows.push(<NavigationLink key={`uses-${i}`} destination={<PerkPick usable={usableO} uses={activeO} amount={null} refs={settlementRefs([o.ticket])} linked
-                onChange={next => setOther(i, { uses: next })} />}>
-                <HStack>
-                  <Text>使用权益</Text>
-                  <Spacer />
-                  <Text foregroundStyle={suggested ? "systemOrange" : "secondaryLabel"}>{activeO.length ? `${activeO.length} 项` : `可用 ${usableO.length} 项`}</Text>
-                </HStack>
-              </NavigationLink>)
-            }
-          }
-          return rows
-        })}
-      </Section> : null}
+          </Toggle>
+          {st.on ? <HStack>
+            <Text>标题</Text>
+            <TextField title="标题" value={st.title} onChanged={t => setOther(i, { title: t })} multilineTextAlignment="trailing"
+              prompt={autoTitle(data.ledger, { vehicleId: vehicle.id, maintenanceId: null, ts: o.source.ts, items: [], remark: o.source.remark, category: categoryName(data, MAINTENANCE_CATEGORY) })} />
+          </HStack> : null}
+          {st.on ? <FieldRow title="实付" unit="元">
+            <TextField title="实付" value={st.amount} onChanged={a => setOther(i, { amount: a })} prompt={o.amount == null ? "必填" : "0.00"}
+              keyboardType="decimalPad" multilineTextAlignment="trailing" />
+          </FieldRow> : null}
+          {st.on && (usableO.length || activeO.length) ? <NavigationLink destination={<PerkPick usable={usableO} uses={activeO} amount={null} linked
+            {...(o.source.settlement.coupons.length ? { refs: o.source.settlement.coupons, refsSource: sourceName } : {})}
+            onChange={next => setOther(i, { uses: next })} />}>
+            <HStack>
+              <Text>使用权益</Text>
+              <Spacer />
+              <Text foregroundStyle={suggested ? "systemOrange" : "secondaryLabel"}>{activeO.length ? `${activeO.length} 项` : `可用 ${usableO.length} 项`}</Text>
+            </HStack>
+          </NavigationLink> : null}
+        </Section>
+      }) : null}
       <Section key="remark" header={<Text>备注</Text>}
-        footer={<Text>{draft
-          ? "工单里检查和客户反映的问题写在这里。里程和项目不用再写进备注，导出到小熊时油记会自动加上。"
-          : locked
-            ? "里程和项目不用再写进备注，导出到小熊时油记会自动加上。"
-            : record ? "可以改类别。车险在「保险」页记。" : "默认是最近一笔费用的类别和这一类上次的门店；切换类别时，已填的内容保留。车险在「保险」页记。"}</Text>}>
+        footer={<Text>{locked
+          ? "里程和项目不用再写进备注，导出到小熊时油记会自动加上。"
+          : record ? "可以改类别。车险在「保险」页记。" : "默认是最近一笔费用的类别和这一类上次的门店；切换类别时，已填的内容保留。车险在「保险」页记。"}</Text>}>
         <TextField title="备注" value={remark} onChanged={setRemark} prompt={isMaint ? "选填" : "项目等"} axis="vertical" lineLimit={{ min: 1, max: 4 }} />
       </Section>
     </Form>

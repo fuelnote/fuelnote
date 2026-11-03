@@ -1,7 +1,7 @@
 // 数据源插件的契约（插件化设计第 4 节）：版本、标记文件、各动作的超时；返回值的校验和整理；添加前的检查；给用户看的错误和状态。
 // 纯逻辑：调用插件在 platform/plugin_bridge.ts，排队、超时和缓存在 common/plugin_source.ts。
-import { Place, RemoteVehicle, Trip, VehicleStatus } from "../providers/types"
-import { GRADES, PluginCapability, PluginRef } from "./types"
+import { PerkHint, Place, RemoteVehicle, ServiceExpense, ServiceVisit, Trip, VehicleStatus } from "../providers/types"
+import { GRADES, PluginCapability, PluginRef, Settlement } from "./types"
 
 export const PLUGIN_CONTRACT = 1
 /** 插件文件夹里的标记（D8）：只把带它的脚本列为可添加的插件，不运行其他脚本 */
@@ -11,7 +11,7 @@ export type PluginAction = "describe" | "status" | "connect" | PluginCapability
 
 /** 油记等多久（docs/plugins.md 第 4 节）；connect 打开插件自己的页面，不限 */
 export const PLUGIN_TIMEOUT_MS: Record<PluginAction, number | null> = {
-  describe: 5000, status: 5000, connect: null, vehicles: 20000, fuel: 20000, trips: 20000, vehicle_status: 10000, service: 20000,
+  describe: 5000, status: 5000, connect: null, vehicles: 20000, fuel: 20000, trips: 20000, vehicle_status: 10000, service: 60000,
 }
 
 const CAPABILITIES: PluginCapability[] = ["fuel", "vehicles", "trips", "vehicle_status", "service"]
@@ -227,6 +227,96 @@ export function parseVehicleStatus(raw: unknown): PluginResult<VehicleStatus> {
   if (!s || typeof s !== "object" || Array.isArray(s)) return fail("invalid")
   const r = s as Record<string, unknown>
   return { ok: true, value: { ts: num(r.ts), fuel_l: num(r.fuel_l), range_km: num(r.range_km), avg_consumption: num(r.avg_consumption), odometer_km: num(r.odometer_km) } }
+}
+
+// ---------- 养修（docs/plugins.md 第 7 节） ----------
+
+const isObject = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v)
+
+/** 结算明细：每一行都要有名称和金额，每一条对照都要有名称（金额可以是 null）；有一项不对时整个不要 */
+function settlement(raw: unknown): Settlement | null {
+  if (!isObject(raw) || !Array.isArray(raw.lines) || !Array.isArray(raw.coupons)) return null
+  const lines: Settlement["lines"] = []
+  for (const x of raw.lines) {
+    const label = isObject(x) ? text(x.label) : null
+    const amount = isObject(x) ? two(x.amount) : null
+    if (!label || amount == null) return null
+    lines.push({ label, amount })
+  }
+  const coupons: Settlement["coupons"] = []
+  for (const x of raw.coupons) {
+    const name = isObject(x) ? text(x.name) : null
+    if (!name || !isObject(x)) return null
+    const amount = x.amount == null ? null : two(x.amount)
+    if (x.amount != null && amount == null) return null
+    coupons.push({ name, amount })
+  }
+  return { lines, note: typeof raw.note === "string" ? raw.note.trim() : "", coupons }
+}
+
+function perkHint(raw: unknown): PerkHint | null {
+  if (!isObject(raw)) return null
+  if (raw.kind === "balance" && raw.origin === "insurance") {
+    const amount = two(raw.amount)
+    return amount != null && amount > 0 ? { kind: "balance", origin: "insurance", amount } : null
+  }
+  if (raw.kind === "count") {
+    const name = text(raw.name)
+    const used = num(raw.used)
+    return name && used != null && used > 0 ? { kind: "count", name, used } : null
+  }
+  return null
+}
+
+/** 保养记录：项目要有名称；说明里的几段是文字。不是对象时 undefined（这一笔不要） */
+function maintenanceOf(raw: unknown): ServiceExpense["maintenance"] | undefined {
+  if (raw == null) return null
+  if (!isObject(raw) || !Array.isArray(raw.items)) return undefined
+  const items = raw.items.flatMap(x => {
+    const name = isObject(x) ? text(x.name) : null
+    return name && isObject(x) ? [{ name, from: text(x.from) ?? "" }] : []
+  })
+  const notes = (Array.isArray(raw.notes) ? raw.notes : []).map(text).filter((n): n is string => !!n)
+  return { items, notes }
+}
+
+/** 一笔费用：缺字段或类型不对时 null；第二笔以后的保养记录不用 */
+function serviceExpense(raw: unknown, first: boolean): ServiceExpense | null {
+  if (!isObject(raw)) return null
+  const ts = num(raw.ts)
+  const own = two(raw.own)
+  const s = settlement(raw.settlement)
+  const m = maintenanceOf(raw.maintenance)
+  if (ts == null || own == null || own < 0 || typeof raw.title !== "string" || typeof raw.remark !== "string" || !s || m === undefined) return null
+  const hints = Array.isArray(raw.perk_hints) ? raw.perk_hints.map(perkHint).filter((h): h is PerkHint => !!h) : []
+  return { ts, title: raw.title.trim(), remark: raw.remark.trim(), own, maintenance: first ? m : null, settlement: s, perk_hints: hints }
+}
+
+function serviceVisit(raw: unknown): ServiceVisit | null {
+  if (!isObject(raw)) return null
+  const id = idText(raw.id)
+  const arrive = num(raw.arrive_ts)
+  if (!id || arrive == null || typeof raw.title !== "string" || !Array.isArray(raw.expenses)) return null
+  // 第一笔不能用时丢掉，留下的第一笔不带保养记录（它原来不是第一笔）
+  const expenses = raw.expenses.map((x, i) => serviceExpense(x, i === 0)).filter((e): e is ServiceExpense => !!e)
+  if (!expenses.length) return null
+  const d = raw.dealer
+  const lng = isObject(d) ? num(d.lng) : null
+  const lat = isObject(d) ? num(d.lat) : null
+  const point = lng != null && lat != null && Math.abs(lng) <= 180 && Math.abs(lat) <= 90
+  return {
+    id, arrive_ts: arrive, odometer: num(raw.odometer), title: raw.title.trim(),
+    dealer: isObject(d) ? { name: text(d.name), short: text(d.short), lng: point ? lng : null, lat: point ? lat : null } : null,
+    expenses,
+  }
+}
+
+/** 已结算的进店，新的在前；缺字段或类型不对的进店、费用丢掉，一笔都不剩的进店丢掉 */
+export function parseService(raw: unknown): PluginResult<ServiceVisit[]> {
+  const e = envelope(raw)
+  if (!e.ok) return e
+  if (!Array.isArray(e.value.items)) return fail("invalid")
+  return { ok: true, value: e.value.items.map(serviceVisit).filter((v): v is ServiceVisit => !!v).sort((a, b) => b.arrive_ts - a.arrive_ts) }
 }
 
 // ---------- 添加 ----------

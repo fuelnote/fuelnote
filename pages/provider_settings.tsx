@@ -1,5 +1,5 @@
 // 设置 › 车辆数据（按提供方的定义生成，不认识具体品牌）
-import { Button, HStack, List, Menu, ProgressView, Section, Spacer, Text, TextField, VStack, useEffect, useState } from "scripting"
+import { Button, HStack, List, Menu, Navigation, NavigationStack, ProgressView, Section, Spacer, Text, TextField, VStack, useEffect, useState } from "scripting"
 import {
   AppData, connectProvider, disconnectProvider, fmtDateTime, providerCredential, providerVehicleStatus, RemoteVehicle, sourceVehicles,
   updateVehicle,
@@ -7,7 +7,8 @@ import {
 } from "../common/model"
 import { AppActions, errorMessage } from "./components"
 
-export function ProviderSettings({ data, app, provider }: { data: AppData; app: AppActions; provider: VehicleDataProvider }) {
+/** done：弹出显示时右上角的「完成」（记费用的选进店页里连接，2.3.0-beta.3 搬成插件以前用）；推入时不传 */
+export function ProviderSettings({ data, app, provider, done }: { data: AppData; app: AppActions; provider: VehicleDataProvider; done?: () => void }) {
   const [input, setInput] = useState<Record<string, string>>({})
   const [remote, setRemote] = useState<RemoteVehicle[] | null>(null)
   const [busy, setBusy] = useState(false)
@@ -84,7 +85,8 @@ export function ProviderSettings({ data, app, provider }: { data: AppData; app: 
   }
   const fmt = (n: number | null, unit: string, d = 1) => (n == null ? "—" : `${n.toFixed(d)} ${unit}`)
 
-  return <List navigationTitle={provider.name} navigationBarTitleDisplayMode="inline">
+  return <List navigationTitle={provider.name} navigationBarTitleDisplayMode="inline"
+    {...(done ? { toolbar: { confirmationAction: <Button title="完成" action={done} /> } } : {})}>
     <Section footer={<Text>{provider.description}</Text>}>
       <Text>{connected ? "已连接" : "未连接"}</Text>
       {error ? <Text font="footnote" foregroundStyle="systemRed">{error}</Text> : null}
@@ -147,4 +149,12 @@ export function ProviderSettings({ data, app, provider }: { data: AppData; app: 
       {connected ? <Button title={`断开${provider.name}`} role="destructive" action={disconnect} /> : null}
     </Section>
   </List>
+}
+
+/** 弹出显示的凭据页（选进店页「连接」「重新连接」）：关掉以后选进店页重新读 */
+export function ProviderSheet({ data, app, provider }: { data: AppData; app: AppActions; provider: VehicleDataProvider }) {
+  const dismiss = Navigation.useDismiss()
+  return <NavigationStack>
+    <ProviderSettings data={data} app={app} provider={provider} done={() => dismiss()} />
+  </NavigationStack>
 }

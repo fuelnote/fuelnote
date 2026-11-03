@@ -76,7 +76,7 @@ export function shortStoreName(name: string): string {
 export function storeFromPoi(poi: StorePoi): Store {
   return {
     id: "", name: shortStoreName(poi.name), full_name: poi.name, address: poi.address, phone: poi.phone, hours: "",
-    poi_id: "", lng: poi.lng, lat: poi.lat, dealer: null,
+    poi_id: "", lng: poi.lng, lat: poi.lat,
   }
 }
 

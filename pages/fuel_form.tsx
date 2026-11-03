@@ -9,7 +9,7 @@ import {
   Toggle, VirtualNode, VStack, useEffect, useMemo, useRef, useState,
 } from "scripting"
 import {
-  amountFixes, AppData, arrivalStop, cachedStops, canReadTrips, checkFuel, completeTriple, decideGrade, derivedEvidence, duplicateText, errorText, FieldSource,
+  amountFixes, AppData, arrivalStop, cachedStops, canReadTrips, checkFuel, completeTriple, DataSourceMark, decideGrade, derivedEvidence, duplicateText, errorText, FieldSource,
   fillFromReceipt, fillFromTxn, fillWarnings, findDuplicate, fmtShort, FuelData, fuelRecords, FuelTxn, GradeDecision, gradeEvidence, GRADES, gradeText,
   ImageOrigin, isInferred, keptNumber, MoneyField, newStationNote, numText, openStopIn, parseNum, pickOpening, PluginRef, pluginState, pluginStation, pluginsWith, priceCityFor,
   priceRefFor, ReceiptFill, ReceiptResult, recognizeImage, SOURCE_TITLES, Station, stationsFor, Stop, StopChoice, stopForPayment, stopWarning, Triple, TripleField,
@@ -20,13 +20,14 @@ import { FuelPick, FuelPickResult } from "./fuel_pick"
 import { StationPicker } from "./station_picker"
 import { StopPicker } from "./stop_picker"
 
-export type FuelFormResult = { fuel: FuelData; newStation: Station | null }
+/** source：从数据源选了交易来填的（插件化设计 3.5 节），保存时写成记录的来源；截图识别、手动填写、编辑时为 null */
+export type FuelFormResult = { fuel: FuelData; newStation: Station | null; source: DataSourceMark | null }
 
 export type FuelFormProps = {
   data: AppData
   vehicle: Vehicle
-  /** 编辑时的原记录 */
-  record: (FuelData & { id: string }) | null
+  /** 编辑时的原记录；从数据源记的带着来源（最上面一行只读显示） */
+  record: (FuelData & { id: string; data_source?: DataSourceMark }) | null
   /** 快捷指令、分享传入的图片：打开后直接识别（设计文档第 19 节） */
   initialImage?: UIImage | null
   /** 已经选好的数据源交易：打开后直接填入（FuelNote Check 截图用） */
@@ -526,7 +527,9 @@ export function FuelForm({ data, vehicle, record, initialImage, initialPick, onS
       const i = await Dialog.actionSheet({ title: "请确认", message: duplicateText(dup), actions: [{ label: "仍然保存" }] })
       if (i !== 0) return
     }
-    const result: FuelFormResult = { fuel: draft, newStation: station && station.isNew ? station.station : null }
+    const result: FuelFormResult = {
+      fuel: draft, newStation: station && station.isNew ? station.station : null, source: !record && pick ? { id: pick.plugin.id, name: pick.plugin.name } : null,
+    }
     // 先写进账本、刷新列表再关表单：表单滑走时下面已经是新的
     if (onSave && !(await onSave(result))) return
     dismiss(result)
@@ -627,6 +630,14 @@ export function FuelForm({ data, vehicle, record, initialImage, initialPick, onS
         keyboard: <HStack><Spacer /><Button title="完成" action={() => Keyboard.hide()} /></HStack>,
       }}
     >
+      {record?.data_source ? <Section key="source"
+        footer={<Text>{`这条加油是从${record.data_source.name}选来填的。来源不能改；${record.data_source.name}插件移除以后照样显示。`}</Text>}>
+        <HStack>
+          <Text>来源</Text>
+          <Spacer />
+          <Text foregroundStyle="secondaryLabel">{record.data_source.name}</Text>
+        </HStack>
+      </Section> : null}
       {showAutofill ? <Section header={<Text>自动填写</Text>}>
         {imageRow}
         {pluginRows}

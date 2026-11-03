@@ -3,7 +3,7 @@
 // 导出到小熊时才把用量和门店写进费用备注。边界：卡上的东西只在卡上改，不跟随保单期间、费用金额，也不反过来改它们；删卡不动费用。
 import { newId } from "./ids"
 import { MAINTENANCE_CATEGORY } from "./expense_stats"
-import { AppData, Change, putExpense, unchanged } from "./ledger"
+import { AppData, Change, ExpenseMeta, putExpense, unchanged } from "./ledger"
 import { groupKey, perkBook, perkErrors, Use, usedOf } from "./perks"
 import { addStore } from "./stores"
 import { ExpenseData, LedgerFile, Perk, PerkUse, Store, Vehicle } from "./types"
@@ -22,7 +22,8 @@ function saveStoreInto(ledger: LedgerFile, store: Store | null): Store | null {
 }
 
 /** 记费用时选的门店和用的卡 */
-export type ExpenseExtras = { uses: Use[]; store: Store | null }
+/** meta：从数据源记下时的结算明细和来源（插件化设计 3.4、3.5 节），只在给了时写 */
+export type ExpenseExtras = { uses: Use[]; store: Store | null; meta?: ExpenseMeta }
 
 /**
  * 保存费用和这一笔用的卡：expense 的金额已经是实付，备注只是用户写的内容；门店加进我的门店，写进费用的 store_id。
@@ -31,7 +32,7 @@ export type ExpenseExtras = { uses: Use[]; store: Store | null }
 export function putExpenseWithPerks(data: AppData, vehicle: Vehicle, recordId: string | null, expense: ExpenseData, extras: ExpenseExtras): Change {
   const ledger: LedgerFile = JSON.parse(JSON.stringify(data.ledger))
   const store = saveStoreInto(ledger, extras.store)
-  const c = putExpense({ ...data, ledger }, vehicle, recordId, expense, store ? store.id : null)
+  const c = putExpense({ ...data, ledger }, vehicle, recordId, expense, store ? store.id : null, extras.meta)
   const expenseId = c.recordId!
   const ids = perkIdsOf(c.ledger, vehicle.id)
   const kept = c.ledger.perk_uses.filter(u => !(u.expense_id === expenseId && ids.has(u.perk_id)))

@@ -62,18 +62,43 @@ export type ExpenseData = {
   category_id: number
   amount: number
   remark: string
+  /** 标题（插件化设计 3.6 节）：空着时不写，费用页按规则自动生成。保存时不传是不改，空串是去掉 */
+  title?: string
+}
+
+/** 记录从哪个数据源选来（插件化设计 3.5 节）：数据源的 id 和保存时的名称，只用来显示和区分，不拿 id 去找数据源 */
+export type DataSourceMark = { id: string; name: string }
+
+/**
+ * 结算明细（插件化设计 3.4 节，docs/plugins.md 第 7 节）：数据源给的各行（原价为正，减免和优惠为负，抹零可正可负），加起来是自付；
+ * 结算备注；这一笔的券和活动优惠（使用权益页上面对照着勾；不知道金额时 null）
+ */
+export type Settlement = {
+  lines: Array<{ label: string; amount: number }>
+  note: string
+  coupons: Array<{ name: string; amount: number | null }>
 }
 
 /** 小熊这条记录导入时的原样（fuelRecords / expenseRecords / maintainRecords 里的一项）；导出时以它为底，只覆盖改过的字段 */
 export type XxyhRaw = Record<string, unknown>
 
-export type FuelRecord = FuelData & { kind: "fuel"; id: string; vehicle_id: string; xxyh_raw?: XxyhRaw }
+export type FuelRecord = FuelData & {
+  kind: "fuel"
+  id: string
+  vehicle_id: string
+  /** 从数据源选了交易来填的（2.3）；截图识别、手动填写的不写 */
+  data_source?: DataSourceMark
+  xxyh_raw?: XxyhRaw
+}
 export type ExpenseRecord = ExpenseData & {
   kind: "expense"
   id: string
   vehicle_id: string
   /** 在哪家店（stores 里的 id）；没有门店时不写。备注只存用户写的内容 */
   store_id?: string
+  /** 从数据源选了进店记下的（2.3）：结算明细（只读显示）和来源 */
+  settlement?: Settlement
+  data_source?: DataSourceMark
   xxyh_raw?: XxyhRaw
 }
 export type MaintenanceRecord = {
@@ -192,8 +217,6 @@ export type Store = {
   /** WGS-84（地图在国内给的 GCJ-02 读进来时换算） */
   lng: number | null
   lat: number | null
-  /** 车辆数据提供方的经销商代码（2.1.0-beta.5 起从养修记录对上） */
-  dealer: { provider: string; code: string } | null
 }
 
 /** 地图上的一个汽车服务地点（选择门店的附近和搜索结果） */
@@ -255,69 +278,6 @@ export type PerkUse = {
   note: string
 }
 
-// ---------- 养修（2.1.0-beta.5，docs/specs/2026-10-24-maintenance-volvo.md 第 4 节） ----------
-
-/** 车辆数据提供方的经销商资料（坐标 WGS-84） */
-export type ServiceDealer = { short: string; name: string; address: string; phone: string; lng: number | null; lat: number | null; hours: string }
-
-/** 一张工单的结算（提供方整理好的通用结构，原始返回不存） */
-export type ServiceTicket = {
-  ro_no: string
-  /** 工单类型：保养、机电维修、零售、事故、保修 */
-  type: string
-  /** 开单时间（委托单）；没有时同结算时间 */
-  created_ts: number
-  settled_ts: number
-  /** 项目名（沃尔沃的 handRepairProjectName） */
-  projects: string[]
-  /** 工时名称，去掉了「工时：」 */
-  labours: string[]
-  parts: string[]
-  /** 原价、自付 */
-  total: number
-  own: number
-  /** 工时优惠合计 */
-  labour_discount: number
-  /** 其他减免（上门取车、送车上门），金额 > 0 的 */
-  discounts: { name: string; amount: number }[]
-  /** 券和活动优惠，金额 > 0 的；名称去掉了车牌和券号，type 是提供方的优惠类型，只显示 */
-  prefs: { name: string; type: string; amount: number }[]
-  /** 抹零：原价减去各项优惠和自付的差额，可能是负数 */
-  rounding: number
-  remark: string
-}
-
-/** 一次进店（缓存 service_visits.json，不进备份） */
-export type ServiceVisit = {
-  provider: ProviderId
-  order_id: string
-  dealer_code: string
-  /** 进店时间 */
-  arrive_ts: number
-  /** 提供方写的状态，原样显示 */
-  state: string
-  /** 最晚的结算时间；还没结算为 null */
-  settled_ts: number | null
-  /** 委托单到店里程的最大值 */
-  odometer: number | null
-  dealer: ServiceDealer | null
-  /** 没结算时为空 */
-  tickets: ServiceTicket[]
-}
-
-/** 记下的一次进店（进账本、进备份）：结算原样存下，提供方删了旧工单也还在 */
-export type ServiceRecord = {
-  vehicle_id: string
-  provider: ProviderId
-  order_id: string
-  dealer_code: string
-  arrive_ts: number
-  odometer: number | null
-  dealer: ServiceDealer | null
-  /** 每张工单记成了哪条记录（保养记录或费用的 id）；几张保养工单合成一条时相同；关掉没记的为 null */
-  tickets: Array<ServiceTicket & { record_id: string | null }>
-}
-
 /** 地图上的一个加油站（WGS-84） */
 export type Poi = {
   name: string
@@ -373,8 +333,6 @@ export type LedgerFile = {
   stores: Store[]
   perks: Perk[]
   perk_uses: PerkUse[]
-  /** 记下的养修（2.1.0-beta.5） */
-  service_records: ServiceRecord[]
   settings: Settings
 }
 
@@ -409,7 +367,6 @@ export function emptyLedger(): LedgerFile {
     stores: [],
     perks: [],
     perk_uses: [],
-    service_records: [],
     settings: defaultSettings(),
   }
 }
