@@ -354,10 +354,11 @@ export function ExpenseForm({ getData, vehicle, record, maintenance, odometer: d
         const usableO = usablePerks(book, vehicle.id, o.source.ts, null)
         const activeO = st.uses.filter(u => usableO.some(x => x.perk.id === u.perk_id))
         const suggested = activeO.length > 0 && usesSig(activeO) === usesSig(o.uses)
-        const coupons = o.source.settlement.coupons.map(c => (c.amount != null ? `${c.name} −${yuan(c.amount)}` : c.name))
+        const coupons = o.source.settlement.coupons.flatMap(c => (c.amount != null ? [`${c.name} −${yuan(c.amount)}`] : []))
         const sub = [`${otherWhen(o.source.ts, draft.visit.arrive_ts)} 开单`, ...coupons, `自付 ${yuan(o.source.own)}`].join(" · ")
         const last = i === draft.others.length - 1
-        return <Section key={`other-${i}`} {...(i === 0 ? { header: <Text>同一次进店</Text> } : {})}
+        // 按进店给 key：「更换」成别的进店时整组重画（只改了说明的组，界面不会自己刷新）
+        return <Section key={`other-${draft.visit.id}-${i}`} {...(i === 0 ? { header: <Text>同一次进店</Text> } : {})}
           {...(last ? { footer: <Text>{`这次进店的其他几笔，各记成一笔维修保养费用：时间、标题和备注按${sourceName}给的，标题可以改。关掉的不记，以后也不再提醒。`}</Text> } : {})}>
           <Toggle value={st.on} onChanged={on => setOther(i, { on })}>
             <VStack alignment="leading" spacing={2}>
@@ -385,7 +386,8 @@ export function ExpenseForm({ getData, vehicle, record, maintenance, odometer: d
           </NavigationLink> : null}
         </Section>
       }) : null}
-      <Section key="remark" header={<Text>备注</Text>}
+      {/* 从数据源选好进店以后换 key：上面插进了几组，这一组的行没变，说明不会自己刷新 */}
+      <Section key={locked ? "remark-locked" : "remark"} header={<Text>备注</Text>}
         footer={<Text>{locked
           ? "里程和项目不用再写进备注，导出到小熊时油记会自动加上。"
           : record ? "可以改类别。车险在「保险」页记。" : "默认是最近一笔费用的类别和这一类上次的门店；切换类别时，已填的内容保留。车险在「保险」页记。"}</Text>}>
