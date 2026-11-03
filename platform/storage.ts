@@ -112,14 +112,6 @@ export function writeCache(name: string, value: unknown): void {
   writeAtomic(fs, filePath(joinPath(CACHE_DIR, name)), JSON.stringify(value))
 }
 
-/** 删掉一个缓存文件（连同写入时留下的 .bak）；不在时什么都不做 */
-export function removeCache(name: string): void {
-  const path = filePath(joinPath(CACHE_DIR, name))
-  for (const p of [path, `${path}.bak`]) {
-    try { if (fs.exists(p)) fs.remove(p) } catch { /* 下次打开再删 */ }
-  }
-}
-
 /** 车况缓存（设计文档 18.1 节）：油记和小组件共用 */
 const STATUS_CACHE_FILE = "status_cache.json"
 
