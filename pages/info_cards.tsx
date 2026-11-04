@@ -1,10 +1,10 @@
-// 插件的信息卡片（docs/specs/2026-11-04-presets-and-cards.md 7.3 节，画稿第二十七轮）：车况详情里每张卡片一组（R27Sheet）、
-// 记录页「当前」多的一行（R27Current，在 pages/fuel_status.tsx）、没有车况的车记录页最上面一组和弹出的一页（R27Bare）。
+// 插件的信息卡片（docs/specs/2026-11-04-presets-and-cards.md 7.3 节，画稿第二十八轮 R28Place）：记录页「当前」下面每张卡片一组，
+// 没有「当前」时在最上面（D4、D14）；轻点弹出一页，列出这张卡片的每一行和「重新查」。
 // 油记只认卡片的字段：文字、语气、图标都由插件给，这里只管样子（D1、D27）。
 import {
   Button, DynamicShapeStyle, EnvironmentValuesReader, HStack, Image, List, NavigationStack, ProgressView, Section, Spacer, Text, useEffect, useState, VStack,
 } from "scripting"
-import { InfoCard, InfoPluginView, InfoTone, InfoTop, progressText, watchInfo } from "../common/model"
+import { InfoCard, InfoGroup, InfoPluginView, InfoTone, progressText, watchInfo } from "../common/model"
 
 /** 语气的颜色（D27）：好是绿色，提醒是橙色；浅色用深一点的，白底上看得清 */
 export const TONE_COLORS: Record<InfoTone, DynamicShapeStyle> = {
@@ -60,7 +60,7 @@ function CardSection({ view, card, last, header, onRefresh }: { view: InfoPlugin
 }
 
 /**
- * 车况详情和弹出的那一页里的卡片（7.3 节）：每个插件的每张卡片一组，按添加插件的顺序；
+ * 弹出的那一页里的卡片（7.3 节）：每个插件的每张卡片一组，按添加插件的顺序；
  * 插件还没有卡片时一组写进度、出错的原因或「还没读到」。header 为 false 时只有一张卡片、组名写在标题栏
  */
 export function InfoSections({ views, onRefresh, header = true }: { views: InfoPluginView[]; onRefresh: () => void; header?: boolean }) {
@@ -79,7 +79,7 @@ function singleTitle(views: InfoPluginView[]): string | null {
   return v.cards.length > 1 ? null : v.cards[0]?.title ?? v.title
 }
 
-/** 没有车况的车，记录页最上面那一组点开弹出的一页（D14，R27Bare 右边）：全部的卡片，和车况详情里的一样；查着时跟着更新 */
+/** 记录页那一组点开弹出的一页（R28Place 右边）：这张卡片的每一行和「重新查」；查着时跟着更新 */
 export function InfoSheet({ get, refresh }: { get: () => InfoPluginView[]; refresh: () => void }) {
   const [views, setViews] = useState(get)
   useEffect(() => watchInfo(() => setViews(get())), [])
@@ -95,23 +95,23 @@ export function InfoSheet({ get, refresh }: { get: () => InfoPluginView[]; refre
   </NavigationStack>
 }
 
-/** 图标和一行字：语气上色，没有语气时次要的颜色（记录页最上面、「当前」多的一行） */
-export function ToneLine({ icon, text, tone, size }: { icon: string | null; text: string; tone: InfoTone | null; size: "caption" | "body" }) {
+/** 图标和一行字：语气上色，没有语气时次要的颜色 */
+function ToneLine({ icon, text, tone }: { icon: string | null; text: string; tone: InfoTone | null }) {
   const color = tone ? TONE_COLORS[tone] : "secondaryLabel"
-  return <HStack spacing={size === "body" ? 8 : 4}>
-    {icon ? <Image systemName={icon} font={size === "body" ? "body" : "caption"} foregroundStyle={color} /> : null}
-    <Text font={size === "body" ? "body" : "caption"} fontWeight={tone ? "semibold" : "regular"} foregroundStyle={color} lineLimit={1}>{text}</Text>
+  return <HStack spacing={8}>
+    {icon ? <Image systemName={icon} foregroundStyle={color} /> : null}
+    <Text fontWeight={tone ? "semibold" : "regular"} foregroundStyle={color} lineLimit={1}>{text}</Text>
   </HStack>
 }
 
-/** 没有车况的车，记录页最上面、「当前」的位置单独一组（D14，R27Bare 左边）：组名、摘要和「共 N 条」；轻点弹出全部的卡片 */
-export function InfoTopSection({ top, onOpen }: { top: InfoTop; onOpen: () => void }) {
-  return <Section header={<Text>{top.title}</Text>}>
+/** 记录页「当前」下面的一组（D4，R28Place 左边）：组名、摘要和「共 N 条」；轻点弹出这张卡片 */
+export function InfoGroupSection({ group, onOpen }: { group: InfoGroup; onOpen: () => void }) {
+  return <Section header={<Text>{group.title}</Text>}>
     <Button action={onOpen}>
       <HStack spacing={8} foregroundStyle="label">
-        <ToneLine icon={top.icon} text={top.text} tone={top.tone} size="body" />
+        <ToneLine icon={group.icon} text={group.text} tone={group.tone} />
         <Spacer />
-        {top.count ? <Text foregroundStyle="secondaryLabel">{`共 ${top.count} 条`}</Text> : null}
+        {group.count ? <Text foregroundStyle="secondaryLabel">{`共 ${group.count} 条`}</Text> : null}
         <Image systemName="chevron.right" font="footnote" foregroundStyle="tertiaryLabel" />
       </HStack>
     </Button>

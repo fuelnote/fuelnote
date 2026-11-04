@@ -85,33 +85,38 @@ export function infoViews(cache: InfoCache, plugins: PluginRef[], running: Reado
 /** 查着时组里写的一句（7.1 节）：插件给的进度，没给时「正在读取」，后面加省略号 */
 export const progressText = (v: { progress: string | null }): string => `${v.progress ?? "正在读取"}…`
 
-/** 记录页「当前」那一行（D21）：按添加插件的顺序，第一张有摘要的卡片；都没有时 null（卡-6） */
-export function infoSummary(views: InfoPluginView[]): { plugin: { id: string; name: string }; card: InfoCard } | null {
-  for (const v of views) {
-    const card = v.cards.find(c => c.summary)
-    if (card) return { plugin: v.plugin, card }
-  }
-  return null
+/**
+ * 记录页「当前」下面的一组（D4，画稿 R28Place）：组名、图标、一行字和语气；count 是写在右边的「共 N 条」（写摘要时才有）。
+ * 轻点弹出的一页按 plugin_id、card_id 取（viewsOfGroup）；插件还没有卡片时 card_id 是 null
+ */
+export type InfoGroup = {
+  key: string; plugin_id: string; card_id: string | null; title: string; icon: string | null; text: string; tone: InfoTone | null; count: number | null
 }
 
-/** 记录页最上面那一组的内容：组名、图标、一行字和语气；count 是写在右边的「共 N 条」（写摘要时才有） */
-export type InfoTop = { title: string; icon: string | null; text: string; tone: InfoTone | null; count: number | null }
-
 /**
- * 没有车况的车，记录页最上面那一组（D14，画稿 R27Bare）：第一张有摘要的卡片，写摘要和「共 N 条」；
- * 都没有摘要时第一张卡片，一行都没有写 empty；还没有卡片、在查着时写进度；什么都没有时 null（不多这一组）
+ * 记录页「当前」下面（没有「当前」时在最上面）每张卡片一组，按添加插件的顺序（7.3 节）：有摘要写摘要和「共 N 条」；
+ * 没有摘要时写「共 N 条」，一行都没有写 empty、照样显示（卡-6，D32）；查着、卡片还没有内容时写进度。
+ * 插件还没有卡片时一组，组名按声明，写进度、出错的原因或「还没读到」（D30）
  */
-export function infoTop(views: InfoPluginView[]): InfoTop | null {
-  const s = infoSummary(views)
-  if (s) return { title: s.card.title, icon: s.card.icon, text: s.card.summary!, tone: s.card.tone, count: s.card.rows.length || null }
-  const v = views.find(x => x.cards.length)
-  if (v) {
-    const card = v.cards[0]
-    const line = cardLine(card, card.rows.length, v.busy ? progressText(v) : undefined)
-    return { title: card.title, icon: card.icon, text: line.text, tone: line.tone, count: null }
-  }
-  const busy = views.find(x => x.busy)
-  return busy ? { title: busy.title, icon: null, text: progressText(busy), tone: null, count: null } : null
+export function infoGroups(views: InfoPluginView[]): InfoGroup[] {
+  return views.flatMap((v): InfoGroup[] => {
+    if (!v.cards.length) {
+      const text = v.busy ? progressText(v) : v.error ? `没有查完：${v.error}` : "还没读到"
+      return [{ key: v.plugin.id, plugin_id: v.plugin.id, card_id: null, title: v.title, icon: null, text, tone: null, count: null }]
+    }
+    return v.cards.map(card => {
+      const line = cardLine(card, card.rows.length, v.busy ? progressText(v) : undefined)
+      return {
+        key: `${v.plugin.id}/${card.id}`, plugin_id: v.plugin.id, card_id: card.id, title: card.title, icon: card.icon, text: line.text, tone: line.tone,
+        count: card.summary && card.rows.length ? card.rows.length : null,
+      }
+    })
+  })
+}
+
+/** 轻点一组弹出的一页（7.3 节）：只有这个插件；这一组是一张卡片时只有这一张 */
+export function viewsOfGroup(views: InfoPluginView[], g: { plugin_id: string; card_id: string | null }): InfoPluginView[] {
+  return views.filter(v => v.plugin.id === g.plugin_id).map(v => (g.card_id ? { ...v, cards: v.cards.filter(c => c.id === g.card_id) } : v))
 }
 
 /** 小组件的摘要里写的卡片：还添加着的插件、没过有效期的，每张最多 3 行（大号放得下的），带插件名和总行数 */

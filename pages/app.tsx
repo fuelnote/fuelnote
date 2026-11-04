@@ -4,7 +4,7 @@ import { AppEvents, Navigation, Script, Tab, TabView, Widget, useEffect, useMemo
 import {
   addVehicle, AppData, batchInfo, batchPerks, cachedStatus, canReadStatus, categoriesFor, categoryName, currentVehicle, defaultCategory, defaultUse,
   deleteInsurance, deletePerks, deleteRecord, deleteStore, deleteUse, dismissRenewal, expenseEntries, ExpenseEntry, fillViewFor, pricePluginId, refreshFuelPrice, refreshPlugins,
-  infoKey, InfoPluginView, infoViewsFor, refreshInfo,
+  InfoGroup, infoKey, infoViewsFor, refreshInfo, viewsOfGroup,
   ExpenseRecord, expenseUses, finishAutoBackup, flushAutoBackup, fmtDate, fmtDateTime, insuranceForRecord, InsuranceYear, LedgerRecord, loadData, MAINTENANCE_CATEGORY, newId,
   NewVehicle, Perk, perkBook, PerkUse, readVehicleStatus, remaining, sameName, saveBatch, saveExpense, saveFuel,
   saveInsurance, savePerk, savePerks, saveStore, saveUse, saveWidgetSnapshot, scheduleAutoBackup, sourceOf, Store, toExpenseData, toFuelData, updateSettings,
@@ -131,30 +131,29 @@ export function App({ action, image, notice }: { action: string | null; image: U
   }
 
   /** 车况的显示状态；当前车辆不能读车况时为 null（油耗 › 记录没有「当前」一组） */
-  function statusView(d: AppData, info: InfoPluginView[] = infoViewsFor(d)): StatusView | null {
+  function statusView(d: AppData): StatusView | null {
     const v = currentVehicle(d)
     if (!v || !v.provider || !canReadStatus(d, v)) return null
     const snapshot = cachedStatus(d, v)
     return {
       snapshot, tank: vehicleTank(d, v), busy: statusBusy, error: statusError, source: sourceOf(d, v)?.name || "车辆数据",
-      fill: fillViewFor(d, v, snapshot ? snapshot.status : null), info,
+      fill: fillViewFor(d, v, snapshot ? snapshot.status : null),
     }
   }
 
-  /** 车况详情：看完整数据、重新读取；插件的信息卡片可以重新查 */
+  /** 车况详情：看完整数据、重新读取 */
   function openStatus() {
     Navigation.present({
       element: <StatusSheet
-        get={() => statusView(getData()) || { snapshot: null, tank: null, busy: false, error: null, source: "车辆数据", fill: null, info: infoViewsFor(getData()) }}
+        get={() => statusView(getData()) || { snapshot: null, tank: null, busy: false, error: null, source: "车辆数据", fill: null }}
         refresh={() => refreshStatus(true)}
-        refreshInfo={() => { void refreshCards(true) }}
       />,
     })
   }
 
-  /** 没有车况的车：记录页最上面那一组点开，弹出全部的信息卡片（小组件方案和信息卡片设计 D14） */
-  function openInfo() {
-    Navigation.present({ element: <InfoSheet get={() => infoViewsFor(getData())} refresh={() => { void refreshCards(true) }} /> })
+  /** 记录页「当前」下面的一组点开：弹出这张信息卡片，可以重新查（小组件方案和信息卡片设计 D4） */
+  function openInfo(g: InfoGroup) {
+    Navigation.present({ element: <InfoSheet get={() => viewsOfGroup(infoViewsFor(getData()), g)} refresh={() => { void refreshCards(true) }} /> })
   }
 
   /** 当前车辆的车况（2.3 起打开油记时不再读行程：记录页没有加油停车提示了，插件化设计 D2） */
@@ -172,7 +171,7 @@ export function App({ action, image, notice }: { action: string | null; image: U
 
   /**
    * 插件的信息卡片（小组件方案和信息卡片设计 7.2 节）：没有卡片、卡片过了有效期、标号或地区变了才查，force 是「重新查」；
-   * 一批一批地查，每批后更新「当前」、车况详情和小组件
+   * 一批一批地查，每批后更新记录页、弹出的那一页和小组件
    */
   async function refreshCards(force = false) {
     try {
@@ -600,11 +599,10 @@ export function App({ action, image, notice }: { action: string | null; image: U
   const set = viewOf(TAB_SETTINGS)
 
   const fuelTab = useMemo(() => {
-    const info = infoViewsFor(fuel.data)
     return <FuelTab data={fuel.data} subtitle={fuel.subtitle} openStatus={openStatus}
-      // 车况在油耗 › 记录最上面的「当前」一组（设计文档 18.2 节）；不能读车况时没有这一组，有插件的信息卡片时放卡片（2.6，D14）
-      status={statusView(fuel.data, info)}
-      info={info}
+      // 车况在油耗 › 记录最上面的「当前」一组（设计文档 18.2 节），不能读车况时没有这一组；插件的信息卡片在它下面，每张一组（2.6，D4）
+      status={statusView(fuel.data)}
+      info={infoViewsFor(fuel.data)}
       openInfo={openInfo}
       actions={{
         addFuel: () => addFuel(),

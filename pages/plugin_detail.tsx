@@ -16,7 +16,7 @@ function hint(cap: PluginCapability, name: string): string {
   if (cap === "vehicle_status") return "记录页「当前」的油量和里程"
   if (cap === "fuel_price") return "按所在地区的挂牌价算加满要多少钱"
   // 信息卡片（2.6）：只说放在哪，卡片里写什么由插件定
-  if (cap === "info") return "车况详情和记录页「当前」里的信息卡片，也能放进小组件"
+  if (cap === "info") return "记录页「当前」下面的信息卡片，也能放进小组件"
   return `记费用时从${name}选一次进店，要记的几笔一起填好`
 }
 

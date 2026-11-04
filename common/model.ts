@@ -16,8 +16,8 @@ export {
   SLOT_CHOICES, SLOT_TITLES, usedElsewhere,
 } from "./widget_layout"
 export type { CardRef, CardSlot } from "./widget_data"
-export { infoSummary, infoTop, progressText } from "./info_cards"
-export type { InfoPluginView, InfoTop } from "./info_cards"
+export { infoGroups, progressText, viewsOfGroup } from "./info_cards"
+export type { InfoGroup, InfoPluginView } from "./info_cards"
 export type { StatusSnapshot } from "./status_source"
 export { checkExpense, checkFuel, completeTriple, expenseDuplicateText, findExpenseDuplicate, keptNumber, numText, parseNum } from "./form"
 export type { Triple, TripleField } from "./form"

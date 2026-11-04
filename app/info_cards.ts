@@ -15,7 +15,7 @@ const MAX_BATCHES = 30
 
 /** 正在查的插件 → 插件给的进度（还没给时 null）：只在内存里 */
 const running = new Map<string, string | null>()
-/** 打开着的车况详情、弹出的那一页：卡片变了时跟着更新 */
+/** 打开着的卡片那一页：卡片变了时跟着更新 */
 const watchers = new Set<() => void>()
 
 /** 卡片、进度变了时通知；返回取消的函数 */
@@ -80,7 +80,7 @@ async function run(ref: PluginRef, params: InfoParams, onChange: () => void): Pr
 
 /**
  * 打开油记、回到前台、添加了提供 info 的插件、换了车辆或默认标号时调（7.2 节，D30）：没有卡片、卡片过了有效期、默认标号或省市变了才查；
- * force 是车况详情的「重新查」。插件各查各的，同一个插件同时只跑一次（正在查的不再查）；没有车辆、定不出地区时不查（D29）
+ * force 是卡片那一页的「重新查」。插件各查各的，同一个插件同时只跑一次（正在查的不再查）；没有车辆、定不出地区时不查（D29）
  */
 export async function refreshInfo(data: AppData, onChange: () => void, force = false): Promise<void> {
   if (!pluginsWith(data, "info").length) return

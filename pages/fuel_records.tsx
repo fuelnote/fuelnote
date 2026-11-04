@@ -1,14 +1,14 @@
 // 油耗 › 记录（设计文档 21.3 节）：最上面是「当前」一组（车况，pages/fuel_status.tsx）；
 // 下面是加油记录，按月分组，月合计只算加油。左滑删除，下拉重新读车况。2.3 起没有加油停车提示（插件化设计 D2）。
-// 没有车况的车（2.6，小组件方案和信息卡片设计 D14）：「当前」的位置是插件的信息卡片一组（pages/info_cards.tsx）。
+// 插件的信息卡片（2.6，小组件方案和信息卡片设计 D4）：「当前」下面每张卡片一组，没有「当前」时在最上面（pages/info_cards.tsx）。
 // 只读加油记录：费用、保险在「费用」标签（pages/expense_records.tsx）。
 import { Button, ContentUnavailableView, HStack, Image, List, Section, Spacer, Text, VStack, useMemo, useState } from "scripting"
 import {
-  AppData, consumptionById, currentVehicle, fmtDay, FuelRecord, fuelRecords, gradeText, InfoPluginView, infoTop, LedgerRecord, monthKey, monthTitle, summarize,
+  AppData, consumptionById, currentVehicle, fmtDay, FuelRecord, fuelRecords, gradeText, InfoGroup, infoGroups, InfoPluginView, LedgerRecord, monthKey, monthTitle, summarize,
 } from "../common/model"
 import { cspt, km, money, swipeToDelete, TabNav } from "./components"
 import { CurrentSection, StatusView } from "./fuel_status"
-import { InfoTopSection } from "./info_cards"
+import { InfoGroupSection } from "./info_cards"
 
 const PAGE = 120
 
@@ -47,9 +47,9 @@ export function FuelRecords({ data, nav, subtitle, status, openStatus, info, ope
   /** 车况；当前车辆不能读车况时为 null */
   status: StatusView | null
   openStatus: () => void
-  /** 插件的信息卡片：没有车况时放在最上面（D14） */
+  /** 插件的信息卡片：「当前」下面每张卡片一组（D4） */
   info: InfoPluginView[]
-  openInfo: () => void
+  openInfo: (g: InfoGroup) => void
   actions: FuelRecordsActions
 }) {
   const vehicle = currentVehicle(data)
@@ -71,10 +71,10 @@ export function FuelRecords({ data, nav, subtitle, status, openStatus, info, ope
   }, [fills, limit])
 
   // 不需要的属性整个不传：Scripting 对显式的 undefined 也可能留出空位（空按钮、空图标）
-  const top = status || !vehicle ? null : infoTop(info)
+  const groups = vehicle ? infoGroups(info) : []
   const empty = !vehicle
     ? <ContentUnavailableView title="还没有车辆" systemImage="car" description="点左上角的车辆按钮添加车辆，或在「设置 › 小熊油耗」连接小熊导入已有数据。" />
-    : !fills.length && !status && !top
+    : !fills.length && !status && !groups.length
       ? <ContentUnavailableView title="还没有加油记录" systemImage="fuelpump" description="点右上角的「+」记加油。" />
       : null
 
@@ -86,7 +86,7 @@ export function FuelRecords({ data, nav, subtitle, status, openStatus, info, ope
     {...(empty ? { overlay: empty } : {})}
   >
     {status ? <CurrentSection key="current" view={status} last={fills[0] ?? null} onOpen={openStatus} /> : null}
-    {top ? <InfoTopSection key="info" top={top} onOpen={openInfo} /> : null}
+    {groups.map(g => <InfoGroupSection key={`info:${g.key}`} group={g} onOpen={() => openInfo(g)} />)}
     {months.map(m => <Section key={m.key} header={<HStack><Text>{monthTitle(m.key)}</Text><Spacer /><Text monospacedDigit>{money(m.total)}</Text></HStack>}>
       {m.items.map(r => <Button
         key={r.id}

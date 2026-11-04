@@ -374,11 +374,11 @@ async function presetsCheck(phone: string): Promise<number> {
 }
 
 const SHOTS_INFO: Array<[string, number]> = [
-  ["info-sheet", 1500], ["info-sheet-busy", 1500], ["info-sheet-empty", 1500], ["info-current", 0], ["info-bare", 0], ["info-bare-sheet", 0],
-  ["info-widgets", 1700], ["info-settings", 1500],
+  ["info-current", 0], ["info-current-busy", 0], ["info-current-empty", 0], ["info-sheet", 0], ["info-sheet-busy", 0], ["info-sheet-empty", 0],
+  ["info-bare", 0], ["info-bare-sheet", 0], ["info-widgets", 1700], ["info-settings", 1500],
 ]
 
-/** 信息卡片（2.6）：示例插件分两批给的卡片，什么时候查、「当前」那一行、小组件的摘要、移除插件后清掉；截图车况详情、记录页、小组件、小组件方案 */
+/** 信息卡片（2.6）：示例插件分两批给的卡片，什么时候查、记录页「当前」下面的一组、小组件的摘要、移除插件后清掉；截图记录页、点开的一页、小组件、小组件方案 */
 async function infoCheck(phone: string): Promise<number> {
   const r = await post<{ steps: Step[] }>(`${phone}/run/info`, {})
   writeFileSync(join(OUT, "info.json"), JSON.stringify(r, null, 1))

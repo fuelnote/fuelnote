@@ -78,7 +78,7 @@ import { WidgetPresetPage, WidgetPresetsPage } from "../../pages/widget_presets"
 import { WidgetView } from "../../widget_view"
 import { addPreset, buildWidgetSnapshot, presetList, presetNameProblem, removePreset, renamePreset, setPresetSlot, WidgetPreset, WidgetSlot, WidgetSnapshot } from "../../common/model"
 import { cardRefOf, cardSlotView, presetFor, setPresetCard } from "../../common/widget_layout"
-import { infoSummary, InfoPluginView, infoViewsFor, refreshInfo } from "../../common/model"
+import { infoGroups, InfoPluginView, infoViewsFor, refreshInfo, viewsOfGroup } from "../../common/model"
 import { INFO_CACHE_FILE, InfoCache } from "../../common/info_cards"
 import { InfoSheet } from "../../pages/info_cards"
 import { makeAppData } from "../../common/ledger"
@@ -93,7 +93,7 @@ const SANDBOX = "FuelNoteCheck"
 setDataRoot(SANDBOX)
 
 /** 改了这个值，手机重新运行后报到的 STAMP 跟着变（确认跑的是新代码） */
-export const STAMP = "67"
+export const STAMP = "68"
 const PORT = 3200
 const DAY = 86400e3
 const BJ_OFFSET = 8 * 3600e3
@@ -1362,9 +1362,9 @@ function fillScreen(screen: string, data: AppData): VirtualNode | null {
   const car = data.ledger.vehicles.find(v => v.id === FILL_CAR)
   if (!car) return null
   const snapshot = cachedStatus(data, car)
-  const view = { snapshot, tank: vehicleTank(data, car), busy: false, error: null, source: "示例", fill: fillViewFor(data, car, snapshot ? snapshot.status : null), info: [] }
+  const view = { snapshot, tank: vehicleTank(data, car), busy: false, error: null, source: "示例", fill: fillViewFor(data, car, snapshot ? snapshot.status : null) }
   if (screen === "fill-current") return <FuelTab data={data} subtitle={car.name} status={view} openStatus={noop} info={[]} openInfo={noop} actions={fuelStub} />
-  if (screen === "fill-sheet") return <StatusSheet get={() => view} refresh={async () => null} refreshInfo={noop} />
+  if (screen === "fill-sheet") return <StatusSheet get={() => view} refresh={async () => null} />
   return null
 }
 
@@ -1505,7 +1505,7 @@ async function refreshAndWatch(data: AppData, force = false): Promise<string[]> 
 
 /**
  * 信息卡片（小组件方案和信息卡片设计第 7 节）：示例插件更新后声明「示例卡片」；分两批查到、先显示第一批和进度（卡-1）；
- * 没变时不查（卡-2）；「重新查」；默认标号变了重查、传的标号跟着变；「当前」那一行；小组件的摘要；移除插件后清掉（卡-7）
+ * 没变时不查（卡-2）；「重新查」；默认标号变了重查、传的标号跟着变；记录页「当前」下面的一组；小组件的摘要；移除插件后清掉（卡-7）
  */
 async function runInfo(): Promise<{ steps: Step[] }> {
   const steps: Step[] = []
@@ -1554,9 +1554,9 @@ async function runInfo(): Promise<{ steps: Step[] }> {
   data = withGrade(null)
   await refreshAndWatch(data)
 
-  const views = infoViewsFor(data)
-  const s = infoSummary(views)
-  add(steps, "「当前」那一行：示例卡片的摘要（D21）", s?.card.summary === "人民广场 1.2 km · 95# −0.3", s?.card.summary ?? "没有")
+  const groups = infoGroups(infoViewsFor(data))
+  add(steps, "记录页「当前」下面的一组：示例卡片的摘要和条数（D4）", groups.length === 1 && groups[0].text === "人民广场 1.2 km · 95# −0.3" && groups[0].count === 2,
+    groups.map(g => `${g.title}：${g.text}${g.count ? ` · 共 ${g.count} 条` : ""}`).join("、") || "没有")
 
   saveWidgetSnapshot(data)
   const readWidget = () => JSON.parse(FileManager.readAsStringSync(`${dataDirectory()}/widget.json`)) as WidgetSnapshot
@@ -1587,26 +1587,28 @@ function infoStates(views: InfoPluginView[], state: "busy" | "empty"): InfoPlugi
   }))
 }
 
-/** 信息卡片的截图（/run/info 之后）：车况详情（查到、正在查、一行都没有）、「当前」、没有车况的车（记录页、弹出的一页）、小组件、小组件方案 */
+/**
+ * 信息卡片的截图（/run/info 之后）：记录页「当前」下面的一组和点开的一页，各有查到、正在查、一行都没有；
+ * 没有车况的车（记录页、点开的一页）、小组件、小组件方案
+ */
 function infoScreen(screen: string, data: AppData): VirtualNode | null {
   const car = data.ledger.vehicles.find(v => v.id === FILL_CAR)
   const views = infoViewsFor(data)
   if (!car || !views.length) return null
   const snapshot = cachedStatus(data, car)
-  const status = (info: InfoPluginView[]) => ({
-    snapshot, tank: vehicleTank(data, car), busy: false, error: null, source: "示例", fill: fillViewFor(data, car, snapshot ? snapshot.status : null), info,
-  })
-  if (screen === "info-sheet") return <StatusSheet get={() => status(views)} refresh={async () => null} refreshInfo={noop} />
-  if (screen === "info-sheet-busy") return <StatusSheet get={() => status(infoStates(views, "busy"))} refresh={async () => null} refreshInfo={noop} />
-  if (screen === "info-sheet-empty") return <StatusSheet get={() => status(infoStates(views, "empty"))} refresh={async () => null} refreshInfo={noop} />
-  if (screen === "info-current") return <FuelTab data={data} subtitle={car.name} status={status(views)} openStatus={noop} info={views} openInfo={noop} actions={fuelStub} />
+  const status = { snapshot, tank: vehicleTank(data, car), busy: false, error: null, source: "示例", fill: fillViewFor(data, car, snapshot ? snapshot.status : null) }
+  const state = screen.endsWith("-busy") ? "busy" : screen.endsWith("-empty") ? "empty" : null
+  const shown = state ? infoStates(views, state) : views
+  const first = infoGroups(shown)[0]
+  if (screen.startsWith("info-sheet")) return <InfoSheet get={() => viewsOfGroup(shown, first)} refresh={noop} />
+  if (screen.startsWith("info-current")) return <FuelTab data={data} subtitle={car.name} status={status} openStatus={noop} info={shown} openInfo={noop} actions={fuelStub} />
   // 没有车况的车：split 导入的真车
   const real = data.ledger.vehicles.find(v => v.id !== FILL_CAR && fuelRecords(data, v).length > 1)
   if (screen === "info-bare" && real) {
     const d = makeAppData({ ...data.ledger, settings: { ...data.ledger.settings, current_vehicle_id: real.id } }, data.xxyh)
     return <FuelTab data={d} subtitle={real.name} status={null} openStatus={noop} info={views} openInfo={noop} actions={fuelStub} />
   }
-  if (screen === "info-bare-sheet") return <InfoSheet get={() => views} refresh={noop} />
+  if (screen === "info-bare-sheet") return <InfoSheet get={() => viewsOfGroup(views, first)} refresh={noop} />
   if (screen === "info-settings") {
     return <NavigationStack><WidgetPresetPage data={data} app={{ getData: () => data, setData: noop, addVehicle: async () => undefined }} initialName="默认" /></NavigationStack>
   }

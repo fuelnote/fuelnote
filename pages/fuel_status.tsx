@@ -2,20 +2,13 @@
 // 「当前」挨着车名、在记录之前，读起来是这辆车现在的状态；浅色底与白色的记录卡片区分。
 // 1.2.5–1.3.0 放在标签栏上方的底部配件；1.3.1 测试版试过车辆切换右边的按钮，用户觉得放在顶部不像当前车辆的信息（2026-10-19）。
 // 界面见画布「车况放法（第五轮）」B 和「B「当前」卡片的颜色」。
-// 2.6 起「当前」是「这一箱，和加这一箱用得上的」：插件的信息卡片有摘要时多一行（D21），车况详情「加满」下面是卡片（小组件方案和信息卡片设计 7.3 节）。
 import {
-  Button, DynamicShapeStyle, Gauge, HStack, List, Navigation, NavigationStack, ProgressView, Rectangle, Section, ShapeStyle, Spacer, Text, useEffect, useState, VStack, ZStack,
+  Button, DynamicShapeStyle, Gauge, HStack, List, Navigation, NavigationStack, ProgressView, Rectangle, Section, ShapeStyle, Spacer, Text, useState, VStack, ZStack,
 } from "scripting"
-import { currentTank, CurrentTank, FillView, fmtDateTime, FuelRecord, fuelLow, fuelRatio, infoSummary, InfoPluginView, StatusSnapshot, statusWhen, watchInfo } from "../common/model"
-import { InfoSections, ToneLine } from "./info_cards"
+import { currentTank, CurrentTank, FillView, fmtDateTime, FuelRecord, fuelLow, fuelRatio, StatusSnapshot, statusWhen } from "../common/model"
 
-/**
- * 车况的显示状态：snapshot 为 null 表示还没读到过；fill 是「加满」一组（2.4，加满金额设计第 5 节），不知道剩余油量或油箱容量时 null；
- * info 是插件的信息卡片（2.6）
- */
-export type StatusView = {
-  snapshot: StatusSnapshot | null; tank: number | null; busy: boolean; error: string | null; source: string; fill: FillView | null; info: InfoPluginView[]
-}
+/** 车况的显示状态：snapshot 为 null 表示还没读到过；fill 是「加满」一组（2.4，加满金额设计第 5 节），不知道剩余油量或油箱容量时 null */
+export type StatusView = { snapshot: StatusSnapshot | null; tank: number | null; busy: boolean; error: string | null; source: string; fill: FillView | null }
 
 type Tint = DynamicShapeStyle
 
@@ -72,13 +65,11 @@ function FuelRing({ ratio, size, tint, children }: {
 
 /**
  * 记录页最上面的「当前」：剩余油量、续航，上次加油后已行驶的里程；分组标题右边是车况时间；
- * 有加满金额时卡片右边写「¥28 / 加满约」（2.4，画稿 R21Records）；插件的卡片有摘要时多一行（2.6，D21，画稿 R27Current）。
- * 轻点打开车况详情（每种状态都一样）；下拉刷新时重新读取
+ * 有加满金额时卡片右边写「¥28 / 加满约」（2.4，画稿 R21Records）。轻点打开车况详情（每种状态都一样）；下拉刷新时重新读取
  */
 export function CurrentSection({ view, last, onOpen }: { view: StatusView; last: FuelRecord | null; onOpen: () => void }) {
   const c = currentTank(view.snapshot ? view.snapshot.status : null, view.tank, last, view)
   const t = TONES[c.tone]
-  const summary = infoSummary(view.info)
   return <Section header={<HStack><Text>当前</Text><Spacer />{c.when ? <Text>{c.when}</Text> : null}</HStack>}>
     <Button action={onOpen} listRowBackground={<Rectangle fill={t.bg} />}>
       <HStack spacing={14} foregroundStyle="label">
@@ -88,7 +79,6 @@ export function CurrentSection({ view, last, onOpen }: { view: StatusView; last:
         <VStack alignment="leading" spacing={3}>
           <Text font="headline" foregroundStyle={t.text}>{c.main}</Text>
           {c.detail ? <Text font="caption" foregroundStyle="secondaryLabel">{c.detail}</Text> : null}
-          {summary ? <ToneLine icon={summary.card.icon} text={summary.card.summary!} tone={summary.card.tone} size="caption" /> : null}
         </VStack>
         <Spacer />
         {view.fill && view.fill.amount != null
@@ -102,15 +92,10 @@ export function CurrentSection({ view, last, onOpen }: { view: StatusView; last:
   </Section>
 }
 
-/**
- * 车况详情：大圆环、续航、车机平均油耗、里程表、车况时间；「加满」一组（2.4，画稿 R22Region）；右上角重新读取；
- * 「加满」下面是插件的信息卡片（2.6，画稿 R27Sheet），查着时跟着更新，「重新查」是 refreshInfo
- */
-export function StatusSheet({ get, refresh, refreshInfo }: { get: () => StatusView; refresh: () => Promise<string | null>; refreshInfo: () => void }) {
+/** 车况详情：大圆环、续航、车机平均油耗、里程表、车况时间；「加满」一组（2.4，画稿 R22Region）；右上角重新读取 */
+export function StatusSheet({ get, refresh }: { get: () => StatusView; refresh: () => Promise<string | null> }) {
   const dismiss = Navigation.useDismiss()
   const [view, setView] = useState(get)
-  // 卡片一批一批地到：只换卡片，车况读取的状态留着
-  useEffect(() => watchInfo(() => setView(v => ({ ...v, info: get().info }))), [])
   const l = look(view)
   async function reload() {
     setView({ ...view, busy: true, error: null })
@@ -153,7 +138,6 @@ export function StatusSheet({ get, refresh, refreshInfo }: { get: () => StatusVi
         {view.error ? <Text font="footnote" foregroundStyle="systemRed">{`读取失败：${view.error}`}</Text> : null}
       </Section>
       {view.fill ? <FillSection fill={view.fill} /> : null}
-      <InfoSections views={view.info} onRefresh={refreshInfo} />
     </List>
   </NavigationStack>
 }

@@ -1,10 +1,10 @@
 // 插件的信息卡片（docs/specs/2026-11-04-presets-and-cards.md 第 7 节）：契约的解析（7.1 节）、什么时候查（7.2 节，卡-*）、
-// 「当前」那一行（D21）、小组件的两格（第 2 节，D18、D26、D28）。油记只认卡片的字段，测试里的卡片都是编的。
+// 记录页「当前」下面的一组（D4、D32）、小组件的两格（第 2 节，D18、D26、D28）。油记只认卡片的字段，测试里的卡片都是编的。
 import { test } from "node:test"
 import assert from "node:assert/strict"
 import { parseDescribe, parseInfo, pluginRef, refreshedRef } from "../common/plugin"
 import {
-  cardsOnError, cardTitles, EMPTY_INFO_CACHE, forgetInfo, InfoEntry, InfoParams, InfoPluginView, infoSummary, infoTop, infoViews, liveCards, needsInfoRefresh, widgetCards,
+  cardsOnError, cardTitles, EMPTY_INFO_CACHE, forgetInfo, InfoEntry, infoGroups, InfoParams, InfoPluginView, infoViews, liveCards, needsInfoRefresh, viewsOfGroup, widgetCards,
 } from "../common/info_cards"
 import { cardChoices, cardLine, cardRefOf, cardSlotView, normalizePresets, parseCardRef } from "../common/widget_layout"
 import { EMPTY_WIDGET, WidgetSnapshot } from "../common/widget_data"
@@ -119,24 +119,39 @@ test("页面上的卡片（7.3 节）：按添加插件的顺序；查着时带�
   assert.deepEqual(infoViews(EMPTY_INFO_CACHE, [EXAMPLE], new Map(), NOW).map(v => [v.title, v.cards.length]), [["示例卡片", 0]])
 })
 
-test("D21、卡-6：「当前」那一行按添加插件的顺序取第一张有摘要的卡片；没有摘要时不多这一行", () => {
-  const a = view({ plugin: { id: "a", name: "甲插件" }, cards: [card({ summary: null })] })
-  const b = view({ plugin: { id: "b", name: "乙插件" }, cards: [card({ id: "x", summary: "乙的摘要" })] })
-  assert.equal(infoSummary([a, b])?.card.summary, "乙的摘要")
-  assert.equal(infoSummary([a, b])?.plugin.name, "乙插件")
-  assert.equal(infoSummary([a]), null)
-  assert.equal(infoSummary([]), null)
+test("D4：记录页「当前」下面每张卡片一组，按添加插件的顺序；有摘要写摘要和条数，没有摘要时写「共 N 条」", () => {
+  const a = view({ plugin: { id: "a", name: "甲插件" }, cards: [card({ summary: null }), card({ id: "x", title: "第二张" })] })
+  const b = view({ plugin: { id: "b", name: "乙插件" }, cards: [card({ summary: "乙的摘要" })] })
+  assert.deepEqual(infoGroups([a, b]).map(g => [g.key, g.title, g.text, g.tone, g.count]), [
+    ["a/sample", "示例卡片", "共 2 条", null, null],
+    ["a/x", "第二张", "甲 1.0 km · −0.3", "good", 2],
+    ["b/sample", "示例卡片", "乙的摘要", "good", 2],
+  ])
+  assert.deepEqual(infoGroups([view()])[0], {
+    key: "example/sample", plugin_id: "example", card_id: "sample", title: "示例卡片", icon: "percent", text: "甲 1.0 km · −0.3", tone: "good", count: 2,
+  })
+  assert.deepEqual(infoGroups([]), [])
 })
 
-test("D14：没有车况的车，记录页最上面写摘要和条数；没有摘要时写「共 N 条」或 empty；还没有卡片时写进度", () => {
-  assert.deepEqual(infoTop([view()]), { title: "示例卡片", icon: "percent", text: "甲 1.0 km · −0.3", tone: "good", count: 2 })
-  assert.deepEqual(infoTop([view({ cards: [card({ summary: null })] })]), { title: "示例卡片", icon: "percent", text: "共 2 条", tone: null, count: null })
-  assert.deepEqual(infoTop([view({ cards: [card({ summary: null, rows: [] })] })])?.text, "今天都没有")
-  // 插件还在查、卡片还没有内容：写进度
-  assert.equal(infoTop([view({ cards: [card({ summary: null, rows: [], empty: null })], busy: true, progress: "正在读 1/2" })])?.text, "正在读 1/2…")
-  assert.deepEqual(infoTop([view({ cards: [], busy: true })]), { title: "示例卡片", icon: null, text: "正在读取…", tone: null, count: null })
-  assert.equal(infoTop([view({ cards: [] })]), null)
-  assert.equal(infoTop([]), null)
+test("卡-6、D32：一行都没有时这一组照样显示，写 empty；查着、卡片还没有内容时写进度", () => {
+  assert.deepEqual(infoGroups([view({ cards: [card({ summary: null, rows: [] })] })]).map(g => [g.text, g.icon, g.tone, g.count]), [["今天都没有", "percent", null, null]])
+  assert.equal(infoGroups([view({ cards: [card({ summary: null, rows: [], empty: null })], busy: true, progress: "正在读 1/2" })])[0].text, "正在读 1/2…")
+})
+
+test("D30：插件还没有卡片时一组，组名按声明，写进度、出错的原因或「还没读到」", () => {
+  const g = (d: Partial<InfoPluginView>) => infoGroups([view({ cards: [], ...d })]).map(x => [x.key, x.card_id, x.title, x.icon, x.text, x.count])
+  assert.deepEqual(g({ busy: true }), [["example", null, "示例卡片", null, "正在读取…", null]])
+  assert.deepEqual(g({ busy: true, progress: "正在读 1/2" })[0][4], "正在读 1/2…")
+  assert.deepEqual(g({ error: "插件没有回应" })[0][4], "没有查完：插件没有回应")
+  assert.deepEqual(g({})[0][4], "还没读到")
+})
+
+test("轻点一组弹出的一页：只有这个插件；是一张卡片时只有这一张，插件还没有卡片时照原样", () => {
+  const a = view({ plugin: { id: "a", name: "甲插件" }, cards: [card(), card({ id: "x" })] })
+  const b = view({ plugin: { id: "b", name: "乙插件" }, cards: [] })
+  assert.deepEqual(viewsOfGroup([a, b], { plugin_id: "a", card_id: "x" }).map(v => [v.plugin.id, v.cards.map(c => c.id)]), [["a", ["x"]]])
+  assert.deepEqual(viewsOfGroup([a, b], { plugin_id: "b", card_id: null }), [b])
+  assert.deepEqual(viewsOfGroup([a], { plugin_id: "b", card_id: null }), [])
 })
 
 test("卡片写成一行（7.3 节）：有摘要写摘要和语气；没有时写「共 N 条」或 empty", () => {
