@@ -156,12 +156,12 @@ function TankBar({ ratio, low, width, height }: { ratio: number; low: boolean; w
   </ZStack>
 }
 
-/** 「这一箱：剩余 91%」和油量条；不知道油箱容量时只写升数 */
+/** 「这一箱：剩余 91%」和油量条；不知道油箱容量时只写升数。右边中号写「已行驶 72 km」，大号写「加满后已行驶 72 km」（加满金额设计 F18） */
 function TankCell({ s, st, barWidth, compact }: { s: WidgetSnapshot; st: WidgetStatus; barWidth: number; compact: boolean }) {
   const ratio = fuelRatio(st.fuel_l, st.tank_l)
   const driven = drivenSinceFill(s)
   const after = s.last_fuel_full ? "加满后" : "加油后"
-  const right = driven == null ? "" : compact ? `${after} ${driven} km` : `${after}已行驶 ${driven} km`
+  const right = driven == null ? "" : compact ? `已行驶 ${driven} km` : `${after}已行驶 ${driven} km`
   return <VStack
     alignment="leading"
     spacing={compact ? 6 : 8}
