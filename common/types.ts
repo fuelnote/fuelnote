@@ -338,7 +338,9 @@ export type InfoCardDecl = { id: string; title: string }
 /** 信息卡片的语气：good 绿色、warn 橙色，不给是普通（小组件方案和信息卡片设计 D27） */
 export type InfoTone = "good" | "warn"
 /** 卡片的一行：左边 label、下面 detail，右边 value */
-export type InfoRow = { label: string; value: string; detail: string | null; tone: InfoTone | null }
+/** 一行指向的地点（设计 7.1 节，D33）：名称和坐标（WGS-84，和交易里的油站一样）；长按这一行可以导航到这里 */
+export type InfoPlace = { name: string; lng: number; lat: number }
+export type InfoRow = { label: string; value: string; detail: string | null; tone: InfoTone | null; place: InfoPlace | null }
 /** 一张信息卡片：文字、数量和有效期都由插件给，油记只按字段画（设计 7.1 节） */
 export type InfoCard = {
   id: string

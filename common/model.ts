@@ -18,6 +18,7 @@ export {
 export type { CardRef, CardSlot } from "./widget_data"
 export { infoGroups, progressText, viewsOfGroup } from "./info_cards"
 export type { InfoGroup, InfoPluginView } from "./info_cards"
+export { NAV_APPS, navigationURL } from "./navigation"
 export type { StatusSnapshot } from "./status_source"
 export { checkExpense, checkFuel, completeTriple, expenseDuplicateText, findExpenseDuplicate, keptNumber, numText, parseNum } from "./form"
 export type { Triple, TripleField } from "./form"

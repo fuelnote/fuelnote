@@ -1,10 +1,10 @@
 // 插件的信息卡片（docs/specs/2026-11-04-presets-and-cards.md 7.3 节，画稿第二十八轮 R28Place）：记录页「当前」下面每张卡片一组，
-// 没有「当前」时在最上面（D4、D14）；轻点弹出一页，列出这张卡片的每一行和「重新查」。
-// 油记只认卡片的字段：文字、语气、图标都由插件给，这里只管样子（D1、D27）。
+// 没有「当前」时在最上面（D4、D14）；轻点弹出一页，列出这张卡片的每一行和「重新查」；带地点的一行长按可以导航（D33，R29Nav）。
+// 油记只认卡片的字段：文字、语气、图标、地点都由插件给，这里只管样子（D1、D27）。
 import {
   Button, DynamicShapeStyle, EnvironmentValuesReader, HStack, Image, List, NavigationStack, ProgressView, Section, Spacer, Text, useEffect, useState, VStack,
 } from "scripting"
-import { InfoCard, InfoGroup, InfoPluginView, InfoTone, progressText, watchInfo } from "../common/model"
+import { InfoCard, InfoGroup, InfoPlace, InfoPluginView, InfoRow, InfoTone, NAV_APPS, navigationURL, progressText, watchInfo } from "../common/model"
 
 /** 语气的颜色（D27）：好是绿色，提醒是橙色；浅色用深一点的，白底上看得清 */
 export const TONE_COLORS: Record<InfoTone, DynamicShapeStyle> = {
@@ -20,9 +20,18 @@ function footerText(view: InfoPluginView, note: string | null): string {
   return [note ? sentence(note) : "", view.error ? sentence(`没有查完：${view.error}`) : "", `来自${view.plugin.name}。`].join("")
 }
 
-/** 一行：左边 label、下面 detail，右边 value；语气上色 */
-function InfoRowView({ label, value, detail, tone }: { label: string; value: string; detail: string | null; tone: InfoTone | null }) {
-  return <HStack spacing={10}>
+/** 长按带地点的一行（D33）：导航到这里，三个导航软件一直显示；没装的打不开，不提示 */
+function navMenu(place: InfoPlace) {
+  return {
+    menuItems: <Section title="导航到这里">
+      {NAV_APPS.map(a => <Button key={a.app} title={a.title} action={() => { void Safari.openURL(navigationURL(a.app, place)) }} />)}
+    </Section>,
+  }
+}
+
+/** 一行：左边 label、下面 detail，右边 value；语气上色；有地点时长按导航 */
+function InfoRowView({ label, value, detail, tone, place }: InfoRow) {
+  return <HStack spacing={10} {...(place ? { contextMenu: navMenu(place) } : {})}>
     <VStack alignment="leading" spacing={2}>
       <Text>{label}</Text>
       {detail ? <Text font="footnote" foregroundStyle="secondaryLabel" lineLimit={1}>{detail}</Text> : null}
@@ -50,7 +59,7 @@ function CardSection({ view, card, last, header, onRefresh }: { view: InfoPlugin
     footer={<Text>{footerText(view, card.note)}</Text>}
   >
     {card.rows.length
-      ? card.rows.map((r, i) => <InfoRowView key={`${i}`} label={r.label} value={r.value} detail={r.detail} tone={r.tone} />)
+      ? card.rows.map((r, i) => <InfoRowView key={`${i}`} label={r.label} value={r.value} detail={r.detail} tone={r.tone} place={r.place} />)
       : card.empty
         ? <Text foregroundStyle="secondaryLabel">{card.empty}</Text>
         // 还没查完、还没有一行：最后一组下面一行本来就写进度

@@ -1,7 +1,7 @@
 // 数据源插件的契约（插件化设计第 4 节）：版本、标记文件、各动作的超时；返回值的校验和整理；添加前的检查；给用户看的错误和状态。
 // 纯逻辑：调用插件在 platform/plugin_bridge.ts，排队、超时和缓存在 common/plugin_source.ts。
 import { PerkHint, Place, RemoteVehicle, ServiceExpense, ServiceVisit, Trip, VehicleStatus } from "../providers/types"
-import { FuelPrice, FuelPrices, GRADES, InfoBatch, InfoCard, InfoCardDecl, InfoRow, InfoTone, PluginCapability, PluginRef, Settlement } from "./types"
+import { FuelPrice, FuelPrices, GRADES, InfoBatch, InfoCard, InfoCardDecl, InfoPlace, InfoRow, InfoTone, PluginCapability, PluginRef, Settlement } from "./types"
 
 export const PLUGIN_CONTRACT = 1
 /** 插件文件夹里的标记（D8）：只把带它的脚本列为可添加的插件，不运行其他脚本 */
@@ -271,11 +271,20 @@ export function parseFuelPrices(raw: unknown): PluginResult<FuelPrices> {
 
 const tone = (v: unknown): InfoTone | null => (v === "good" || v === "warn" ? v : null)
 
+/** 一行的地点（D33）：要有名称和经纬度，经纬度在范围内；不对时当没有，这一行照样要 */
+function infoPlace(raw: unknown): InfoPlace | null {
+  if (!isObject(raw)) return null
+  const name = text(raw.name)
+  const lng = num(raw.lng)
+  const lat = num(raw.lat)
+  return name && lng != null && lat != null && Math.abs(lng) <= 180 && Math.abs(lat) <= 90 ? { name, lng, lat } : null
+}
+
 function infoRow(raw: unknown): InfoRow | null {
   if (!isObject(raw)) return null
   const label = text(raw.label)
   const value = text(raw.value)
-  return label && value ? { label, value, detail: text(raw.detail), tone: tone(raw.tone) } : null
+  return label && value ? { label, value, detail: text(raw.detail), tone: tone(raw.tone), place: infoPlace(raw.place) } : null
 }
 
 /** 一张卡片：缺 id、标题或有效期时不要；行不对时只丢那一行 */

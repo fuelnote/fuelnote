@@ -123,7 +123,8 @@ export function viewsOfGroup(views: InfoPluginView[], g: { plugin_id: string; ca
 export function widgetCards(cache: InfoCache, plugins: PluginRef[], now: number): WidgetCard[] {
   return plugins.flatMap(p => liveCards(cache.plugins[p.id], now).map(c => ({
     plugin_id: p.id, plugin_name: p.name, id: c.id, title: c.title, icon: c.icon, tone: c.tone,
-    rows: c.rows.slice(0, 3), row_count: c.rows.length, empty: c.empty, summary: c.summary, until: c.until,
+    // 小组件不导航：地点不写进 widget.json
+    rows: c.rows.slice(0, 3).map(r => ({ label: r.label, value: r.value, detail: r.detail, tone: r.tone })), row_count: c.rows.length, empty: c.empty, summary: c.summary, until: c.until,
   })))
 }
 

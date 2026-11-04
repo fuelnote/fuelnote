@@ -60,7 +60,7 @@ test("info 的返回（7.1 节）：卡片缺 id、标题或有效期时丢掉�
   assert.equal(r.value.next, "1")
   assert.equal(r.value.progress, "正在读 1/2")
   assert.deepEqual(r.value.cards.map(c => c.id), ["sample", "plain"])
-  assert.deepEqual(r.value.cards[0].rows, [{ label: "甲", value: "1", detail: "说明", tone: "good" }, { label: "乙", value: "2", detail: null, tone: null }])
+  assert.deepEqual(r.value.cards[0].rows, [{ label: "甲", value: "1", detail: "说明", tone: "good", place: null }, { label: "乙", value: "2", detail: null, tone: null, place: null }])
   assert.deepEqual({ icon: r.value.cards[1].icon, rows: r.value.cards[1].rows, summary: r.value.cards[1].summary }, { icon: null, rows: [], summary: null })
   assert.equal(parseInfo({ ok: true, cards: "坏的" }).ok, false)
   const last = parseInfo({ ok: true, cards: [] })
@@ -68,6 +68,20 @@ test("info 的返回（7.1 节）：卡片缺 id、标题或有效期时丢掉�
   // 插件的错误照常传上来
   const err = parseInfo({ ok: false, error: "not_connected", message: "还没连接易捷" })
   assert.deepEqual(!err.ok && err.error, { kind: "not_connected", message: "还没连接易捷" })
+})
+
+test("D33：一行可以带地点（名称、经纬度）；不对时当没有，这一行照样要", () => {
+  const rowsOf = (rows: unknown[]) => {
+    const r = parseInfo({ ok: true, cards: [{ id: "a", title: "甲", until: MIDNIGHT, rows }] })
+    return r.ok ? r.value.cards[0].rows.map(x => x.place) : null
+  }
+  assert.deepEqual(rowsOf([
+    { label: "甲", value: "1", place: { name: " 甲加油站 ", lng: 121.4, lat: 31.25 } },
+    { label: "乙", value: "2", place: { name: "乙", lng: 200, lat: 31 } },
+    { label: "丙", value: "3", place: { lng: 121.4, lat: 31.25 } },
+    { label: "丁", value: "4", place: { name: "丁", lng: "121.4", lat: 31.25 } },
+    { label: "戊", value: "5", place: "坏的" },
+  ]), [{ name: "甲加油站", lng: 121.4, lat: 31.25 }, null, null, null, null])
 })
 
 test("卡-1～卡-5：没有卡片、参数变了、上次没查完、过了有效期时查；都没变时不查", () => {
@@ -172,6 +186,9 @@ test("小组件的摘要：只写没过有效期的卡片，每张最多 3 行�
   const cache = { ...EMPTY_INFO_CACHE, plugins: { example: entry({ cards: [many, card({ id: "old", until: NOW - 1 })] }), gone: entry() } }
   const w = widgetCards(cache, plugins, NOW)
   assert.deepEqual(w.map(c => [c.plugin_id, c.plugin_name, c.id, c.rows.length, c.row_count]), [["example", "示例", "sample", 3, 4]])
+  // 小组件不导航：行里的地点不写进 widget.json
+  const placed = { ...EMPTY_INFO_CACHE, plugins: { example: entry({ cards: [card({ rows: [{ label: "甲", value: "1", detail: null, tone: null, place: { name: "甲", lng: 121.4, lat: 31.25 } }] })] }) } }
+  assert.deepEqual(widgetCards(placed, plugins, NOW)[0].rows, [{ label: "甲", value: "1", detail: null, tone: null }])
 })
 
 test("小组件的两格（D18、D26、D28）：按 describe 的声明列菜单；取不到时写原因", () => {
