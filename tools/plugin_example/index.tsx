@@ -169,7 +169,7 @@ async function info(q: Record<string, any>): Promise<Record<string, unknown>> {
     { label: "示例加油站（徐家汇） · 4.5 km", value: "明天调价", detail: "示例的提醒", tone: "warn" },
   ]
   const card = {
-    ...CARD, icon: "percent", tone: "good", rows: last ? rows : rows.slice(0, 1),
+    ...CARD, icon: "tag.fill", tone: "good", rows: last ? rows : rows.slice(0, 1),
     ...(last ? { empty: "今天没有示例内容" } : {}),
     note: "示例插件编的内容，不是哪里的真实信息。", summary: `人民广场 1.2 km · ${grade}# −0.3`, until: endOfToday(),
   }
