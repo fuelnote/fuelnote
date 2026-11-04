@@ -6,6 +6,7 @@
 - 数据都存在油记里。可以从小熊油耗导入，需要时再手动导出到小熊（2.0.0-beta.6 起）。
 - 可以从数据源插件读取行程、车况和养修（例如沃尔沃插件），填入里程、时间、油站和费用。
 - 小组件、锁屏和记录页写出加满这一箱要多少钱：按所在地区的挂牌价和车辆的默认标号算，油价由数据源插件提供（2.4 起）。
+- 小组件的格子里放什么可以选，每个小组件用「参数」选一套方案（2.5 起）。
 - 记下每年的保单明细：选保单 PDF 自动填好，看历年保费，到期前提醒续保，出险时一键报案。
 
 设计与实施：
@@ -39,7 +40,7 @@ https://github.com/fuelnote/fuelnote/releases/latest/download/FuelNote.zip
 
 - `index.tsx`：主界面，分油耗、费用、保险、权益、设置五个标签。油耗和费用的统计在各自右上角的统计图标里，互不混在一起。
 - `intent.tsx`：快捷指令和分享面板的入口。快捷指令「截屏」→ Scripting「在 App 里运行意图：油记」（截屏放在「图像」一栏）绑在轻点背面上，在账单详情页轻点两下即可打开已识别、已配对加油停车的记加油表单（设置 › 截屏记加油 有步骤）。
-- `widget.tsx`：桌面小组件（小号、中号）和锁屏小组件（矩形、圆形、单行），点击直接打开「记加油」；中号左侧打开油记首页。油记已经打开时，不会再开一个。大字是最近油耗和与平均的对比；关联了沃尔沃的车另外显示剩余油量（小号右上角、中号右侧、锁屏圆环），车况超过 1 小时时小组件自己读一次。小号、中号下面有「记加油」按钮。
+- `widget.tsx`：桌面小组件（小号、中号）和锁屏小组件（矩形、圆形、单行），点击直接打开「记加油」；中号左侧打开油记首页。油记已经打开时，不会再开一个。大字是最近油耗和与平均的对比；关联了沃尔沃的车另外显示剩余油量（小号右上角、中号右侧、锁屏圆环），车况超过 1 小时时小组件自己读一次。小号、中号下面有「记加油」按钮。视图在 `widget_view.tsx`；2.5 起大数字、四格和锁屏圆形的中间按「设置 › 小组件 › 方案」放内容，「参数」填方案的名称。
 
 ## 使用
 
@@ -197,7 +198,7 @@ LIVE=1 XXYH_ROOT=E:/GitHub/xxyh npm test         # 另外在线只读：小熊�
 
 1. 核对标签在 `main` 上，标签版本与 `script.json` 一致，远程资源地址指向 `releases/latest/download/FuelNote.zip`、每天检查一次；
 2. 跑单元测试（合成数据）；
-3. 只把运行需要的文件打成 `FuelNote.zip`：`script.json`、`index.tsx`、`widget.tsx`、`intent.tsx`、`README.md`、`CHANGELOG.md` 和 `app/`、`common/`、`pages/`、`platform/`、`providers/`、`readers/`、`stations/`、`sync/`。`docs/`、`tests/`、`tools/`、`node_modules/` 等开发文件不打包，混进去时发布失败；
+3. 只把运行需要的文件打成 `FuelNote.zip`：`script.json`、`index.tsx`、`widget.tsx`、`widget_view.tsx`、`intent.tsx`、`README.md`、`CHANGELOG.md` 和 `app/`、`common/`、`pages/`、`platform/`、`providers/`、`readers/`、`stations/`、`sync/`。`docs/`、`tests/`、`tools/`、`node_modules/` 等开发文件不打包，混进去时发布失败；
 4. 用 `CHANGELOG.md` 里这个版本的一节作为发布说明，上传 `FuelNote.zip`。
 
 步骤：

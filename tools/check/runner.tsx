@@ -1,9 +1,9 @@
 // 手机上的自动检查（开发用，不随油记发布）。电脑端是 tools/device_check.ts，说明见 tools/check/README.md。
 // 启动时把数据文件夹换成 FuelNoteCheck：账本、保单原件、小组件文件都在那里，不碰油记的真实数据；
 // 不读写钥匙串、不连小熊，只向电脑上的采样服务（tools/ocr_bridge.mjs）取保单文件；数据源插件只调示例插件。
-// 在 3200 端口等电脑的请求：/ping、/run/recognize、/run/ledger、/run/split、/run/benefits、/run/export、/run/service、/run/plugin、/run/map、/run/bare、/shot。识别扫描件要用这一页上的 WebView，所以这一页要留在屏幕上。
+// 在 3200 端口等电脑的请求：/ping、/run/recognize、/run/ledger、/run/split、/run/benefits、/run/export、/run/service、/run/plugin、/run/map、/run/fill、/run/presets、/run/bare、/shot。识别扫描件要用这一页上的 WebView，所以这一页要留在屏幕上。
 import {
-  Button, fetch, List, Navigation, NavigationStack, ScreenshotMaker, ScrollView, Section, Text, TextField, VirtualNode, WebView, ZStack, useEffect, useRef,
+  Button, fetch, List, Navigation, NavigationStack, ScreenshotMaker, ScrollView, Section, Text, TextField, VirtualNode, VStack, WebView, ZStack, useEffect, useRef,
   useState,
 } from "scripting"
 import {
@@ -74,6 +74,11 @@ import {
   stopWarning,
 } from "../../common/model"
 import { PluginDetail } from "../../pages/plugin_detail"
+import { WidgetPresetPage, WidgetPresetsPage } from "../../pages/widget_presets"
+import { WidgetView } from "../../widget_view"
+import { addPreset, buildWidgetSnapshot, presetList, presetNameProblem, removePreset, renamePreset, setPresetSlot, WidgetPreset, WidgetSlot, WidgetSnapshot } from "../../common/model"
+import { presetFor } from "../../common/widget_layout"
+import { makeAppData } from "../../common/ledger"
 import { SettingsPage } from "../../pages/settings"
 import { nearbyStores, searchStores, storeFromPoi, storeOfPlace, warmSearchCenter } from "../../common/model"
 import { LngLat, metres } from "../../common/geo"
@@ -85,7 +90,7 @@ const SANDBOX = "FuelNoteCheck"
 setDataRoot(SANDBOX)
 
 /** 改了这个值，手机重新运行后报到的 STAMP 跟着变（确认跑的是新代码） */
-export const STAMP = "61"
+export const STAMP = "63"
 const PORT = 3200
 const DAY = 86400e3
 const BJ_OFFSET = 8 * 3600e3
@@ -1360,6 +1365,127 @@ function fillScreen(screen: string, data: AppData): VirtualNode | null {
   return null
 }
 
+// ---------- 小组件方案（2.5，docs/specs/2026-11-04-presets-and-cards.md） ----------
+
+/** 「花费」（R26Presets）：大数字本月油费，四格今年油费、加满约、平均油耗、上次加油 */
+const SPEND: WidgetPreset["slots"] = { hero: "month", top_left: "year", top_right: "fill", bottom_left: "average", bottom_right: "last_fill" }
+
+/** 方案的规则在检查用的账本上走一遍：名称检查、添加、选格子、改名、删除；摘要里的方案跟着变（设计第 5、6 节） */
+async function runPresets(): Promise<{ steps: Step[] }> {
+  const steps: Step[] = []
+  let data = updateSettings(loadData().data, { widget_presets: [] })
+  const list = () => data.ledger.settings.widget_presets ?? []
+  add(steps, "名称检查：不能空、不能叫「默认」", presetNameProblem(list(), " ") === "名称不能空" && presetNameProblem(list(), "默认") === "「默认」是默认方案的名称")
+  data = updateSettings(data, { widget_presets: addPreset(list(), "花费") })
+  add(steps, "名称检查：不能重复", presetNameProblem(list(), "花费") === "已经有叫「花费」的方案")
+  let next = list()
+  for (const [slot, c] of Object.entries(SPEND)) next = setPresetSlot(next, "花费", slot as WidgetSlot, c ?? null)
+  next = setPresetSlot(addPreset(next, "油量"), "油量", "hero", "fuel")
+  data = updateSettings(data, { widget_presets: renamePreset(next, "油量", "车况") })
+  add(steps, "添加「花费」「油量」，选格子，把「油量」改名「车况」", list().map(p => p.name).join("、") === "花费、车况" && list()[0].slots.bottom_right === "last_fill",
+    list().map(p => `${p.name} ${JSON.stringify(p.slots)}`).join("；"))
+  data = updateSettings(data, { widget_presets: removePreset(addPreset(list(), "临时"), "临时") })
+  add(steps, "添加再删除「临时」", list().length === 2)
+  saveWidgetSnapshot(data)
+  const widget = JSON.parse(FileManager.readAsStringSync(`${dataDirectory()}/widget.json`)) as WidgetSnapshot
+  const names = (widget.presets ?? []).map(p => p.name).join("、")
+  add(steps, "小组件的摘要写着方案，按参数选得出来（方-2、方-4、方-6）",
+    names === "花费、车况" && presetFor(widget.presets, "花费").slots.hero === "month" && presetFor(widget.presets, "话费").name === "默认"
+      && presetFor(widget.presets, JSON.stringify("车况")).slots.hero === "fuel",
+    names)
+  add(steps, "设置页的列表：默认在最前", presetList(list()).map(p => p.name).join("、") === "默认、花费、车况")
+  add(steps, "摘要写着上月油费（本月油费做大数字时下面写）", typeof widget.prev_month_cost === "number", String(widget.prev_month_cost))
+  return { steps }
+}
+
+/** 截图用的摘要：油耗、油费用导入的真车（split），车况和油价用示例车（fill）；state 是都有、没有油价、没有车况 */
+function gallerySnapshot(data: AppData, state: "all" | "noprice" | "nostatus"): WidgetSnapshot | null {
+  const withCar = (id: string) => makeAppData({ ...data.ledger, settings: { ...data.ledger.settings, current_vehicle_id: id } }, data.xxyh)
+  const real = data.ledger.vehicles.find(v => v.id !== FILL_CAR && fuelRecords(data, v).length > 1)
+  const fill = data.ledger.vehicles.find(v => v.id === FILL_CAR)
+  if (!real || !fill) return null
+  const base = buildWidgetSnapshot(withCar(real.id))
+  const st = buildWidgetSnapshot(withCar(FILL_CAR))
+  return {
+    ...base,
+    status_source: state !== "nostatus" && st.status_source,
+    status: state === "nostatus" ? null : st.status,
+    fill_price: state === "all" ? st.fill_price ?? null : null,
+  }
+}
+
+const WIDGET_SIZES: Record<string, { width: number; height: number }> = {
+  systemSmall: { width: 170, height: 170 }, systemMedium: { width: 364, height: 170 }, systemLarge: { width: 364, height: 382 }, accessoryCircular: { width: 76, height: 76 },
+}
+
+/** 一个小组件：上面一行写是哪种情况，下面按尺寸画（底色是系统小组件的白、深灰；锁屏圆形放在深色的圆上，按深色画，像锁屏上的白字） */
+function WidgetShot({ title, s, family, slots }: { title: string; s: WidgetSnapshot; family: string; slots: WidgetPreset["slots"] }) {
+  const size = WIDGET_SIZES[family]
+  const circle = family === "accessoryCircular"
+  return <VStack alignment="leading" spacing={6}>
+    <Text font="caption" foregroundStyle="secondaryLabel">{title}</Text>
+    <ZStack
+      frame={{ width: size.width, height: size.height }}
+      background={circle
+        ? { style: { light: "#3A4A5C", dark: "#1E2A44" }, shape: "circle" }
+        : { style: { light: "#FFFFFF", dark: "#1C1C1E" }, shape: { type: "rect", cornerRadius: 22, style: "continuous" } }}
+      {...(circle ? { environments: { colorScheme: "dark" as const } } : {})}
+    >
+      <WidgetView s={s} family={family} size={size} preset={{ name: title, slots }} app />
+    </ZStack>
+  </VStack>
+}
+
+/** 小组件方案的截图（/run/fill、/run/presets 之后）：设置页三张；小组件四张（默认、例子、所有内容、写「—」） */
+function presetsScreen(screen: string, data: AppData): VirtualNode | null {
+  const app = { getData: () => data, setData: noop, addVehicle: async () => undefined }
+  if (screen === "presets-list") return <NavigationStack><WidgetPresetsPage data={data} app={app} /></NavigationStack>
+  if (screen === "presets-spend") return <NavigationStack><WidgetPresetPage data={data} app={app} initialName="花费" /></NavigationStack>
+  if (screen === "presets-default") return <NavigationStack><WidgetPresetPage data={data} app={app} initialName="默认" /></NavigationStack>
+  const all = gallerySnapshot(data, "all")
+  const noPrice = gallerySnapshot(data, "noprice")
+  const noStatus = gallerySnapshot(data, "nostatus")
+  if (!all || !noPrice || !noStatus) return null
+  const page = (items: VirtualNode[]) => <ScrollView background="systemBackground"><VStack alignment="leading" spacing={14} padding={16}>{items}</VStack></ScrollView>
+  if (screen === "widgets-default") {
+    return page([
+      <WidgetShot key="s" title="默认 · 小号（位-1）" s={all} family="systemSmall" slots={{}} />,
+      <WidgetShot key="m" title="默认 · 中号（位-1）" s={all} family="systemMedium" slots={{}} />,
+      <WidgetShot key="l" title="默认 · 大号（位-1）" s={all} family="systemLarge" slots={{}} />,
+      <WidgetShot key="c" title="默认 · 锁屏圆形" s={all} family="accessoryCircular" slots={{}} />,
+    ])
+  }
+  if (screen === "widgets-spend") {
+    return page([
+      <WidgetShot key="m" title="花费 · 中号" s={all} family="systemMedium" slots={SPEND} />,
+      <WidgetShot key="l" title="花费 · 大号" s={all} family="systemLarge" slots={SPEND} />,
+      <WidgetShot key="s" title="车况 · 小号（位-10）" s={all} family="systemSmall" slots={{ hero: "fuel" }} />,
+    ])
+  }
+  if (screen === "widgets-contents") {
+    return page([
+      <WidgetShot key="a" title="数字格：最近油耗、平均油耗、剩余油量、续航" s={all} family="systemMedium" slots={{ top_left: "latest", top_right: "average", bottom_left: "fuel", bottom_right: "range" }} />,
+      <WidgetShot key="b" title="数字格：加满约、本月油费、今年油费、上次加油" s={all} family="systemLarge" slots={{ top_left: "fill", top_right: "month", bottom_left: "year", bottom_right: "last_fill" }} />,
+      <WidgetShot key="f" title="大数字：剩余油量（左栏）" s={all} family="systemMedium" slots={{ hero: "fuel" }} />,
+      <WidgetShot key="p" title="大数字：加满约" s={all} family="systemSmall" slots={{ hero: "fill" }} />,
+      <WidgetShot key="o" title="大数字：本月油费" s={all} family="systemSmall" slots={{ hero: "month" }} />,
+      <WidgetShot key="c1" title="锁屏圆形：最近油耗" s={all} family="accessoryCircular" slots={{ circle: "latest" }} />,
+      <WidgetShot key="c2" title="锁屏圆形：续航" s={all} family="accessoryCircular" slots={{ circle: "range" }} />,
+    ])
+  }
+  if (screen === "widgets-missing") {
+    return page([
+      <WidgetShot key="a" title="默认 · 没有油价（位-2）" s={noPrice} family="systemMedium" slots={{}} />,
+      <WidgetShot key="b" title="大数字选加满约 · 没有油价（位-5）" s={noPrice} family="systemSmall" slots={{ hero: "fill" }} />,
+      <WidgetShot key="c" title="默认 · 没有车况（位-3）" s={noStatus} family="systemMedium" slots={{}} />,
+      <WidgetShot key="d" title="大数字选剩余油量 · 没有车况（位-6）" s={noStatus} family="systemSmall" slots={{ hero: "fuel" }} />,
+      <WidgetShot key="e" title="左上选剩余油量 · 没有车况（位-7）" s={noStatus} family="systemMedium" slots={{ top_left: "fuel" }} />,
+      <WidgetShot key="f" title="圆形选续航 · 没有车况（位-9）" s={noStatus} family="accessoryCircular" slots={{ circle: "range" }} />,
+    ])
+  }
+  return null
+}
+
 /** 地图搜索的截图（/run/map 之后）：设置页（没有「油站搜索」）、选择门店（附近、搜索结果）、门店详情（地图上选的、2.1 存着营业时间的） */
 function mapScreen(screen: string, data: AppData): VirtualNode | null {
   const stores = benefitStub(data).stores
@@ -1429,6 +1555,7 @@ function screenElement(screen: string): VirtualNode | null {
   if (screen.startsWith("plugin-")) return pluginScreen(screen, data)
   if (screen.startsWith("map-")) return mapScreen(screen, data)
   if (screen.startsWith("fill-")) return fillScreen(screen, data)
+  if (screen.startsWith("presets-") || screen.startsWith("widgets-")) return presetsScreen(screen, data)
   if (screen.startsWith("bare-")) return bareScreen(screen, data)
   // 2.0.0-beta.4：备份与恢复、恢复列表、看一眼再恢复（最新的一份恢复前副本）、备份密码；用记账留下的「恢复前」副本
   if (screen.startsWith("backup-")) {
@@ -1549,6 +1676,7 @@ export function CheckPage() {
     server.registerAsyncHandler("/run/plugin", guarded("数据源插件", async () => jsonResponse(await runPlugin())))
     server.registerAsyncHandler("/run/map", guarded("地图搜索", async () => jsonResponse(await runMap())))
     server.registerAsyncHandler("/run/fill", guarded("加满金额", async () => jsonResponse(await runFill())))
+    server.registerAsyncHandler("/run/presets", guarded("小组件方案", async () => jsonResponse(await runPresets())))
     server.registerAsyncHandler("/run/bare", guarded("什么都不接", async () => jsonResponse(await runBare())))
     server.registerAsyncHandler("/shot", guarded("截图", async req =>
       pngResponse(await takeShot(query(req, "screen"), query(req, "scheme") === "dark" ? "dark" : "light", Number(query(req, "height")) || 0))))

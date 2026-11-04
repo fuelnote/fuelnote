@@ -10,6 +10,7 @@ import { PluginAdd } from "./plugin_add"
 import { PluginDetail } from "./plugin_detail"
 import { RecognizeSettings } from "./recognize_settings"
 import { VehicleEdit } from "./vehicle_edit"
+import { presetCountText, WidgetPresetsPage } from "./widget_presets"
 import { xxyhRowDetail, XxyhSettings } from "./xxyh_settings"
 
 function Detail({ title, detail }: { title: string; detail: string }) {
@@ -111,6 +112,13 @@ export function SettingsPage({ data, app }: { data: AppData; app: AppActions }) 
           <Text>截屏记加油</Text>
         </NavigationLink>
         <Toggle title="默认加满" value={data.ledger.settings.default_full} onChanged={v => app.setData(updateSettings(app.getData(), { default_full: v }))} />
+      </Section>
+
+      {/* 小组件方案（小组件方案设计第 6 节，2.5） */}
+      <Section title="小组件">
+        <NavigationLink destination={<WidgetPresetsPage data={data} app={app} />}>
+          <Detail title="方案" detail={presetCountText(data)} />
+        </NavigationLink>
       </Section>
 
       <Section title="数据">

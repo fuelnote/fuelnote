@@ -1,5 +1,6 @@
 // 账本文件（ledger2.json）的纯逻辑：读进来时补齐字段、检查所有引用都找得到。读账本、恢复备份、测试共用（2.0 设计第 3 节）。
 import { DEFAULT_EXPENSE_CATEGORIES, defaultSettings, LedgerFile, Settlement, Settings } from "./types"
+import { normalizePresets } from "./widget_layout"
 
 /** 2.0 的账本：车辆和记录必须在（缺了不当作空的，免得恢复出一个空账本）；其余的列表读进来时补齐 */
 export function isLedgerV2(raw: unknown): boolean {
@@ -47,6 +48,8 @@ export function normalizeLedger(raw: Record<string, unknown>): LedgerFile {
   l.expense_categories = cats.length ? cats : DEFAULT_EXPENSE_CATEGORIES.map(c => ({ ...c }))
   const settings = { ...defaultSettings(), ...((l.settings as Partial<Settings>) || {}) } as Settings & Record<string, unknown>
   settings.plugins = arr(settings.plugins)
+  // 2.5 小组件方案：丢掉不认识的格子和内容（小组件方案设计第 5 节）；没存过方案时不补，账本照原样
+  if (settings.widget_presets !== undefined) settings.widget_presets = normalizePresets(settings.widget_presets)
   // 2.3 去掉了记录页的加油停车提示（插件化设计 D2），点过「×」的记录不再用
   delete settings.dismissed_stops
   l.settings = settings

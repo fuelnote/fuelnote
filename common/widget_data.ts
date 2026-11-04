@@ -21,6 +21,13 @@ export type WidgetFill = { ts: number; liters: number; grade: number | null; sta
 /** 小组件自己读车况要用的（设计文档 18.3 节）：缓存键、数据源、插件的脚本名（2.3.0-beta.3 起）、车辆 id、油箱容量 */
 export type StatusLink = { key: string; provider: string; script: string; vehicle_id: string; tank_l: number | null }
 
+/** 格子里能放的内容（小组件方案设计第 3 节，2.5）：最近油耗、平均油耗、剩余油量、续航、加满约、本月油费、今年油费、上次加油 */
+export type WidgetContent = "latest" | "average" | "fuel" | "range" | "fill" | "month" | "year" | "last_fill"
+/** 能选内容的格子（设计第 2 节，D7）：大数字是小号的主体和中号、大号的左栏；四格；锁屏圆形中间 */
+export type WidgetSlot = "hero" | "top_left" | "top_right" | "bottom_left" | "bottom_right" | "circle"
+/** 一套方案（设计第 5 节）：没写的格子是自动 */
+export type WidgetPreset = { name: string; slots: Partial<Record<WidgetSlot, WidgetContent>> }
+
 export type WidgetSnapshot = {
   schema_version: 1
   updated_at: number
@@ -46,12 +53,16 @@ export type WidgetSnapshot = {
   recent: WidgetFill[]
   /** 当前车辆默认标号在所在地区的挂牌价，算加满金额（2.4 起；之前的 widget.json 没有） */
   fill_price?: { grade: number; price: number } | null
+  /** 设置里的小组件方案（2.5 起）：小组件按「参数」选一套 */
+  presets?: WidgetPreset[]
+  /** 上个月（相对 month）的油费，只算加油：本月油费做大数字时下面写（2.5 起） */
+  prev_month_cost?: number
 }
 
 export const EMPTY_WIDGET: WidgetSnapshot = {
   schema_version: 1, updated_at: 0, vehicle: null, status_source: false, status: null, status_link: null, latest_consumption: null, avg_consumption: null,
   last_fuel_ts: null, last_odometer: null, last_fuel_odometer: null, last_fuel_full: false, month: "", month_cost: 0, year: "", year_cost: 0, recent: [],
-  fill_price: null,
+  fill_price: null, presets: [], prev_month_cost: 0,
 }
 
 export function widgetFilePath(): string {
@@ -89,6 +100,18 @@ export function monthCostNow(s: WidgetSnapshot, now = Date.now()): number {
 /** 今年油费只算今年的；跨年后摘要里的年份不是今年就显示 0 */
 export function yearCostNow(s: WidgetSnapshot, now = Date.now()): number {
   return s.year === String(new Date(now).getFullYear()) ? s.year_cost : 0
+}
+
+/**
+ * 上月油费：摘要是这个月写的，用它记的上月；是上个月写的，它的本月就是上月；更早的是 0
+ * （这中间没有加油：记加油时油记会重写摘要）
+ */
+export function lastMonthCostNow(s: WidgetSnapshot, now = Date.now()): number {
+  const d = new Date(now)
+  const key = (y: number, m: number) => `${y}-${String(m + 1).padStart(2, "0")}`
+  if (s.month === key(d.getFullYear(), d.getMonth())) return s.prev_month_cost ?? 0
+  const prev = d.getMonth() === 0 ? key(d.getFullYear() - 1, 11) : key(d.getFullYear(), d.getMonth() - 1)
+  return s.month === prev ? s.month_cost : 0
 }
 
 /** 油耗和平均比较的档位（大号「最近加油」的小圆点）：不高于平均、高出 10% 以内、高出更多 */

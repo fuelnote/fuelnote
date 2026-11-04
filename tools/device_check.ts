@@ -1,6 +1,6 @@
 // 手机上的自动检查（电脑端）。手机上开着「FuelNote Check」（tools/check），它向采样服务报到后，这里直接请求手机。说明见 tools/check/README.md。
 //
-//   XXYH_ROOT=E:/GitHub/xxyh npx tsx tools/device_check.ts [recognize] [ledger] [shots] [split] [benefits] [export] [service] [plugin] [map] [fill]   （不写时都做）
+//   XXYH_ROOT=E:/GitHub/xxyh npx tsx tools/device_check.ts [recognize] [ledger] [shots] [split] [benefits] [export] [service] [plugin] [map] [fill] [presets]   （不写时都做）
 //
 // 真实数据（期望值、小熊里的保险费用、小熊备份）只从 XXYH_ROOT 读，计划在这里生成后发给手机；结果和截图存到 XXYH_ROOT/out/check/，不进仓库。
 // split（1.6，设计文档第 21 节）：把最新的小熊备份发给手机，在检查用的文件夹里导入选中的那辆车，用同一套纯函数算出期望值来比较。
@@ -315,6 +315,21 @@ async function fillCheck(phone: string): Promise<number> {
   return bad
 }
 
+const SHOTS_PRESETS: Array<[string, number]> = [
+  ["presets-list", 0], ["presets-spend", 1300], ["presets-default", 1200],
+  ["widgets-default", 1100], ["widgets-spend", 1000], ["widgets-contents", 1650], ["widgets-missing", 1300],
+]
+
+/** 小组件方案（2.5）：名称检查、添加、选格子、改名、删除，摘要里的方案和上月油费；截图设置页和在 App 里画的小组件 */
+async function presetsCheck(phone: string): Promise<number> {
+  const r = await post<{ steps: Step[] }>(`${phone}/run/presets`, {})
+  writeFileSync(join(OUT, "presets.json"), JSON.stringify(r, null, 1))
+  for (const s of r.steps) console.log(`  ${s.ok ? "✓" : "✗"} ${s.name}${s.detail ? `（${s.detail}）` : ""}`)
+  const bad = r.steps.filter(s => !s.ok).length
+  console.log(`小组件方案：${r.steps.length} 项，${bad ? `${bad} 项不对` : "全部通过"}`)
+  return bad
+}
+
 async function shots(phone: string, screens: Array<[string, number]>): Promise<number> {
   mkdirSync(join(OUT, "shots"), { recursive: true })
   let failed = 0
@@ -382,6 +397,11 @@ async function main() {
   if (run("fill")) {
     bad += await fillCheck(phone)
     bad += await shots(phone, SHOTS_FILL)
+  }
+  // 要在 fill 之后（用它的示例车况和油价）；小组件的截图还要 split 导入的真车
+  if (run("presets")) {
+    bad += await presetsCheck(phone)
+    bad += await shots(phone, SHOTS_PRESETS)
   }
   process.exitCode = bad ? 1 : 0
 }

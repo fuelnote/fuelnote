@@ -9,7 +9,8 @@ import { sourceOf } from "./data_sources"
 import { widgetFillPrice } from "./fuel_price"
 import { hasStatusSource, statusSource, stopsKey, vehicleTank } from "./vehicle_data"
 
-export function saveWidgetSnapshot(data: AppData, now = Date.now()): void {
+/** 摘要的内容（FuelNote Check 用它在 App 里画小组件） */
+export function buildWidgetSnapshot(data: AppData, now = Date.now()): WidgetSnapshot {
   const v = currentVehicle(data)
   // 小组件属于油耗（设计文档 21.3 节）：只读加油记录，花费只算加油
   const fills = v ? fuelRecords(data, v) : []
@@ -22,7 +23,7 @@ export function saveWidgetSnapshot(data: AppData, now = Date.now()): void {
   const consumption = consumptionById(fills)
   const stationNames = new Map((v ? stationsFor(data, v) : []).map(s => [s.id, s.name]))
   const year = yearSummaries(fills).find(y => y.year === d.getFullYear())
-  const snap: WidgetSnapshot = {
+  return {
     schema_version: 1,
     updated_at: now,
     vehicle: v ? v.name : null,
@@ -42,6 +43,8 @@ export function saveWidgetSnapshot(data: AppData, now = Date.now()): void {
     last_fuel_full: fills.length ? fills[0].full : false,
     month: monthKey(now),
     month_cost: monthFuelCost(fills, now),
+    // 本月油费做大数字时下面写上月（小组件方案设计第 3 节）：这个月 1 日 0 点的前一刻属于上个月
+    prev_month_cost: monthFuelCost(fills, new Date(d.getFullYear(), d.getMonth(), 1).getTime() - 1),
     year: String(d.getFullYear()),
     year_cost: year ? year.cost : 0,
     recent: fills.slice(0, 3).map(r => ({
@@ -50,6 +53,12 @@ export function saveWidgetSnapshot(data: AppData, now = Date.now()): void {
     })),
     // 加满金额（加满金额设计第 4 节）：小组件按自己读到的车况重算，所以只写价格
     fill_price: v ? widgetFillPrice(data, v) : null,
+    // 小组件方案（小组件方案设计第 5 节）：小组件按「参数」选一套，不读账本
+    presets: data.ledger.settings.widget_presets ?? [],
   }
+}
+
+export function saveWidgetSnapshot(data: AppData, now = Date.now()): void {
+  const snap = buildWidgetSnapshot(data, now)
   try { saveWidgetFile(JSON.stringify(snap)) } catch { /* 小组件下次再更新 */ }
 }

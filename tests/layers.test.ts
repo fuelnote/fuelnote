@@ -7,7 +7,7 @@ import { dirname, join, relative, resolve } from "node:path"
 
 const ROOT = join(__dirname, "..")
 const DIRS = ["app", "common", "platform", "pages", "providers", "sync", "stations", "readers"]
-const ENTRIES = ["index.tsx", "widget.tsx", "intent.tsx"]
+const ENTRIES = ["index.tsx", "widget.tsx", "intent.tsx", "widget_view.tsx"]
 
 function walk(dir: string, out: string[]): string[] {
   for (const n of readdirSync(dir)) {

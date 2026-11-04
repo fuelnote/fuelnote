@@ -1,5 +1,5 @@
-// 小组件的导入链（设计文档 9.4 节）：widget.tsx 只从 common/widget_runtime 导入；整条链没有循环依赖（打包器出过问题的情形），
-// 也不加载账本、同步、识别这些大模块（小组件内存约 30MB）。
+// 小组件的导入链（设计文档 9.4 节）：widget.tsx 只从 widget_view 导入，widget_view.tsx 只从 common/widget_runtime 导入（2.5 起视图单独一个文件，
+// FuelNote Check 也能画）；整条链没有循环依赖（打包器出过问题的情形），也不加载账本、同步、识别这些大模块（小组件内存约 30MB）。
 import { test } from "node:test"
 import assert from "node:assert/strict"
 import { existsSync, readFileSync } from "node:fs"
@@ -21,9 +21,10 @@ function resolve(from: string, spec: string): string | null {
   throw new Error(`找不到 ${spec}（${relative(ROOT, from)}）`)
 }
 
-test("小组件只从 common/widget_runtime 导入；导入链没有循环，不含账本和同步", () => {
+test("小组件只从 widget_view 导入，视图只从 common/widget_runtime 导入；导入链没有循环，不含账本和同步", () => {
   const entry = join(ROOT, "widget.tsx")
-  assert.deepEqual(importsOf(entry).filter(s => s.startsWith(".")), ["./common/widget_runtime"])
+  assert.deepEqual(importsOf(entry).filter(s => s.startsWith(".")), ["./widget_view"])
+  assert.deepEqual([...new Set(importsOf(join(ROOT, "widget_view.tsx")).filter(s => s.startsWith(".")))], ["./common/widget_runtime"])
   const seen = new Set<string>()
   const stack: string[] = []
   const cycles: string[] = []

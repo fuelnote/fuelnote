@@ -12,6 +12,8 @@ const app = join(here, "..")
 const to = join(app, "..", "FuelNote Check")
 const tmp = join(to, "..", ".install-tmp")
 const DIRS = ["app", "common", "platform", "pages", "providers", "sync", "stations", "readers"]
+/** 根目录下 Check 要用的文件：小组件的视图（2.5，Check 在 App 里画小组件截图） */
+const ROOT_FILES = ["widget_view.tsx"]
 
 /** 目录下的全部文件（相对路径） */
 function walk(dir) {
@@ -26,6 +28,7 @@ function walk(dir) {
 
 const files = new Map()
 for (const d of DIRS) for (const p of walk(join(app, d))) files.set(relative(app, p), readFileSync(p))
+for (const f of ROOT_FILES) files.set(f, readFileSync(join(app, f)))
 for (const p of walk(join(here, "check"))) {
   const rel = relative(join(here, "check"), p)
   const text = readFileSync(p, "utf8")

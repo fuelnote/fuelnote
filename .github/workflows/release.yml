@@ -109,6 +109,7 @@ jobs:
           cp script.json dist/package/
           cp index.tsx dist/package/
           cp widget.tsx dist/package/
+          cp widget_view.tsx dist/package/
           cp intent.tsx dist/package/
           cp README.md dist/package/
           cp CHANGELOG.md dist/package/

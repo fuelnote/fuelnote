@@ -1,4 +1,5 @@
 // 油记的领域类型。坐标一律 WGS-84，时间一律毫秒时间戳，里程单位公里。
+import type { WidgetPreset } from "./widget_data"
 
 /** 数据源的 id：插件 describe 给的 id（插件化设计第 5 节） */
 export type ProviderId = string
@@ -312,6 +313,8 @@ export type Settings = {
   auto_backup: boolean
   /** 添加的数据源插件（插件化设计第 5 节） */
   plugins: PluginRef[]
+  /** 小组件方案（小组件方案设计第 5 节，2.5）：默认方案没改过时不存；读账本时整理（normalizePresets） */
+  widget_presets?: WidgetPreset[]
 }
 
 /** 数据源插件能提供的数据（docs/plugins.md 第 4 节）；提供 trips、vehicle_status、service 之一的必须提供 vehicles */

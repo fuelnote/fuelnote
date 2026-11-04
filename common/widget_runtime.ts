@@ -1,5 +1,5 @@
-// 小组件的入口模块：widget.tsx 只从这里导入（打包器的限制，设计文档 9.4 节）。
-// 只加载小组件用到的部分（widget.json、车况缓存、调数据源插件读车况），不加载账本和小熊的代码：小组件内存约 30MB（Scripting 文档）。
+// 小组件的入口模块：widget.tsx 经 widget_view.tsx 只从这里导入（打包器的限制，设计文档 9.4 节）。
+// 只加载小组件用到的部分（widget.json、车况缓存、调数据源插件读车况、方案的规则），不加载账本和小熊的代码：小组件内存约 30MB（Scripting 文档）。
 import type { VehicleStatus } from "../providers/types"
 import { callPlugin } from "../platform/plugin_bridge"
 import { readCache, readStatusCache, saveStatusSnapshot, saveWidgetFile, writeCache } from "../platform/storage"
@@ -11,7 +11,9 @@ export {
   consumptionLevel, consumptionTrend, daysAgoText, drivenSinceFill, fillAmountNow, fillDay, fuelRatio, fuelTone, moneyText, monthCostNow, readWidgetSnapshot,
   WIDGET_STATUS_MAX_AGE_MS, widgetRefreshDate, yearCostNow,
 } from "./widget_data"
-export type { ConsumptionLevel, FuelTone, Trend, WidgetFill, WidgetSnapshot, WidgetStatus } from "./widget_data"
+export type { ConsumptionLevel, FuelTone, Trend, WidgetFill, WidgetPreset, WidgetSlot, WidgetSnapshot, WidgetStatus } from "./widget_data"
+export { cellText, circleText, hasContent, heroText, HOME_SLOTS, placeSlots, presetFor } from "./widget_layout"
+export type { CellText, Placed } from "./widget_layout"
 
 const LOCK_FILE = "widget_status_lock.json"
 
