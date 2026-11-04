@@ -1,6 +1,8 @@
 // 手机上的自动检查（电脑端）。手机上开着「FuelNote Check」（tools/check），它向采样服务报到后，这里直接请求手机。说明见 tools/check/README.md。
 //
-//   XXYH_ROOT=E:/GitHub/xxyh npx tsx tools/device_check.ts [recognize] [ledger] [shots] [split] [benefits] [export] [service] [plugin] [map] [fill] [presets] [info]   （不写时都做）
+//   XXYH_ROOT=E:/GitHub/xxyh npx tsx tools/device_check.ts [--wait] [recognize] [ledger] [shots] [split] [benefits] [export] [service] [plugin] [map] [fill] [presets] [info]   （不写时都做）
+//
+// --wait：先等手机上打开新版的「FuelNote Check」（STAMP 和示例插件的版本都和电脑上的一样，最多 30 分钟）再开始。可以先在后台跑着，手机上一打开就检查。
 //
 // 真实数据（期望值、小熊里的保险费用、小熊备份）只从 XXYH_ROOT 读，计划在这里生成后发给手机；结果和截图存到 XXYH_ROOT/out/check/，不进仓库。
 // split（1.6，设计文档第 21 节）：把最新的小熊备份发给手机，在检查用的文件夹里导入选中的那辆车，用同一套纯函数算出期望值来比较。
@@ -32,6 +34,47 @@ function phoneUrl(): string {
   if (!existsSync(file)) throw new Error("手机还没报到：先在手机上打开「FuelNote Check」")
   const p = readJson(file) as { address: string; port: number; stamp: string }
   return `http://${p.address}:${p.port}`
+}
+
+/** 电脑上的 Check（STAMP）和示例插件的版本：手机上跑的要和它们一样 */
+function localVersions(): { stamp: string; example: string } {
+  const stamp = /STAMP = "(\d+)"/.exec(readFileSync("tools/check/runner.tsx", "utf8"))?.[1] ?? ""
+  const example = (JSON.parse(readFileSync("tools/plugin_example/script.json", "utf8")) as { version: string }).version
+  return { stamp, example }
+}
+
+type Ping = { stamp: string; data: string; example?: string | null }
+
+/** 手机上的和电脑上的哪里不一样；一样时 null */
+function mismatch(p: Ping): string | null {
+  const want = localVersions()
+  if (p.stamp !== want.stamp) return `手机上的 Check 是 STAMP ${p.stamp}，电脑上是 ${want.stamp}：等它换成新代码（npm run check:install 以后约 2 秒）`
+  if (p.example !== want.example) {
+    return `手机上的示例插件是 ${p.example ?? "没装"}，电脑上是 ${want.example}：在开发服务器页面里选一次「FuelNote 示例插件」，再打开「FuelNote Check」`
+  }
+  return null
+}
+
+/** --wait：每 2 秒看一次，报到的地址连得上、STAMP 和示例插件的版本都对上时返回手机的地址；最多等 30 分钟 */
+async function waitForPhone(): Promise<string> {
+  const deadline = Date.now() + 30 * 60e3
+  let said = ""
+  for (;;) {
+    let line: string
+    try {
+      const phone = phoneUrl()
+      const p = (await (await fetch(`${phone}/ping`, { signal: AbortSignal.timeout(3000) })).json()) as Ping
+      const why = mismatch(p)
+      if (!why) return phone
+      line = why
+    } catch {
+      line = "等手机上打开「FuelNote Check」……"
+    }
+    if (line !== said) console.log(line)
+    said = line
+    if (Date.now() > deadline) throw new Error("等了 30 分钟，手机上还没打开新版的「FuelNote Check」")
+    await new Promise(resolve => setTimeout(resolve, 2000))
+  }
 }
 
 async function call<T>(url: string, init: RequestInit = {}): Promise<T> {
@@ -367,11 +410,14 @@ async function shots(phone: string, screens: Array<[string, number]>): Promise<n
 
 async function main() {
   mkdirSync(OUT, { recursive: true })
-  const phone = phoneUrl()
-  const ping = await call<{ stamp: string; data: string }>(`${phone}/ping`)
-  console.log(`手机 ${phone}，STAMP ${ping.stamp}，数据文件夹 ${ping.data}`)
+  const args = process.argv.slice(2)
+  const phone = args.includes("--wait") ? await waitForPhone() : phoneUrl()
+  const ping = await call<Ping>(`${phone}/ping`)
+  console.log(`手机 ${phone}，STAMP ${ping.stamp}，示例插件 ${ping.example ?? "没装"}，数据文件夹 ${ping.data}`)
   if (!ping.data.endsWith("/FuelNoteCheck")) throw new Error("手机上的数据文件夹不是 FuelNoteCheck，停止")
-  const want = process.argv.slice(2)
+  const differs = mismatch(ping)
+  if (differs) console.log(`注意：${differs}`)
+  const want = args.filter(a => !a.startsWith("--"))
   const run = (name: string) => !want.length || want.includes(name)
   let bad = 0
   if (run("recognize")) bad += await recognize(phone)

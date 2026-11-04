@@ -32,7 +32,7 @@
 2. `npm run check:install`：把这里的检查程序连同油记的代码复制到 `../FuelNote Check`。只写有变化的文件，先写临时文件再改名（直接覆盖时手机可能按旧内容重新运行）。
 3. 第一次：手机上新建一个空脚本「FuelNote Check」，在开发服务器页面里选它，运行。之后改了代码再装一次，手机会自己用新代码重新运行（约 2 秒）。
 4. 手机上这一页留在屏幕上、屏幕不锁。它向采样服务报到，地址写到 `XXYH_ROOT/out/check/phone.json`。
-5. 电脑上：`XXYH_ROOT=E:/GitHub/xxyh npm run device-check`（或只跑一部分：`… device-check -- recognize ledger shots split benefits export service plugin map` 里选，另有 `bare`、`fill`、`presets`、`info`；`shots` 要在 `ledger` 之后，`split`、`bare` 会清空检查用的账本，`benefits` 要在 `split` 之后）。
+5. 电脑上：`XXYH_ROOT=E:/GitHub/xxyh npm run device-check`（加 `--wait` 时先等手机上打开新版的 Check：STAMP 和示例插件的版本都和电脑上的一样，最多 30 分钟。可以先在后台跑着，手机上一打开就检查）（或只跑一部分：`… device-check -- recognize ledger shots split benefits export service plugin map` 里选，另有 `bare`、`fill`、`presets`、`info`；`shots` 要在 `ledger` 之后，`split`、`bare` 会清空检查用的账本，`benefits` 要在 `split` 之后）。
 
 改了 `runner.tsx` 后把 `STAMP` 加一，`/ping` 返回的 STAMP 就能确认手机跑的是新代码。
 

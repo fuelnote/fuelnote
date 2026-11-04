@@ -58,7 +58,7 @@ import { StorePicker } from "../../pages/store_picker"
 import { StoreDetail } from "../../pages/store_detail"
 import { ServicePick } from "../../pages/service_pick"
 import { autoTitle, categoryName, DataSource, entryTitle, expenseDuplicateText, findExpenseDuplicate, oilChangeNumbers, saveServiceVisit, serviceForm, ServiceVisit, toExpenseData, toFuelData } from "../../common/model"
-import { addPlugin, connectPlugin, EXAMPLE_PLUGIN, installedPlugins, pluginsOf, pluginState, pluginStatus, refreshPlugins, removePlugin } from "../../common/model"
+import { addPlugin, connectPlugin, EXAMPLE_PLUGIN, installedPlugins, pluginsOf, pluginState, pluginStatus, pluginVersion, refreshPlugins, removePlugin } from "../../common/model"
 import { cachedStatus, dataSourceById, missingSources, readVehicleStatus, savePerk, serviceSourceOf, vehicleStops, vehicleTank } from "../../common/model"
 import { pluginFuel } from "../../app/plugins"
 import { commit } from "../../app/store"
@@ -93,7 +93,7 @@ const SANDBOX = "FuelNoteCheck"
 setDataRoot(SANDBOX)
 
 /** 改了这个值，手机重新运行后报到的 STAMP 跟着变（确认跑的是新代码） */
-export const STAMP = "64"
+export const STAMP = "67"
 const PORT = 3200
 const DAY = 86400e3
 const BJ_OFFSET = 8 * 3600e3
@@ -1811,7 +1811,8 @@ export function CheckPage() {
         busy.current = false
       }
     }
-    server.registerAsyncHandler("/ping", async () => jsonResponse({ stamp: STAMP, data: dataDirectory() }))
+    // example：手机上示例插件的版本，电脑上 device-check --wait 等它和电脑上的一样再开始
+    server.registerAsyncHandler("/ping", async () => jsonResponse({ stamp: STAMP, data: dataDirectory(), example: pluginVersion(EXAMPLE_PLUGIN) || null }))
     server.registerAsyncHandler("/run/recognize", guarded("识别", async req => {
       const body = bodyJson<{ ids: string[] }>(req)
       return jsonResponse(await runRecognize(bridgeRef.current, body.ids, web))
