@@ -85,7 +85,7 @@ const SANDBOX = "FuelNoteCheck"
 setDataRoot(SANDBOX)
 
 /** 改了这个值，手机重新运行后报到的 STAMP 跟着变（确认跑的是新代码） */
-export const STAMP = "60"
+export const STAMP = "61"
 const PORT = 3200
 const DAY = 86400e3
 const BJ_OFFSET = 8 * 3600e3
@@ -1292,7 +1292,7 @@ const FILL_CAR = "check-fill-car"
 /** 检查用的车型：车型参数缓存里只有油箱 55 L，和车况的示例 32.5 L 配着算 */
 const FILL_MODEL = 990001
 
-/** 加满金额：示例插件的油价（95# 8.00）× 示例车况空出来的 22.5 L = ¥180（写 22 L，和「剩余 33 L」对得上）；插件更新后重读提供的数据；移除插件后只写升数（显-5）；小组件的摘要里有价格 */
+/** 加满金额：示例插件的油价（95# 8.00）× 示例车况空出来的 22.5 L = ¥180（写 22 L，和「剩余 33 L」对得上）；示例车没选过默认标号，按 95# 算（显-6）；插件更新后重读提供的数据；移除插件后只写升数（显-5）；小组件的摘要里有价格 */
 async function runFill(): Promise<{ steps: Step[] }> {
   const steps: Step[] = []
   let data = loadData().data
@@ -1309,7 +1309,8 @@ async function runFill(): Promise<{ steps: Step[] }> {
   const catalog = readCache<Record<string, any>>("catalog_cache.json") || { schema_version: 1 }
   writeCache("catalog_cache.json", { ...catalog, specs: { ...(catalog.specs || {}), [String(FILL_MODEL)]: { id: FILL_MODEL, name: "检查用车型", pinpai: null, chexi: null, vehicle_type: 1, fuel_type: "汽油", gas_type: "95号", engine: null, gearbox: null, tank: 55 } } })
   const car: Vehicle = {
-    id: FILL_CAR, name: "示例车（加满）", default_grade: 95, created_ts: Date.now(), xxyh_car: null, provider: { id: ref.id, vehicle_id: "example-car", name: "示例车" },
+    // 像小熊里没写标号、导入的车：默认标号是 null，车辆设置里显示 95#
+    id: FILL_CAR, name: "示例车（加满）", default_grade: null, created_ts: Date.now(), xxyh_car: null, provider: { id: ref.id, vehicle_id: "example-car", name: "示例车" },
     profile: { model: FILL_MODEL, model_name: "检查用车型", pinpai: null, chexi: null, vehicle_type: 1, replenish_mode: 1, gas_type: "95号", buy_date: null },
   }
   data = commit(data, { ...data.ledger, vehicles: [...data.ledger.vehicles.filter(v => v.id !== FILL_CAR), car], settings: { ...data.ledger.settings, current_vehicle_id: FILL_CAR } })
@@ -1329,7 +1330,7 @@ async function runFill(): Promise<{ steps: Step[] }> {
   add(steps, "再读一次：地区没变、不到一天，不调插件（价-2）", !again)
 
   const view = fillViewFor(data, car, snap ? snap.status : null)
-  add(steps, "车况详情「加满」：¥180 · 22 L（剩余写 33 L），95# 挂牌价 8.00，说明写地区和插件（显-1 或显-2）",
+  add(steps, "车况详情「加满」：¥180 · 22 L（剩余写 33 L），没选过默认标号按 95# 挂牌价 8.00，说明写地区和插件（显-1 或显-2、显-6）",
     !!view && view.amount === 180 && view.litres === 22 && view.price === 8 && view.priceLabel === "95# 挂牌价" && view.note.includes("油价来自示例"),
     view ? `¥${view.amount} · ${view.litres} L；${view.note}` : "没有这一组")
 

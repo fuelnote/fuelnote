@@ -2,6 +2,7 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
 import { fillView, FillInput, needsPriceRefresh, PriceCache, priceRegion, shortRegion } from "../common/fill_cost"
+import { vehicleGrade } from "../common/ledger"
 import { Station } from "../common/types"
 import { EMPTY_WIDGET, fillAmount, fillAmountNow, WidgetSnapshot } from "../common/widget_data"
 
@@ -92,12 +93,18 @@ test("显-2：按最近一次加油的油站", () => {
     "按上海 10/29 起的挂牌价算，不扣优惠。取不到手机的位置，地区按最近一次加油的油站。标号是车辆设置里的默认标号；油价来自易捷，每天更新一次。")
 })
 
-test("显-3：没有地区、也没有缓存；显-5：没添加提供油价的插件；显-6：没有默认标号", () => {
+test("显-3：没有地区、也没有缓存；显-5：没添加提供油价的插件", () => {
   const none = fillView(input({ cache: null, noRegion: true }))!
   assert.deepEqual({ amount: none.amount, price: none.price, litres: none.litres }, { amount: null, price: null, litres: 3 })
   assert.equal(none.note, "允许 Scripting 使用位置，或者记一笔带油站的加油后，按所在地区的挂牌价算出加满金额。")
   assert.equal(fillView(input({ plugin: false, cache: null }))!.note, "添加提供油价的数据源插件后，按所在地区的挂牌价算出加满金额。")
-  assert.equal(fillView(input({ grade: null }))!.note, "在车辆设置里选好默认标号后，按它的挂牌价算出加满金额。")
+})
+
+test("显-6：没选过默认标号的车（小熊里没写标号，导入后是 null）按车辆设置里显示的 95# 算", () => {
+  const car = { id: "v", name: "车", default_grade: null, created_ts: 0, xxyh_car: null, provider: null }
+  assert.equal(vehicleGrade(car), 95)
+  assert.equal(vehicleGrade({ ...car, default_grade: 98 }), 98)
+  assert.equal(fillView(input({ grade: vehicleGrade(car) }))!.amount, 28)
 })
 
 test("显示的升数和取整后的剩余油量对得上：剩 32.5 L（写 33 L）、油箱 55 L 写 22 L，金额按 22.5 L 算", () => {

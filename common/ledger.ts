@@ -82,13 +82,16 @@ export function categoryName(data: AppData, id: number): string {
   return categoriesFor(data).find(c => c.id === id)?.name || "其他"
 }
 
-/** 最近 10 次最常加的标号 */
-export function usualGrade(data: AppData, vehicle: Vehicle): number | null {
+/** 车辆设置里的默认标号：没选过的（小熊里没写标号的车导入后是 null）按 95#，和设置页显示的一样（加满金额设计显-6） */
+export const vehicleGrade = (vehicle: Vehicle): number => vehicle.default_grade ?? 95
+
+/** 最近 10 次最常加的标号；没有记录时用默认标号 */
+export function usualGrade(data: AppData, vehicle: Vehicle): number {
   const counts = new Map<number, number>()
   for (const r of fuelRecords(data, vehicle).slice(0, 10)) if (r.grade != null) counts.set(r.grade, (counts.get(r.grade) || 0) + 1)
   let best: number | null = null
   for (const [g, n] of counts) if (best == null || n > (counts.get(best) || 0)) best = g
-  return best ?? vehicle.default_grade
+  return best ?? vehicleGrade(vehicle)
 }
 
 // ---------- 修改 ----------

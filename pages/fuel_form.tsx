@@ -121,7 +121,7 @@ export function FuelForm({ data, vehicle, record, initialImage, initialPick, onS
   const [paid, setPaid] = useState(text(record?.paid))
   const [paidEdited, setPaidEdited] = useState(!!record && record.paid !== record.amount)
   const [edited, setEdited] = useState<TripleField[]>(record ? ["price", "liters"] : [])
-  const [grade, setGrade] = useState<number>(record?.grade ?? usualGrade(data, vehicle) ?? 95)
+  const [grade, setGrade] = useState<number>(record?.grade ?? usualGrade(data, vehicle))
   const [full, setFull] = useState(record ? record.full : data.ledger.settings.default_full)
   const [lightOn, setLightOn] = useState(record?.light_on ?? false)
   const [missed, setMissed] = useState(record?.missed_before ?? false)
@@ -351,7 +351,7 @@ export function FuelForm({ data, vehicle, record, initialImage, initialPick, onS
     const { city, province } = priceCityFor(data, vehicle, st, choice?.stop ?? applied)
     const ref = f.price != null ? await priceRefFor(city, province, f.ts ?? Date.now()).catch(() => null) : null
     if (run.current !== id) return
-    const g = decideGrade(f.printedGrade, f.source, f.price, ref, usualGrade(data, vehicle) ?? 95)
+    const g = decideGrade(f.printedGrade, f.source, f.price, ref, usualGrade(data, vehicle))
     if (!touched.current.has("grade")) {
       setGrade(g.grade)
       filled.current.grade = g.grade

@@ -1,7 +1,7 @@
 // 加满金额的油价（加满金额设计第 3、4 节）：定地区（手机的位置 → 最近用过的油站）、按地区缓存一天、调提供油价的插件；
 // 车况详情「加满」一组和小组件的价格都从这里取。规则在 common/fill_cost.ts。
 import { fillView, FillView, needsPriceRefresh, PriceCache, priceFor, priceRegion, shortRegion } from "../common/fill_cost"
-import { AppData } from "../common/ledger"
+import { AppData, vehicleGrade } from "../common/ledger"
 import { PluginRef, PriceRegion, Vehicle } from "../common/types"
 import { placeOf } from "../platform/location"
 import { readCache, writeCache } from "../platform/storage"
@@ -78,10 +78,10 @@ export async function refreshFuelPrice(data: AppData): Promise<boolean> {
 /** 车况详情「加满」一组；不知道剩余油量或油箱容量时 null */
 export function fillViewFor(data: AppData, vehicle: Vehicle, status: { fuel_l: number | null } | null): FillView | null {
   return fillView({
-    fuel: status ? status.fuel_l : null, tank: vehicleTank(data, vehicle), grade: vehicle.default_grade,
+    fuel: status ? status.fuel_l : null, tank: vehicleTank(data, vehicle), grade: vehicleGrade(vehicle),
     plugin: !!pricePlugin(data), cache: usablePrice(data), error: lastError, noRegion,
   })
 }
 
 /** 小组件摘要里的价格：这辆车默认标号的挂牌价 */
-export const widgetFillPrice = (data: AppData, vehicle: Vehicle): { grade: number; price: number } | null => priceFor(usablePrice(data), vehicle.default_grade)
+export const widgetFillPrice = (data: AppData, vehicle: Vehicle): { grade: number; price: number } | null => priceFor(usablePrice(data), vehicleGrade(vehicle))

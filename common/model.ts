@@ -4,7 +4,7 @@
 export * from "./types"
 export type { AppData } from "./ledger"
 export { categoriesFor, categoryName, currentVehicle, fuelRecords, stationsFor, visibleVehicles } from "./ledger"
-export { toExpenseData, toFuelData, usualGrade, vehicleById, vehicleRecords } from "./ledger"
+export { toExpenseData, toFuelData, usualGrade, vehicleById, vehicleGrade, vehicleRecords } from "./ledger"
 export type { Stop } from "./stops"
 export { rankStops, stopFitsPayment } from "./stops"
 export type { Summary } from "./fuel_stats"

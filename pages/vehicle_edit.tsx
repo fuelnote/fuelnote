@@ -4,7 +4,7 @@ import {
 } from "scripting"
 import {
   AppData, CarSpec, catalogSpec, deleteVehicle, fmtDate, gradeOf, GRADES, gradeText, newExportCarUuid, profileFromSpec, RemoteVehicle, setVehicleHidden, sourceOf, vehicleSources,
-  snapshotCars, updateVehicle, vehicleById, vehicleDeletionCounts, vehicleProfile, vehicleRecords,
+  snapshotCars, updateVehicle, vehicleById, vehicleDeletionCounts, vehicleGrade, vehicleProfile, vehicleRecords,
 } from "../common/model"
 import { ModelPicker } from "./model_picker"
 import { AppActions, showError } from "./components"
@@ -115,7 +115,7 @@ export function VehicleEdit({ data, app, vehicleId }: { data: AppData; app: AppA
         <Spacer />
         <TextField title="名称" value={name} onChanged={setName} onBlur={saveName} onSubmit={saveName} multilineTextAlignment="trailing" />
       </HStack>
-      <Picker title="默认标号" value={vehicle.default_grade ?? 95} onChanged={(g: number) => app.setData(updateVehicle(app.getData(), { ...vehicle, default_grade: g }))} pickerStyle="menu">
+      <Picker title="默认标号" value={vehicleGrade(vehicle)} onChanged={(g: number) => app.setData(updateVehicle(app.getData(), { ...vehicle, default_grade: g }))} pickerStyle="menu">
         {GRADES.map(g => <Text key={g} tag={g}>{gradeText(g)}</Text>)}
       </Picker>
       <HStack><Text>记录</Text><Spacer /><Text foregroundStyle="secondaryLabel">{`${vehicleRecords(data, vehicle).length} 条`}</Text></HStack>

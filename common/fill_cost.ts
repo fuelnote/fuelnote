@@ -48,7 +48,7 @@ export function priceFor(cache: PriceCache | null, grade: number | null): { grad
 export type FillInput = {
   fuel: number | null
   tank: number | null
-  grade: number | null
+  grade: number
   plugin: boolean
   cache: PriceCache | null
   error: string | null
@@ -74,7 +74,6 @@ export function fillView(i: FillInput): FillView | null {
   const litres = Math.max(0, Math.round(i.tank!) - Math.round(i.fuel!))
   const only = (note: string): FillView => ({ litres, amount: null, priceLabel: null, price: null, note })
   if (!i.plugin) return only("添加提供油价的数据源插件后，按所在地区的挂牌价算出加满金额。")
-  if (i.grade == null) return only("在车辆设置里选好默认标号后，按它的挂牌价算出加满金额。")
   const c = i.cache
   if (!c) {
     if (i.noRegion) return only("允许 Scripting 使用位置，或者记一笔带油站的加油后，按所在地区的挂牌价算出加满金额。")
