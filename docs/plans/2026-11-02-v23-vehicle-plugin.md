@@ -29,7 +29,7 @@
 - [x] `app/vehicle_data.ts`：读行程、车况都经过数据源接口，缓存照旧（设计第 5 节）。能不能读按数据源的能力和连接状态：内置的看凭据在不在，插件看上次调用是不是「未连接」。
 - [x] 去掉加油停车提示（D2）：记录页顶部的提示，`detectOpenStop`、`openStopNow`、`dismissStop`；`settings.dismissed_stops` 去掉（读到时丢掉）；打开油记时不再读行程。记加油「自动填写」照旧用 `openStopIn` 显示最近 2 天没记的加油停车。
 - [x] 设置 › 数据源、车辆的「车辆数据」列出能提供车辆数据的数据源：内置的沃尔沃和带车辆能力的插件。
-- [x] 示例插件（`tools/plugin_example/`）：加上 `vehicles`、`trips`、`vehicle_status`，返回按当前时间生成的假数据；`docs/plugins.md` 第 10 节写上。
+- [x] 示例插件（`tools/plugin_example/`）：加上 `vehicles`、`trips`、`vehicle_status`，返回按当前时间生成的假数据；`docs/plugins.md` 第 11 节写上。
 - [x] 测试：契约新动作的校验和整理（`tests/plugin.test.ts`）；内置沃尔沃按新接口返回的行程、车况和 2.2 相同；行程回放照样通过；分层测试照旧：只有 `providers/registry.ts` 引用 `providers/volvo_*`。
 - [x] FuelNote Check：记录页（没有加油停车提示）、记加油自动填写截图核对；`plugin` 一项加上用示例插件读车辆、行程、车况。
 - [x] `CHANGELOG.md`、`README.md`、`CLAUDE.md`。
@@ -57,7 +57,7 @@
 - [x] 导出到小熊（`sync/xxyh/export.ts`）：填了标题的，标题写成小熊费用备注的第一行，带保养记录的写在说明前面；小熊的保养记录不写（设计 3.6 节）。
 - [x] 费用的「可能重复」（设计第 7 节，费-1～费-7）：`common/form.ts` 找同一辆车、同一天、同一类、同样金额的费用；记费用保存时警告，确认后保存；从养修一次存几笔时每一笔都查。
 - [x] 文案：填表时的「沃尔沃写的自付是 …」用数据源的名称。
-- [x] 示例插件：加上 `service`，返回按当前时间生成的假进店（一次换了机油的保养带另记的补漆、一次自付 0 的保修、两种权益提示、一条只有名称的对照）；`docs/plugins.md` 第 10 节写上。
+- [x] 示例插件：加上 `service`，返回按当前时间生成的假进店（一次换了机油的保养带另记的补漆、一次自付 0 的保修、两种权益提示、一条只有名称的对照）；`docs/plugins.md` 第 11 节写上。
 - [x] 测试：
   - `tests/plugin.test.ts`：`service` 的校验和整理。
   - `tests/service.test.ts`：设计 3.4 节的用例（养-1～养-15）；来源（源-1～源-7）；标题（题-1～题-8）；转换（转-1～转-6）。

@@ -2,7 +2,7 @@
 
 数据源插件是一个独立的 Scripting 脚本。油记需要数据时用 `Script.run` 调用它，它只回答「有哪些数据」：不写账本，也不知道表单里填了什么。几笔交易合成一次加油、填表、核对都在油记里做；读懂原始数据的事在插件里做，例如把工单整理成要记的几笔费用。
 
-能提供的数据：加油交易（`fuel`）；2.3 起还有车辆、行程、车况（`vehicles`、`trips`、`vehicle_status`）和养修（`service`）；2.4 起还有挂牌价（`fuel_price`）。契约的字段以本文为准；为什么这样定，见设计 `docs/specs/2026-10-27-plugins.md` 第 4 节。
+能提供的数据：加油交易（`fuel`）；2.3 起还有车辆、行程、车况（`vehicles`、`trips`、`vehicle_status`）和养修（`service`）；2.4 起还有挂牌价（`fuel_price`）；2.6 起还有信息卡片（`info`）。契约的字段以本文为准；为什么这样定，见设计 `docs/specs/2026-10-27-plugins.md` 第 4 节，信息卡片见 `docs/specs/2026-11-04-presets-and-cards.md` 第 7 节。
 
 ## 1. 标记
 
@@ -33,7 +33,7 @@ Script.run({ name: 脚本名, queryParameters: { fuelnote: 1, action, ...参数 
 
 | action | 参数 | 返回（ok 之外） | 油记等多久 |
 |---|---|---|---|
-| `describe` | — | `contract`（1）、`id`、`name`、`version`、`capabilities` | 5 秒 |
+| `describe` | — | `contract`（1）、`id`、`name`、`version`、`capabilities`；提供 `info` 时还有 `cards`（第 9 节） | 5 秒 |
 | `status` | — | `connected`、`expired`、`account`（打码后的账号，可为 null） | 5 秒 |
 | `connect` | — | 弹出插件自己的连接页；返回 `connected`、`account` | 不限 |
 | `fuel` | `from`、`to`（毫秒时间戳） | `items`：`FuelTxn[]`（第 5 节） | 20 秒 |
@@ -42,10 +42,11 @@ Script.run({ name: 脚本名, queryParameters: { fuelnote: 1, action, ...参数 
 | `vehicle_status`（2.3 起） | `vehicle` | `status`：`VehicleStatus`（第 6 节） | 10 秒 |
 | `service`（2.3 起） | `vehicle` | `items`：`ServiceVisit[]`，新的在前（第 7 节） | 60 秒 |
 | `fuel_price`（2.4 起） | `province`、`city` | `region`、`effective`、`items`：`FuelPrice[]`（第 8 节） | 10 秒 |
+| `info`（2.6 起） | `grade`、`province`、`city`、`cursor` | `cards`：`InfoCard[]`、`next`、`progress`（第 9 节） | 每批 20 秒 |
 
 - `id`：同一个插件始终不变，不能和已有的数据源重复。油记按它关联车辆，记录的来源也存它。
 - `name`：设置里显示的名称；从这个插件选来填的记录，来源存的就是保存时的名称。
-- `capabilities`：提供的数据，`fuel`；2.3 起还有 `vehicles`、`trips`、`vehicle_status`、`service`；2.4 起还有 `fuel_price`。提供 `trips`、`vehicle_status`、`service` 之一的，必须提供 `vehicles`（关联车辆用）；`fuel_price` 不需要。
+- `capabilities`：提供的数据，`fuel`；2.3 起还有 `vehicles`、`trips`、`vehicle_status`、`service`；2.4 起还有 `fuel_price`；2.6 起还有 `info`。提供 `trips`、`vehicle_status`、`service` 之一的，必须提供 `vehicles`（关联车辆用）；`fuel_price`、`info` 不需要。
 - `vehicle`：`vehicles` 给的车辆 `id`。
 - 超时从油记真正调用时算起。超时后油记不再等，晚回来的结果丢掉。
 - 油记按月要交易：`from` 是某个月第一天 0 点，`to` 是某个月最后一刻（北京时间），一次可能跨几个月。结果按月缓存：包含最近 2 天的月份 10 分钟，更早的 1 天；出错不缓存。
@@ -190,19 +191,62 @@ type FuelPrice = {
 - 查油价最好不用登录：凭据过期时照样能查。油记不按 `fuel_price` 的结果改插件的连接状态。
 - 几个插件都提供时，油记用最先添加的那个。
 
-## 9. 凭据
+## 9. 信息卡片（2.6 起）
+
+插件可以给几张卡片，例如今天附近油站的优惠。油记只认卡片的字段，不认卡片里写的是什么：文字、行数、什么时候过期都由插件定，样子由油记定。
+
+```ts
+type InfoCard = {
+  id: string             // 同一张卡片每次都一样，和 describe 里声明的对应
+  title: string          // 组名，例如「今天的优惠」
+  icon: string | null    // SF Symbols 的名称，写在摘要前面
+  tone: Tone | null      // 摘要的语气
+  rows: InfoRow[]
+  empty: string | null   // 一行都没有时写的一句
+  note: string | null    // 说明，写在这一组下面
+  summary: string | null // 一行摘要：记录页「当前」和小组件里写它；没有时 null
+  until: number          // 有效到什么时候（毫秒）
+}
+
+type InfoRow = {
+  label: string          // 左边
+  value: string          // 右边
+  detail: string | null  // 左边下面一行
+  tone: Tone | null
+}
+
+type Tone = "good" | "warn"   // 好（绿色）、提醒（橙色）；不给是普通
+```
+
+- `describe` 多给 `cards`：会给哪些卡片，每张 `{ id, title }`。设置 › 小组件方案的菜单按它列，第一次查之前也能选。卡片改了、多了，升插件的版本（第 12 节）。
+- `info` 的参数：`grade`（车辆的默认标号，数字）；`province`、`city`（所在的省、市的短名，和油价一样，第 8 节；定不出地区时油记不查）；`cursor`（分批时上一批给的 `next`，第一批不传）。要不要再看别的标号由插件定。
+- 返回：
+  - `cards`：到这一批为止的全部卡片。油记整个替换，不拼接。
+  - `next`：还有下一批时给一个字符串，油记接着要；查完了是 null。
+  - `progress`：查着时写在组里的一句，例如「正在查 9/15 个站」；不给时油记写「正在读取…」。
+- 分批：一批最多等 20 秒，最好 10 秒以内；两批之间油记可以插进别的请求，例如记加油时选交易。查到的先显示。
+- `summary`、`empty` 写短，16 个字以内，小组件里一行放得下。
+- 油记在后台调，插件不弹自己的页面。
+- 要用手机的位置时插件自己取（和油记是同一个 Scripting 的定位权限），可以发给它的数据源。油记交给插件的位置只有省、市。
+- 什么时候查：打开油记、回到前台时，没有卡片、有卡片过了 `until`，或者默认标号、省、市变了才查；车况详情里可以「重新查」。查到一半出错时，已查到的照样显示，说明里写出错的原因，下次打开再查。油记只看 `until`，不按天算：按天更新的卡片，`until` 给当天 24 点。
+- 一张卡片都不给也可以：油记不多一组，24 小时后再查。
+- 缺 `id`、`title` 或 `until` 的卡片，缺 `label` 或 `value` 的行，油记会丢掉。
+- 查卡片最好不用登录。油记不按 `info` 的结果改插件的连接状态。
+- 几个插件都提供时，各自的卡片各自成组，按添加插件的顺序。
+
+## 10. 凭据
 
 - 凭据存在插件自己的钥匙串里，油记读不到，油记的备份里也没有。
 - `status`、`connect` 返回的账号要先打码。
 
-## 10. 示例插件
+## 11. 示例插件
 
-`tools/plugin_example/` 是完整的示例：返回按当前时间编的交易（有一组分两笔付的，旁边还有单价不同、油站不同的各一笔），以及一辆示例车的行程（每次加油前开到那个油站，另外每天一趟）、车况和养修（一次换了机油的保养另记一笔补漆，带车险赠送的储值和油漆面次数两种提示；一次自付 0 的保修，对照只有名称），以及固定的示例油价（不用登录，地区名就是传来的省名）；自己打开时可以切换已连接、已过期、未连接。
+`tools/plugin_example/` 是完整的示例：返回按当前时间编的交易（有一组分两笔付的，旁边还有单价不同、油站不同的各一笔），以及一辆示例车的行程（每次加油前开到那个油站，另外每天一趟）、车况和养修（一次换了机油的保养另记一笔补漆，带车险赠送的储值和油漆面次数两种提示；一次自付 0 的保修，对照只有名称），固定的示例油价（不用登录，地区名就是传来的省名），以及一张「示例卡片」（分两批给，第一批一行，第二批两行：一行好、一行提醒；有效到当天 24 点）；自己打开时可以切换已连接、已过期、未连接。
 
 - `npm run plugin:install` 装到 `../FuelNote 示例插件`。第一次要在手机上新建同名的空脚本，再在开发服务器页面里选它。
 - 在油记的「设置 › 数据源 › 添加插件」里添加它。
 
-## 11. 版本
+## 12. 版本
 
 - 以后加可选字段不升 `contract`，改了已有字段的含义才升。
 - 插件加了能力、改了名称时，升插件自己的版本（`script.json` 的 `version`）：油记打开时发现版本和上次不同，会重新 `describe`，更新名称和提供的数据（2.4 起），用户不用移除再添加。

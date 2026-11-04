@@ -1,4 +1,5 @@
-// FuelNote 示例插件：油记数据源契约（docs/plugins.md）的示例实现，返回按当前时间编的加油交易、一辆示例车的行程、车况和养修，以及固定的示例油价。写插件时照这个改。
+// FuelNote 示例插件：油记数据源契约（docs/plugins.md）的示例实现，返回按当前时间编的加油交易、一辆示例车的行程、车况和养修，
+// 固定的示例油价，以及一张分两批给的示例信息卡片（2.6）。写插件时照这个改。
 // 被油记调用时 Script.queryParameters 带 fuelnote: 1 和 action；处理完一定 Script.exit(对象)，出错时也一样，否则油记会一直等。
 // 自己打开时是连接页：可以切换「已连接」「已过期」「未连接」，用来看油记在出错时的样子。
 import { Button, HStack, Image, List, Navigation, NavigationStack, Script, Section, Spacer, Text, useState } from "scripting"
@@ -144,6 +145,37 @@ function serviceVisits(now: number) {
   ]
 }
 
+/** 信息卡片（2.6）：describe 里声明的那一张 */
+const CARD = { id: "sample", title: "示例卡片" }
+
+/** 今天 24 点（手机的时区）：卡片有效到这时，过了油记重查 */
+function endOfToday(): number {
+  const d = new Date()
+  d.setHours(24, 0, 0, 0)
+  return d.getTime()
+}
+
+/**
+ * 信息卡片（docs/plugins.md 第 9 节）：分两批给，第一批带 next，第二批是全部的行。每批给到这一批为止的全部卡片，油记整个替换。
+ * 不用登录；行是编的，一行「好」、一行「提醒」；标号用油记传来的默认标号
+ */
+async function info(q: Record<string, any>): Promise<Record<string, unknown>> {
+  const grade = Number(q.grade) || 95
+  const last = q.cursor === "1"
+  // 慢一点，在油记里看得到「正在读」
+  await new Promise<void>(resolve => setTimeout(resolve, 800))
+  const rows = [
+    { label: "示例加油站（人民广场） · 1.2 km", value: "−0.3 元/升", detail: `${grade}# · 示例的立减`, tone: "good" },
+    { label: "示例加油站（徐家汇） · 4.5 km", value: "明天调价", detail: "示例的提醒", tone: "warn" },
+  ]
+  const card = {
+    ...CARD, icon: "percent", tone: "good", rows: last ? rows : rows.slice(0, 1),
+    ...(last ? { empty: "今天没有示例内容" } : {}),
+    note: "示例插件编的内容，不是哪里的真实信息。", summary: `人民广场 1.2 km · ${grade}# −0.3`, until: endOfToday(),
+  }
+  return last ? { ok: true, cards: [card], next: null } : { ok: true, cards: [card], next: "1", progress: "正在读 1/2" }
+}
+
 /** 未连接、已过期时数据动作都返回错误 */
 function blocked(): Record<string, unknown> | null {
   const s = readState()
@@ -161,7 +193,7 @@ function ConnectPage() {
   }
   return <NavigationStack>
     <List navigationTitle="示例" navigationBarTitleDisplayMode="inline" toolbar={{ confirmationAction: <Button title="完成" action={() => dismiss()} /> }}>
-      <Section header={<Text>连接状态</Text>} footer={<Text>示例插件不连任何服务，交易、行程、车况和养修都是按当前时间编的。切换状态，可以看油记在未连接、凭据过期时的样子。</Text>}>
+      <Section header={<Text>连接状态</Text>} footer={<Text>示例插件不连任何服务，交易、行程、车况、养修和信息卡片都是按当前时间编的。切换状态，可以看油记在未连接、凭据过期时的样子。</Text>}>
         {(["connected", "expired", "disconnected"] as State[]).map(s => <Button key={s} action={() => choose(s)}>
           <HStack>
             <Text foregroundStyle="label">{LABELS[s]}</Text>
@@ -179,7 +211,10 @@ function ConnectPage() {
 
 async function handle(action: string, q: Record<string, any>): Promise<unknown> {
   if (action === "describe") {
-    return { ok: true, contract: CONTRACT, id: "example", name: "示例", version: Script.metadata.version, capabilities: ["fuel", "vehicles", "trips", "vehicle_status", "service", "fuel_price"] }
+    return {
+      ok: true, contract: CONTRACT, id: "example", name: "示例", version: Script.metadata.version,
+      capabilities: ["fuel", "vehicles", "trips", "vehicle_status", "service", "fuel_price", "info"], cards: [CARD],
+    }
   }
   if (action === "status") return status()
   if (action === "connect") {
@@ -193,6 +228,8 @@ async function handle(action: string, q: Record<string, any>): Promise<unknown> 
     const d = new Date()
     return { ok: true, region: province, effective: new Date(d.getFullYear(), d.getMonth(), 1).getTime(), items: EXAMPLE_PRICES }
   }
+  // 信息卡片（2.6）：同样不用登录
+  if (action === "info") return info(q)
   const known = ["fuel", "vehicles", "trips", "vehicle_status", "service"]
   if (!known.includes(action)) return { ok: false, error: "unsupported", message: `示例插件不支持「${action}」` }
   const err = blocked()

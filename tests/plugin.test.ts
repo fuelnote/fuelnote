@@ -20,7 +20,7 @@ function txn(d: Record<string, unknown> = {}): Record<string, unknown> {
 
 test("describe：契约版本、id、名称、版本、提供的数据；不认识的数据丢掉", () => {
   const r = parseDescribe({ ok: true, contract: 1, id: "ejoy", name: "易捷", version: "0.1.0", capabilities: ["fuel", "weather"] })
-  assert.deepEqual(r, { ok: true, value: { id: "ejoy", name: "易捷", version: "0.1.0", capabilities: ["fuel"] } })
+  assert.deepEqual(r, { ok: true, value: { id: "ejoy", name: "易捷", version: "0.1.0", capabilities: ["fuel"], cards: [] } })
   const noName = parseDescribe({ ok: true, contract: 1, id: "ejoy", capabilities: ["fuel"] })
   assert.ok(noName.ok && noName.value.name === "ejoy" && noName.value.version === "")
 })
@@ -89,7 +89,7 @@ test("fuel：缺字段或类型不对的项丢掉；标号认不出时 null；�
 
 test("添加前：没有提供数据、提供了车辆数据却没有车辆、id 和已添加的插件重复时不加；2.2 内置数据源的 id（volvo_cn）可以用", () => {
   const added: PluginRef[] = [{ script: "FuelNoteEjoy", id: "ejoy", name: "易捷", capabilities: ["fuel"] }]
-  const info = (id: string, capabilities: PluginCapability[] = ["fuel"]) => ({ id, name: "示例", version: "1.0.0", capabilities })
+  const info = (id: string, capabilities: PluginCapability[] = ["fuel"]) => ({ id, name: "示例", version: "1.0.0", capabilities, cards: [] })
   assert.equal(addProblem(info("example"), added), null)
   assert.equal(addProblem(info("example", []), added), "这个插件没有提供油记用得上的数据")
   assert.equal(addProblem(info("example", ["vehicles"]), added), "这个插件没有提供油记用得上的数据")
@@ -214,10 +214,10 @@ test("fuel_price（2.4）：地区、生效时间、各标号的挂牌价；不�
 
 test("插件更新后（2.4）：版本变了重新 describe，名称、提供的数据、版本跟着更新；id 变了或不合规时保留原来的", () => {
   const old: PluginRef = { script: "FuelNoteEjoy", id: "ejoy", name: "易捷", capabilities: ["fuel"] }
-  assert.deepEqual(refreshedRef(old, { id: "ejoy", name: "易捷", version: "0.3.0", capabilities: ["fuel", "fuel_price"] }, [old]),
+  assert.deepEqual(refreshedRef(old, { id: "ejoy", name: "易捷", version: "0.3.0", capabilities: ["fuel", "fuel_price"], cards: [] }, [old]),
     { script: "FuelNoteEjoy", id: "ejoy", name: "易捷", capabilities: ["fuel", "fuel_price"], version: "0.3.0" })
-  assert.equal(refreshedRef(old, { id: "other", name: "别的", version: "1.0", capabilities: ["fuel"] }, [old]), null)
-  assert.equal(refreshedRef(old, { id: "ejoy", name: "易捷", version: "0.3.0", capabilities: ["trips"] }, [old]), null)
+  assert.equal(refreshedRef(old, { id: "other", name: "别的", version: "1.0", capabilities: ["fuel"], cards: [] }, [old]), null)
+  assert.equal(refreshedRef(old, { id: "ejoy", name: "易捷", version: "0.3.0", capabilities: ["trips"], cards: [] }, [old]), null)
   const same = { ...old, version: "0.3.0", capabilities: ["fuel", "fuel_price"] as PluginCapability[] }
-  assert.equal(refreshedRef(same, { id: "ejoy", name: "易捷", version: "0.3.0", capabilities: ["fuel", "fuel_price"] }, [same]), null)
+  assert.equal(refreshedRef(same, { id: "ejoy", name: "易捷", version: "0.3.0", capabilities: ["fuel", "fuel_price"], cards: [] }, [same]), null)
 })

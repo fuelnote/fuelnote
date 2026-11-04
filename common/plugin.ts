@@ -1,7 +1,7 @@
 // 数据源插件的契约（插件化设计第 4 节）：版本、标记文件、各动作的超时；返回值的校验和整理；添加前的检查；给用户看的错误和状态。
 // 纯逻辑：调用插件在 platform/plugin_bridge.ts，排队、超时和缓存在 common/plugin_source.ts。
 import { PerkHint, Place, RemoteVehicle, ServiceExpense, ServiceVisit, Trip, VehicleStatus } from "../providers/types"
-import { FuelPrice, FuelPrices, GRADES, PluginCapability, PluginRef, Settlement } from "./types"
+import { FuelPrice, FuelPrices, GRADES, InfoBatch, InfoCard, InfoCardDecl, InfoRow, InfoTone, PluginCapability, PluginRef, Settlement } from "./types"
 
 export const PLUGIN_CONTRACT = 1
 /** 插件文件夹里的标记（D8）：只把带它的脚本列为可添加的插件，不运行其他脚本 */
@@ -12,13 +12,17 @@ export type PluginAction = "describe" | "status" | "connect" | PluginCapability
 /** 油记等多久（docs/plugins.md 第 4 节）；connect 打开插件自己的页面，不限 */
 export const PLUGIN_TIMEOUT_MS: Record<PluginAction, number | null> = {
   describe: 5000, status: 5000, connect: null, vehicles: 20000, fuel: 20000, trips: 20000, vehicle_status: 10000, service: 60000, fuel_price: 10000,
+  // 信息卡片一批最多等 20 秒（小组件方案和信息卡片设计 D23）
+  info: 20000,
 }
 
-const CAPABILITIES: PluginCapability[] = ["fuel", "vehicles", "trips", "vehicle_status", "service", "fuel_price"]
+const CAPABILITIES: PluginCapability[] = ["fuel", "vehicles", "trips", "vehicle_status", "service", "fuel_price", "info"]
 /** 要关联到一辆车的数据：提供其中之一的插件必须提供 vehicles */
 export const VEHICLE_CAPABILITIES: PluginCapability[] = ["trips", "vehicle_status", "service"]
 
-export const CAPABILITY_TITLES: Record<PluginCapability, string> = { fuel: "加油交易", vehicles: "车辆", trips: "行程", vehicle_status: "车况", service: "养修", fuel_price: "油价" }
+export const CAPABILITY_TITLES: Record<PluginCapability, string> = {
+  fuel: "加油交易", vehicles: "车辆", trips: "行程", vehicle_status: "车况", service: "养修", fuel_price: "油价", info: "信息",
+}
 
 /** 「加油交易、行程」 */
 export function capabilityLine(caps: PluginCapability[]): string {
@@ -84,7 +88,8 @@ function two(v: unknown): number | null {
   return n == null ? null : Math.round(n * 100) / 100
 }
 
-export type PluginInfo = { id: string; name: string; version: string; capabilities: PluginCapability[] }
+/** describe 的结果；cards 是插件声明会给的信息卡片（2.6，docs/plugins.md 第 9 节） */
+export type PluginInfo = { id: string; name: string; version: string; capabilities: PluginCapability[]; cards: InfoCardDecl[] }
 
 export function parseDescribe(raw: unknown): PluginResult<PluginInfo> {
   const e = envelope(raw)
@@ -94,7 +99,18 @@ export function parseDescribe(raw: unknown): PluginResult<PluginInfo> {
   const id = text(r.id)
   if (!id) return fail("invalid")
   const caps = Array.isArray(r.capabilities) ? CAPABILITIES.filter(c => (r.capabilities as unknown[]).includes(c)) : []
-  return { ok: true, value: { id, name: text(r.name) ?? id, version: text(r.version) ?? "", capabilities: caps } }
+  return { ok: true, value: { id, name: text(r.name) ?? id, version: text(r.version) ?? "", capabilities: caps, cards: cardDecls(r.cards) } }
+}
+
+/** 声明的卡片：要有 id 和标题，同一个 id 只留第一个 */
+function cardDecls(raw: unknown): InfoCardDecl[] {
+  const out: InfoCardDecl[] = []
+  for (const x of Array.isArray(raw) ? raw : []) {
+    const id = isObject(x) ? idText(x.id) : null
+    const title = isObject(x) ? text(x.title) : null
+    if (id && title && !out.some(c => c.id === id)) out.push({ id, title })
+  }
+  return out
 }
 
 /** status 和 connect 的返回；account 是插件打码后的账号 */
@@ -251,6 +267,37 @@ export function parseFuelPrices(raw: unknown): PluginResult<FuelPrices> {
   return { ok: true, value: { region, effective: num(e.value.effective), items } }
 }
 
+// ---------- 信息卡片（docs/plugins.md 第 9 节，2.6） ----------
+
+const tone = (v: unknown): InfoTone | null => (v === "good" || v === "warn" ? v : null)
+
+function infoRow(raw: unknown): InfoRow | null {
+  if (!isObject(raw)) return null
+  const label = text(raw.label)
+  const value = text(raw.value)
+  return label && value ? { label, value, detail: text(raw.detail), tone: tone(raw.tone) } : null
+}
+
+/** 一张卡片：缺 id、标题或有效期时不要；行不对时只丢那一行 */
+function infoCard(raw: unknown): InfoCard | null {
+  if (!isObject(raw)) return null
+  const id = idText(raw.id)
+  const title = text(raw.title)
+  const until = num(raw.until)
+  if (!id || !title || until == null) return null
+  const rows = Array.isArray(raw.rows) ? raw.rows.map(infoRow).filter((r): r is InfoRow => !!r) : []
+  return { id, title, icon: text(raw.icon), tone: tone(raw.tone), rows, empty: text(raw.empty), note: text(raw.note), summary: text(raw.summary), until }
+}
+
+/** info 一批的返回：cards 不是数组时数据不对；next 是下一批的 cursor，progress 是查着时写的一句 */
+export function parseInfo(raw: unknown): PluginResult<InfoBatch> {
+  const e = envelope(raw)
+  if (!e.ok) return e
+  if (!Array.isArray(e.value.cards)) return fail("invalid")
+  const cards = e.value.cards.map(infoCard).filter((c): c is InfoCard => !!c)
+  return { ok: true, value: { cards, next: text(e.value.next), progress: text(e.value.progress) } }
+}
+
 // ---------- 养修（docs/plugins.md 第 7 节） ----------
 
 const isObject = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v)
@@ -358,7 +405,7 @@ export function addProblem(info: PluginInfo, plugins: PluginRef[]): string | nul
 }
 
 export function pluginRef(script: string, info: PluginInfo): PluginRef {
-  return { script, id: info.id, name: info.name, capabilities: info.capabilities, version: info.version }
+  return { script, id: info.id, name: info.name, capabilities: info.capabilities, version: info.version, ...(info.cards.length ? { cards: info.cards } : {}) }
 }
 
 /**
@@ -369,6 +416,7 @@ export function refreshedRef(ref: PluginRef, info: PluginInfo, plugins: PluginRe
   if (info.id !== ref.id || addProblem(info, plugins.filter(p => p.id !== ref.id))) return null
   const next = pluginRef(ref.script, info)
   const same = next.name === ref.name && next.version === ref.version && next.capabilities.join() === ref.capabilities.join()
+    && JSON.stringify(next.cards ?? []) === JSON.stringify(ref.cards ?? [])
   return same ? null : next
 }
 

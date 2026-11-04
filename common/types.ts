@@ -317,8 +317,8 @@ export type Settings = {
   widget_presets?: WidgetPreset[]
 }
 
-/** 数据源插件能提供的数据（docs/plugins.md 第 4 节）；提供 trips、vehicle_status、service 之一的必须提供 vehicles */
-export type PluginCapability = "fuel" | "vehicles" | "trips" | "vehicle_status" | "service" | "fuel_price"
+/** 数据源插件能提供的数据（docs/plugins.md 第 4 节）；提供 trips、vehicle_status、service 之一的必须提供 vehicles；info 是信息卡片（2.6） */
+export type PluginCapability = "fuel" | "vehicles" | "trips" | "vehicle_status" | "service" | "fuel_price" | "info"
 
 /** 挂牌价（docs/plugins.md 第 8 节，2.4）：grade 是 92、95、98、0，price 是元/升 */
 export type FuelPrice = { grade: number; price: number }
@@ -327,8 +327,37 @@ export type FuelPrices = { region: string; effective: number | null; items: Fuel
 /** 交给插件查油价的地区：省、市的短名（「上海」「广西」「南宁」，加满金额设计第 3 节） */
 export type PriceRegion = { province: string; city: string }
 
-/** 添加的插件：脚本名（`Script.run` 用）、插件自己的 id、名称、提供的数据；version 是上次 describe 时的版本（2.4 起，插件更新后重读） */
-export type PluginRef = { script: string; id: string; name: string; capabilities: PluginCapability[]; version?: string }
+/**
+ * 添加的插件：脚本名（`Script.run` 用）、插件自己的 id、名称、提供的数据；version 是上次 describe 时的版本（2.4 起，插件更新后重读）；
+ * cards 是它声明会给的信息卡片（2.6 起，小组件方案的菜单按它列）
+ */
+export type PluginRef = { script: string; id: string; name: string; capabilities: PluginCapability[]; version?: string; cards?: InfoCardDecl[] }
+
+/** 插件在 describe 里声明的一张信息卡片（docs/plugins.md 第 9 节，2.6） */
+export type InfoCardDecl = { id: string; title: string }
+/** 信息卡片的语气：good 绿色、warn 橙色，不给是普通（小组件方案和信息卡片设计 D27） */
+export type InfoTone = "good" | "warn"
+/** 卡片的一行：左边 label、下面 detail，右边 value */
+export type InfoRow = { label: string; value: string; detail: string | null; tone: InfoTone | null }
+/** 一张信息卡片：文字、数量和有效期都由插件给，油记只按字段画（设计 7.1 节） */
+export type InfoCard = {
+  id: string
+  title: string
+  /** 系统图标的名称，写在摘要前面 */
+  icon: string | null
+  /** 摘要的语气 */
+  tone: InfoTone | null
+  rows: InfoRow[]
+  /** 一行都没有时写的一句 */
+  empty: string | null
+  note: string | null
+  /** 一行摘要：记录页「当前」和小组件的「这一箱」 */
+  summary: string | null
+  /** 有效到什么时候（毫秒）；过了不显示，打开油记时重查 */
+  until: number
+}
+/** info 动作一批的返回：到这一批为止的全部卡片、下一批的 cursor、查着时写的一句 */
+export type InfoBatch = { cards: InfoCard[]; next: string | null; progress: string | null }
 
 /** 账本（2.0 的格式，ledger2.json）：所有车辆的记录、保险、权益、门店都在这里 */
 export type LedgerFile = {

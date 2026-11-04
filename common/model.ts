@@ -12,9 +12,12 @@ export { consumptionById } from "./fuel"
 export { currentTank, fuelLow, fuelRatio, statusWhen } from "./widget_data"
 export type { CurrentTank, FuelTone, WidgetContent, WidgetPreset, WidgetSlot, WidgetSnapshot } from "./widget_data"
 export {
-  addPreset, autoContent, CONTENT_TITLES, DEFAULT_PRESET, presetList, presetNameProblem, removePreset, renamePreset, resetDefault, setPresetSlot, SLOT_CHOICES, SLOT_TITLES,
-  usedElsewhere,
+  addPreset, autoContent, cardChoices, CONTENT_TITLES, DEFAULT_PRESET, presetList, presetNameProblem, removePreset, renamePreset, resetDefault, setPresetCard, setPresetSlot,
+  SLOT_CHOICES, SLOT_TITLES, usedElsewhere,
 } from "./widget_layout"
+export type { CardRef, CardSlot } from "./widget_data"
+export { infoSummary, infoTop, progressText } from "./info_cards"
+export type { InfoPluginView, InfoTop } from "./info_cards"
 export type { StatusSnapshot } from "./status_source"
 export { checkExpense, checkFuel, completeTriple, expenseDuplicateText, findExpenseDuplicate, keptNumber, numText, parseNum } from "./form"
 export type { Triple, TripleField } from "./form"
@@ -105,4 +108,5 @@ export type { BackupEntry } from "./backup_plan"
 export { backupTime } from "./backup_plan"
 export { buildWidgetSnapshot, saveWidgetSnapshot } from "../app/widget_snapshot"
 export { fillViewFor, pricePluginId, refreshFuelPrice } from "../app/fuel_price"
+export { infoKey, infoViewsFor, refreshInfo, watchInfo } from "../app/info_cards"
 export type { FillView } from "../common/fill_cost"

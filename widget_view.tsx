@@ -8,12 +8,14 @@
 // - 油量条的宽度按小组件的尺寸算：主屏幕小组件里形状的宽度以 frame 为准（参考本地脚本 SGCC_Mod 的做法）。
 // 加满金额（2.4，加满金额设计第 5 节）：油记写进价格，这里按车况的剩余油量算。
 // 小组件方案（2.5，小组件方案设计第 2–4 节）：大数字、四格、锁屏圆形中间按方案放内容（common/widget_layout.ts），其余不变。
+// 插件的信息卡片（2.6，同一设计 7.3 节，画稿 R27Widget）：方案可以把中号、大号的「这一箱」换成卡片的摘要，大号的「最近加油」换成卡片；
+// 只读摘要里的卡片，不调插件；取不到时写原因（D26）。
 import {
   AccessoryWidgetBackground, Capsule, Circle, DynamicShapeStyle, Gauge, Group, HStack, Image, Link, ProgressView, Rectangle, Script, Spacer, Text, VirtualNode, VStack, ZStack,
 } from "scripting"
 import {
-  CellText, cellText, circleText, consumptionLevel, consumptionTrend, daysAgoText, drivenSinceFill, fillAmountNow, fillDay, fuelRatio, fuelTone, hasContent, heroText,
-  HOME_SLOTS, Placed, placeSlots, WidgetFill, WidgetPreset, WidgetSlot, WidgetSnapshot, WidgetStatus,
+  cardLine, CardSlot, cardSlotView, CellText, cellText, circleText, consumptionLevel, consumptionTrend, daysAgoText, drivenSinceFill, fillAmountNow, fillDay, fuelRatio, fuelTone,
+  hasContent, heroText, HOME_SLOTS, Placed, placeSlots, WidgetCard, WidgetFill, WidgetPreset, WidgetSlot, WidgetSnapshot, WidgetStatus,
 } from "./common/widget_runtime"
 
 export { presetFor, readWidgetSnapshot, refreshWidgetStatus, widgetRefreshDate } from "./common/widget_runtime"
@@ -79,6 +81,14 @@ const litres = (st: WidgetStatus) => (st.fuel_l == null ? "—" : String(Math.ro
 const statusOf = (s: WidgetSnapshot) => (s.status_source ? s.status : null)
 /** 按方案放好中号、大号的五格（小组件方案设计第 4 节） */
 const placeHome = (s: WidgetSnapshot, preset: WidgetPreset) => placeSlots(preset, HOME_SLOTS, c => hasContent(s, c))
+/** 方案把这一格换成了卡片时它的组名、插件名和卡片；照旧（没换、插件移除了）时 null */
+function cardSlot(s: WidgetSnapshot, preset: WidgetPreset, slot: CardSlot) {
+  const ref = preset.cards?.[slot]
+  return ref ? cardSlotView(s, ref) : null
+}
+type CardSlotView = NonNullable<ReturnType<typeof cardSlot>>
+/** 卡片的语气（D27）：好是绿色，提醒是橙色，和这里的配色一致 */
+const toneColor = (tone: WidgetCard["tone"]) => (tone === "good" ? C.good : tone === "warn" ? C.bad : C.sub)
 
 /** 大数字和单位，按文字基线对齐；low 时数字用橙色（剩余油量低，和车况详情一样） */
 function BigNumber({ value, size, unit, low }: { value: string; size: number; unit?: string; low?: boolean }) {
@@ -191,6 +201,64 @@ function TankCell({ s, st, barWidth, compact }: { s: WidgetSnapshot; st: WidgetS
   </VStack>
 }
 
+/** 组名和插件名一行（卡片的两种格子都有） */
+function CardHead({ v, size }: { v: CardSlotView; size: number }) {
+  return <HStack>
+    <Text font={size} foregroundStyle={C.sub} lineLimit={1}>{v.title}</Text>
+    <Spacer minLength={4} />
+    <Text font={size} foregroundStyle={C.sub} lineLimit={1}>{v.plugin}</Text>
+  </HStack>
+}
+
+/** 「这一箱」换成卡片的摘要（画稿 R27Widget 中号）：上面组名和插件名，下面图标和摘要；取不到时写原因，一行都没有写 empty（D26） */
+function CardSummaryCell({ v, compact }: { v: CardSlotView; compact: boolean }) {
+  const size = compact ? 11 : 12
+  const line = v.card ? cardLine(v.card, v.card.row_count) : { text: v.reason ?? "还没读到", tone: null }
+  // 摘要按语气上色，没有语气时正文的颜色；「共 N 条」、empty 和原因用次要的颜色
+  const color = line.tone ? toneColor(line.tone) : v.card && v.card.summary ? "label" : C.sub
+  return <VStack
+    alignment="leading"
+    spacing={3}
+    padding={{ horizontal: compact ? 10 : 12, vertical: compact ? 7 : 9 }}
+    frame={{ maxWidth: "infinity", alignment: "leading" }}
+    {...bg(C.cell, rounded(12))}
+  >
+    <CardHead v={v} size={size} />
+    <HStack spacing={4}>
+      {v.card && v.card.icon ? <Image systemName={v.card.icon} font={size + 1} fontWeight="semibold" foregroundStyle={color} /> : null}
+      <Text font={size + 1} fontWeight="semibold" foregroundStyle={color} lineLimit={1} minScaleFactor={0.8}>{line.text}</Text>
+    </HStack>
+  </VStack>
+}
+
+/** 大号「最近加油」换成卡片（画稿 R27Widget 大号）：组名和插件名，下面前 3 行；一行都没有写 empty，取不到时写原因（D26） */
+function CardListCell({ v, width }: { v: CardSlotView; width: number }) {
+  const rows = v.card ? v.card.rows : []
+  return <VStack
+    alignment="leading"
+    spacing={5}
+    padding={{ top: 9, leading: 14, trailing: 14, bottom: 8 }}
+    frame={{ maxWidth: "infinity", maxHeight: "infinity", alignment: "topLeading" }}
+    {...bg(C.cell, rounded(14))}
+  >
+    <CardHead v={v} size={12} />
+    {rows.length
+      ? rows.map((r, i) => <VStack key={`${i}`} spacing={5}>
+        {i ? <Rectangle fill={C.divider} frame={{ width: width - 28, height: 0.5 }} /> : null}
+        <HStack spacing={10}>
+          <VStack alignment="leading" spacing={1}>
+            <Text font={14} lineLimit={1}>{r.label}</Text>
+            {r.detail ? <Text font={11} foregroundStyle={C.sub} lineLimit={1}>{r.detail}</Text> : null}
+          </VStack>
+          <Spacer minLength={6} />
+          <Text font={14} fontWeight={r.tone ? "semibold" : "regular"} foregroundStyle={r.tone ? toneColor(r.tone) : C.sub} lineLimit={1}>{r.value}</Text>
+        </HStack>
+      </VStack>)
+      : <Text font={13} foregroundStyle={C.sub}>{v.card ? v.card.empty ?? "还没读到" : v.reason ?? "还没读到"}</Text>}
+    <Spacer minLength={0} />
+  </VStack>
+}
+
 /** 中号、大号的左栏：大数字（默认是最近油耗和对比，右上角是那次加油的日期），底部「记加油」 */
 function LeftPanel({ s, hero, width, size }: { s: WidgetSnapshot; hero: Placed; width: number; size: number }) {
   const h = heroText(s, hero)
@@ -238,10 +306,11 @@ function Small({ s, preset }: { s: WidgetSnapshot; preset: WidgetPreset }) {
   </VStack>
 }
 
-/** 中号：左栏大数字和「记加油」；右边四格，有车况时最下面是这一箱的油量条 */
+/** 中号：左栏大数字和「记加油」；右边四格，有车况时最下面是这一箱的油量条（方案换成卡片时是卡片的摘要） */
 function Medium({ s, preset, width }: { s: WidgetSnapshot; preset: WidgetPreset; width: number }) {
   const st = statusOf(s)
   const placed = placeHome(s, preset)
+  const tank = cardSlot(s, preset, "tank")
   const inner = width - PAD * 2
   const leftW = Math.round(inner * 0.4)
   const rightW = inner - leftW - 10
@@ -250,7 +319,7 @@ function Medium({ s, preset, width }: { s: WidgetSnapshot; preset: WidgetPreset;
     <Tap url={openURL()}>
       <VStack spacing={6} frame={{ minWidth: rightW, maxWidth: rightW, maxHeight: "infinity" }}>
         <CellGrid s={s} placed={placed} compact />
-        {st ? <TankCell s={s} st={st} barWidth={rightW - 20} compact /> : null}
+        {tank ? <CardSummaryCell v={tank} compact /> : st ? <TankCell s={s} st={st} barWidth={rightW - 20} compact /> : null}
       </VStack>
     </Tap>
   </HStack>
@@ -300,10 +369,12 @@ function RecentFills({ s, width }: { s: WidgetSnapshot; width: number }) {
   </VStack>
 }
 
-/** 大号：上面同中号（左栏和四格），中间这一箱的油量条，下面最近 3 次加油 */
+/** 大号：上面同中号（左栏和四格），中间这一箱的油量条，下面最近 3 次加油；这两格方案可以换成卡片 */
 function Large({ s, preset, width }: { s: WidgetSnapshot; preset: WidgetPreset; width: number }) {
   const st = statusOf(s)
   const placed = placeHome(s, preset)
+  const tank = cardSlot(s, preset, "tank")
+  const list = cardSlot(s, preset, "list")
   const inner = width - PAD * 2
   const leftW = Math.round(inner * 0.43)
   return <VStack spacing={8} padding={PAD}>
@@ -315,8 +386,8 @@ function Large({ s, preset, width }: { s: WidgetSnapshot; preset: WidgetPreset; 
     </HStack>
     <Tap url={openURL()}>
       <VStack spacing={8}>
-        {st ? <TankCell s={s} st={st} barWidth={inner - 24} compact={false} /> : null}
-        <RecentFills s={s} width={inner} />
+        {tank ? <CardSummaryCell v={tank} compact={false} /> : st ? <TankCell s={s} st={st} barWidth={inner - 24} compact={false} /> : null}
+        {list ? <CardListCell v={list} width={inner} /> : <RecentFills s={s} width={inner} />}
       </VStack>
     </Tap>
   </VStack>

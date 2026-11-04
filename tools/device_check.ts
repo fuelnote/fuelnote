@@ -1,6 +1,6 @@
 // 手机上的自动检查（电脑端）。手机上开着「FuelNote Check」（tools/check），它向采样服务报到后，这里直接请求手机。说明见 tools/check/README.md。
 //
-//   XXYH_ROOT=E:/GitHub/xxyh npx tsx tools/device_check.ts [recognize] [ledger] [shots] [split] [benefits] [export] [service] [plugin] [map] [fill] [presets]   （不写时都做）
+//   XXYH_ROOT=E:/GitHub/xxyh npx tsx tools/device_check.ts [recognize] [ledger] [shots] [split] [benefits] [export] [service] [plugin] [map] [fill] [presets] [info]   （不写时都做）
 //
 // 真实数据（期望值、小熊里的保险费用、小熊备份）只从 XXYH_ROOT 读，计划在这里生成后发给手机；结果和截图存到 XXYH_ROOT/out/check/，不进仓库。
 // split（1.6，设计文档第 21 节）：把最新的小熊备份发给手机，在检查用的文件夹里导入选中的那辆车，用同一套纯函数算出期望值来比较。
@@ -330,6 +330,21 @@ async function presetsCheck(phone: string): Promise<number> {
   return bad
 }
 
+const SHOTS_INFO: Array<[string, number]> = [
+  ["info-sheet", 1500], ["info-sheet-busy", 1500], ["info-sheet-empty", 1500], ["info-current", 0], ["info-bare", 0], ["info-bare-sheet", 0],
+  ["info-widgets", 1700], ["info-settings", 1500],
+]
+
+/** 信息卡片（2.6）：示例插件分两批给的卡片，什么时候查、「当前」那一行、小组件的摘要、移除插件后清掉；截图车况详情、记录页、小组件、小组件方案 */
+async function infoCheck(phone: string): Promise<number> {
+  const r = await post<{ steps: Step[] }>(`${phone}/run/info`, {})
+  writeFileSync(join(OUT, "info.json"), JSON.stringify(r, null, 1))
+  for (const s of r.steps) console.log(`  ${s.ok ? "✓" : "✗"} ${s.name}${s.detail ? `（${s.detail}）` : ""}`)
+  const bad = r.steps.filter(s => !s.ok).length
+  console.log(`信息卡片：${r.steps.length} 项，${bad ? `${bad} 项不对` : "全部通过"}`)
+  return bad
+}
+
 async function shots(phone: string, screens: Array<[string, number]>): Promise<number> {
   mkdirSync(join(OUT, "shots"), { recursive: true })
   let failed = 0
@@ -402,6 +417,11 @@ async function main() {
   if (run("presets")) {
     bad += await presetsCheck(phone)
     bad += await shots(phone, SHOTS_PRESETS)
+  }
+  // 要在 fill 之后（示例车况），截图还要 split 导入的真车（没有车况的车）；会把默认方案的「最近加油」换成示例卡片
+  if (run("info")) {
+    bad += await infoCheck(phone)
+    bad += await shots(phone, SHOTS_INFO)
   }
   process.exitCode = bad ? 1 : 0
 }

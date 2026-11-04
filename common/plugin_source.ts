@@ -4,15 +4,17 @@
 // - 养修按「插件 + 车辆」缓存 10 分钟（插件化设计 3.4 节）；下拉不看缓存，出错不缓存；
 // - 车辆、行程、车况这里不缓存：行程、车况的缓存和内置的数据源共用，在 app/vehicle_data.ts（插件化设计第 5 节）；
 // - 油价这里不缓存，按地区缓存在 app/fuel_price.ts（加满金额设计第 4 节）；查油价不用登录，结果不改插件的连接状态；
+// - 信息卡片（2.6）同样这里不缓存、不改连接状态，缓存在 app/info_cards.ts；
 // - 记下每个插件上次调用的结果（已连接、未连接、已过期），记加油的入口和设置里显示。
 // 纯逻辑：调用插件、读写缓存、时钟和计时都由调用方注入（照 common/stop_source.ts 的写法），Node 测试可用。
 import { RemoteVehicle, ServiceVisit, Trip, VehicleStatus } from "../providers/types"
 import { BJ_OFFSET } from "./format"
 import {
-  FuelTxn, parseDescribe, parseFuel, parseFuelPrices, parseService, parseStatus, parseTrips, parseVehicles, parseVehicleStatus, PluginAction, pluginError, PluginInfo, PluginResult,
+  FuelTxn, parseDescribe, parseFuel, parseFuelPrices, parseInfo, parseService, parseStatus, parseTrips, parseVehicles, parseVehicleStatus, PluginAction, pluginError, PluginInfo,
+  PluginResult,
   PluginState, PluginStatus, PLUGIN_TIMEOUT_MS, stateOfError, stateOfStatus,
 } from "./plugin"
-import { FuelPrices, PluginRef, PriceRegion } from "./types"
+import { FuelPrices, InfoBatch, PluginRef, PriceRegion } from "./types"
 
 export const RECENT_MONTH_TTL_MS = 10 * 60e3
 export const OLD_MONTH_TTL_MS = 86400e3
@@ -59,6 +61,8 @@ export type PluginSource = {
   service(ref: PluginRef, vehicle: string, opts?: { force?: boolean }): Promise<PluginResult<ServiceVisit[]>>
   /** 这个地区的挂牌价（2.4） */
   fuelPrice(ref: PluginRef, region: PriceRegion): Promise<PluginResult<FuelPrices>>
+  /** 信息卡片的一批（2.6）：不缓存（缓存在 app/info_cards.ts），不改插件的连接状态 */
+  info(ref: PluginRef, params: Record<string, unknown>): Promise<PluginResult<InfoBatch>>
   lastState(pluginId: string): PluginState | null
   /** 移除插件：清掉它的缓存和状态 */
   forget(pluginId: string): void
@@ -253,6 +257,7 @@ export function createPluginSource(deps: PluginSourceDeps): PluginSource {
     vehicleStatus: (ref, vehicle) => read(ref, "vehicle_status", { vehicle }, parseVehicleStatus),
     service,
     fuelPrice: (ref, region) => read(ref, "fuel_price", { province: region.province, city: region.city }, parseFuelPrices, false),
+    info: (ref, params) => read(ref, "info", params, parseInfo, false),
     lastState: id => cache().states[id] ?? null,
     forget,
   }

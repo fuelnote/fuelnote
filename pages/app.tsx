@@ -4,6 +4,7 @@ import { AppEvents, Navigation, Script, Tab, TabView, Widget, useEffect, useMemo
 import {
   addVehicle, AppData, batchInfo, batchPerks, cachedStatus, canReadStatus, categoriesFor, categoryName, currentVehicle, defaultCategory, defaultUse,
   deleteInsurance, deletePerks, deleteRecord, deleteStore, deleteUse, dismissRenewal, expenseEntries, ExpenseEntry, fillViewFor, pricePluginId, refreshFuelPrice, refreshPlugins,
+  infoKey, InfoPluginView, infoViewsFor, refreshInfo,
   ExpenseRecord, expenseUses, finishAutoBackup, flushAutoBackup, fmtDate, fmtDateTime, insuranceForRecord, InsuranceYear, LedgerRecord, loadData, MAINTENANCE_CATEGORY, newId,
   NewVehicle, Perk, perkBook, PerkUse, readVehicleStatus, remaining, sameName, saveBatch, saveExpense, saveFuel,
   saveInsurance, savePerk, savePerks, saveStore, saveUse, saveWidgetSnapshot, scheduleAutoBackup, sourceOf, Store, toExpenseData, toFuelData, updateSettings,
@@ -26,6 +27,7 @@ import { ExpenseTab } from "./expense_tab"
 import { FuelForm, FuelFormResult } from "./fuel_form"
 import { StatusSheet, StatusView } from "./fuel_status"
 import { FuelTab } from "./fuel_tab"
+import { InfoSheet } from "./info_cards"
 import { SettingsPage } from "./settings"
 import { VehicleAdd } from "./vehicle_add"
 import { VehicleMenuActions } from "./vehicle_menu"
@@ -53,10 +55,13 @@ export function App({ action, image, notice }: { action: string | null; image: U
   /** 数据放回去；label 不是 undefined 时标题下方的提示一起换（同一次渲染） */
   const setData = (d: AppData, label?: string | null) => {
     const priceChanged = pricePluginId(ref.current) !== pricePluginId(d)
+    const infoChanged = infoKey(ref.current) !== infoKey(d)
     ref.current = d
     setUi(u => ({ data: d, message: label === undefined ? u.message : label }))
     // 添加或移除了提供油价的插件：重新读油价（加满金额设计第 4 节）
     if (priceChanged) void refreshPrice()
+    // 添加了提供信息卡片的插件、换了车辆或默认标号：要查时查（小组件方案和信息卡片设计 7.2 节）
+    if (infoChanged) void refreshCards()
     saveWidgetSnapshot(d)
     Widget.reloadAll()
     // 改了数据就自动备份：1 分钟内没有新的修改再写（只是界面状态变了时不写）
@@ -126,37 +131,57 @@ export function App({ action, image, notice }: { action: string | null; image: U
   }
 
   /** 车况的显示状态；当前车辆不能读车况时为 null（油耗 › 记录没有「当前」一组） */
-  function statusView(d: AppData): StatusView | null {
+  function statusView(d: AppData, info: InfoPluginView[] = infoViewsFor(d)): StatusView | null {
     const v = currentVehicle(d)
     if (!v || !v.provider || !canReadStatus(d, v)) return null
     const snapshot = cachedStatus(d, v)
     return {
       snapshot, tank: vehicleTank(d, v), busy: statusBusy, error: statusError, source: sourceOf(d, v)?.name || "车辆数据",
-      fill: fillViewFor(d, v, snapshot ? snapshot.status : null),
+      fill: fillViewFor(d, v, snapshot ? snapshot.status : null), info,
     }
   }
 
-  /** 车况详情：看完整数据、重新读取 */
+  /** 车况详情：看完整数据、重新读取；插件的信息卡片可以重新查 */
   function openStatus() {
     Navigation.present({
       element: <StatusSheet
-        get={() => statusView(getData()) || { snapshot: null, tank: null, busy: false, error: null, source: "车辆数据", fill: null }}
+        get={() => statusView(getData()) || { snapshot: null, tank: null, busy: false, error: null, source: "车辆数据", fill: null, info: infoViewsFor(getData()) }}
         refresh={() => refreshStatus(true)}
+        refreshInfo={() => { void refreshCards(true) }}
       />,
     })
+  }
+
+  /** 没有车况的车：记录页最上面那一组点开，弹出全部的信息卡片（小组件方案和信息卡片设计 D14） */
+  function openInfo() {
+    Navigation.present({ element: <InfoSheet get={() => infoViewsFor(getData())} refresh={() => { void refreshCards(true) }} /> })
   }
 
   /** 当前车辆的车况（2.3 起打开油记时不再读行程：记录页没有加油停车提示了，插件化设计 D2） */
   function refreshVehicle(force = false) {
     void (async () => {
-      // 插件更新以后先重读它提供的数据（2.4，例如易捷 0.3.0 加了油价），再读油价
+      // 插件更新以后先重读它提供的数据（2.4，例如易捷 0.3.0 加了油价），再读油价和信息卡片（两个互不等待，所在地区共用一次定位）
       try {
         const next = await refreshPlugins(getData)
         if (next) setData(next)
       } catch { /* 下次打开再读 */ }
-      await refreshPrice()
+      await Promise.all([refreshPrice(), refreshCards()])
     })()
     return refreshStatus(force)
+  }
+
+  /**
+   * 插件的信息卡片（小组件方案和信息卡片设计 7.2 节）：没有卡片、卡片过了有效期、标号或地区变了才查，force 是「重新查」；
+   * 一批一批地查，每批后更新「当前」、车况详情和小组件
+   */
+  async function refreshCards(force = false) {
+    try {
+      await refreshInfo(getData(), () => {
+        saveWidgetSnapshot(getData())
+        Widget.reloadAll()
+        setStatusVersion(Date.now())
+      }, force)
+    } catch { /* 下次打开再查 */ }
   }
 
   /** 读油价（加满金额设计第 4 节）：一天一次、地区变了才调插件，和车况互不等待；变了就更新小组件和「当前」 */
@@ -574,16 +599,21 @@ export function App({ action, image, notice }: { action: string | null; image: U
   const ben = viewOf(TAB_BENEFITS)
   const set = viewOf(TAB_SETTINGS)
 
-  const fuelTab = useMemo(() => <FuelTab data={fuel.data} subtitle={fuel.subtitle} openStatus={openStatus}
-    // 车况在油耗 › 记录最上面的「当前」一组（设计文档 18.2 节）；不能读车况时没有这一组
-    status={statusView(fuel.data)}
-    actions={{
-      addFuel: () => addFuel(),
-      edit,
-      remove,
-      ...vehicleActions,
-      refresh: async () => { await refreshVehicle(true) },
-    }} />, [fuel.data, fuel.subtitle, statusBusy, statusError, statusVersion])
+  const fuelTab = useMemo(() => {
+    const info = infoViewsFor(fuel.data)
+    return <FuelTab data={fuel.data} subtitle={fuel.subtitle} openStatus={openStatus}
+      // 车况在油耗 › 记录最上面的「当前」一组（设计文档 18.2 节）；不能读车况时没有这一组，有插件的信息卡片时放卡片（2.6，D14）
+      status={statusView(fuel.data, info)}
+      info={info}
+      openInfo={openInfo}
+      actions={{
+        addFuel: () => addFuel(),
+        edit,
+        remove,
+        ...vehicleActions,
+        refresh: async () => { await refreshVehicle(true) },
+      }} />
+  }, [fuel.data, fuel.subtitle, statusBusy, statusError, statusVersion])
 
   const expenseTab = useMemo(() => <ExpenseTab data={exp.data} subtitle={exp.subtitle} actions={{
     addExpense: () => { const v = requireVehicle(); if (v) openExpense(v, null) },

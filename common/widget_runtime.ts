@@ -11,8 +11,8 @@ export {
   consumptionLevel, consumptionTrend, daysAgoText, drivenSinceFill, fillAmountNow, fillDay, fuelRatio, fuelTone, moneyText, monthCostNow, readWidgetSnapshot,
   WIDGET_STATUS_MAX_AGE_MS, widgetRefreshDate, yearCostNow,
 } from "./widget_data"
-export type { ConsumptionLevel, FuelTone, Trend, WidgetFill, WidgetPreset, WidgetSlot, WidgetSnapshot, WidgetStatus } from "./widget_data"
-export { cellText, circleText, hasContent, heroText, HOME_SLOTS, placeSlots, presetFor } from "./widget_layout"
+export type { CardSlot, ConsumptionLevel, FuelTone, Trend, WidgetCard, WidgetFill, WidgetPreset, WidgetSlot, WidgetSnapshot, WidgetStatus } from "./widget_data"
+export { cardLine, cardSlotView, cellText, circleText, hasContent, heroText, HOME_SLOTS, placeSlots, presetFor } from "./widget_layout"
 export type { CellText, Placed } from "./widget_layout"
 
 const LOCK_FILE = "widget_status_lock.json"

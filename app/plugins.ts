@@ -2,9 +2,10 @@
 // 排队、超时和缓存在 common/plugin_source.ts，这里注入 Script.run 和缓存文件。FuelNote Check 的数据文件夹里只放行示例插件。
 import { joinPath } from "../common/files"
 import { AppData } from "../common/ledger"
+import { forgetInfo, INFO_CACHE_FILE, InfoCache } from "../common/info_cards"
 import { addProblem, FuelTxn, PLUGIN_MARKER, pluginRef, PluginResult, PluginState, PluginStatus, refreshedRef } from "../common/plugin"
 import { createPluginSource, PluginCacheFile } from "../common/plugin_source"
-import { FuelPrices, PluginCapability, PluginRef, PriceRegion } from "../common/types"
+import { FuelPrices, InfoBatch, PluginCapability, PluginRef, PriceRegion } from "../common/types"
 import { callPlugin } from "../platform/plugin_bridge"
 import { isMainDataRoot, readCache, writeCache } from "../platform/storage"
 import { RemoteVehicle, ServiceVisit, Trip, VehicleStatus } from "../providers/types"
@@ -94,9 +95,11 @@ export async function refreshPlugins(getData: () => AppData): Promise<AppData | 
   return updateSettings(data, { plugins: pluginsOf(data).map(p => updates.get(p.id) ?? p) })
 }
 
-/** 移除：只从油记里去掉，清掉它的缓存；不删脚本，也不动插件里的凭据，已记的加油不受影响 */
+/** 移除：只从油记里去掉，清掉它的缓存（2.6 起也清掉它的信息卡片，卡-7）；不删脚本，也不动插件里的凭据，已记的加油不受影响 */
 export function removePlugin(data: AppData, id: string): AppData {
   source.forget(id)
+  const info = readCache<InfoCache>(INFO_CACHE_FILE)
+  if (info && info.plugins?.[id]) writeCache(INFO_CACHE_FILE, forgetInfo(info, id))
   return updateSettings(data, { plugins: pluginsOf(data).filter(p => p.id !== id) })
 }
 
@@ -123,3 +126,6 @@ export function pluginService(ref: PluginRef, vehicle: string, force = false): P
 
 /** 这个地区的挂牌价（加满金额设计第 2 节）；按地区的缓存在 app/fuel_price.ts */
 export const pluginFuelPrice = (ref: PluginRef, region: PriceRegion): Promise<PluginResult<FuelPrices>> => source.fuelPrice(ref, region)
+
+/** 信息卡片的一批（小组件方案和信息卡片设计 7.1 节）；缓存在 app/info_cards.ts */
+export const pluginInfo = (ref: PluginRef, params: Record<string, unknown>): Promise<PluginResult<InfoBatch>> => source.info(ref, params)

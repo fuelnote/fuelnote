@@ -25,8 +25,27 @@ export type StatusLink = { key: string; provider: string; script: string; vehicl
 export type WidgetContent = "latest" | "average" | "fuel" | "range" | "fill" | "month" | "year" | "last_fill"
 /** 能选内容的格子（设计第 2 节，D7）：大数字是小号的主体和中号、大号的左栏；四格；锁屏圆形中间 */
 export type WidgetSlot = "hero" | "top_left" | "top_right" | "bottom_left" | "bottom_right" | "circle"
-/** 一套方案（设计第 5 节）：没写的格子是自动 */
-export type WidgetPreset = { name: string; slots: Partial<Record<WidgetSlot, WidgetContent>> }
+/** 中号、大号的「这一箱」（tank）和大号的「最近加油」（list）：2.6 起可以换成插件的信息卡片（设计第 2 节，D18） */
+export type CardSlot = "tank" | "list"
+/** 换成哪张卡片：card:<插件 id>/<卡片 id> */
+export type CardRef = `card:${string}`
+/** 一套方案（设计第 5 节）：没写的格子是自动；cards 是换成卡片的那两格，没写是照旧 */
+export type WidgetPreset = { name: string; slots: Partial<Record<WidgetSlot, WidgetContent>>; cards?: Partial<Record<CardSlot, CardRef>> }
+
+/** 摘要里的一张信息卡片（2.6）：小组件只读它，不调插件；行最多 3 行，row_count 是总行数 */
+export type WidgetCard = {
+  plugin_id: string
+  plugin_name: string
+  id: string
+  title: string
+  icon: string | null
+  tone: "good" | "warn" | null
+  rows: Array<{ label: string; value: string; detail: string | null; tone: "good" | "warn" | null }>
+  row_count: number
+  empty: string | null
+  summary: string | null
+  until: number
+}
 
 export type WidgetSnapshot = {
   schema_version: 1
@@ -57,12 +76,16 @@ export type WidgetSnapshot = {
   presets?: WidgetPreset[]
   /** 上个月（相对 month）的油费，只算加油：本月油费做大数字时下面写（2.5 起） */
   prev_month_cost?: number
+  /** 插件的信息卡片（2.6 起）：写的时候没过有效期的 */
+  cards?: WidgetCard[]
+  /** 方案里换成卡片的格子要写的组名和插件名（按 describe 的声明，还没查过也有） */
+  card_titles?: Record<CardRef, { title: string; plugin_name: string }>
 }
 
 export const EMPTY_WIDGET: WidgetSnapshot = {
   schema_version: 1, updated_at: 0, vehicle: null, status_source: false, status: null, status_link: null, latest_consumption: null, avg_consumption: null,
   last_fuel_ts: null, last_odometer: null, last_fuel_odometer: null, last_fuel_full: false, month: "", month_cost: 0, year: "", year_cost: 0, recent: [],
-  fill_price: null, presets: [], prev_month_cost: 0,
+  fill_price: null, presets: [], prev_month_cost: 0, cards: [], card_titles: {},
 }
 
 export function widgetFilePath(): string {

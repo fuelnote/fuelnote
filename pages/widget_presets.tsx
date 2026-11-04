@@ -1,14 +1,17 @@
 // 设置 › 小组件 › 方案（docs/specs/2026-11-04-presets-and-cards.md 第 5、6 节，画稿 R26Settings）：
-// 方案列表；一套方案的名称、大数字、四格、锁屏圆形、预览、删除（默认方案是还原）。规则在 common/widget_layout.ts。
+// 方案列表；一套方案的名称、大数字、四格、「这一箱」和「最近加油」（2.6，画稿 R27Settings）、锁屏圆形、预览、删除（默认方案是还原）。
+// 规则在 common/widget_layout.ts。
 import { Button, Divider, EnvironmentValuesReader, HStack, Image, List, Menu, NavigationLink, Section, Spacer, Text, TextField, useState, VStack, Widget } from "scripting"
 import {
-  addPreset, AppData, autoContent, buildWidgetSnapshot, CONTENT_TITLES, DEFAULT_PRESET, presetList, presetNameProblem, removePreset, renamePreset, resetDefault,
-  setPresetSlot, SLOT_CHOICES, SLOT_TITLES, updateSettings, usedElsewhere, WidgetContent, WidgetPreset, WidgetSlot, WidgetSnapshot,
+  addPreset, AppData, autoContent, buildWidgetSnapshot, cardChoices, CardRef, CardSlot, CONTENT_TITLES, DEFAULT_PRESET, pluginsOf, presetList, presetNameProblem, removePreset,
+  renamePreset, resetDefault, setPresetCard, setPresetSlot, SLOT_CHOICES, SLOT_TITLES, updateSettings, usedElsewhere, WidgetContent, WidgetPreset, WidgetSlot, WidgetSnapshot,
 } from "../common/model"
 import { AppActions, showError } from "./components"
 
 const presetsOf = (data: AppData): WidgetPreset[] => data.ledger.settings.widget_presets ?? []
 const CELL_SLOTS: WidgetSlot[] = ["top_left", "top_right", "bottom_left", "bottom_right"]
+/** 能换成卡片的两格（设计第 2 节，D18）：照旧时写的名称 */
+const CARD_SLOTS: Array<{ slot: CardSlot; title: string }> = [{ slot: "tank", title: "这一箱" }, { slot: "list", title: "最近加油" }]
 
 /** 改了就写账本：setData 里会重写小组件的摘要、刷新小组件 */
 function save(app: AppActions, next: WidgetPreset[]) {
@@ -76,7 +79,29 @@ function SlotRow({ preset, slot, snap, onPick }: {
   </Menu>
 }
 
-/** 一套方案：名称（默认方案没有）、大数字、四格、锁屏圆形、预览；删除方案，默认方案是还原 */
+/** 「这一箱」「最近加油」的菜单（D18、D28）：照旧，和插件在 describe 里声明的卡片「<标题> · <插件名>」；选中的打勾 */
+function CardRow({ preset, slot, title, choices, onPick }: {
+  preset: WidgetPreset
+  slot: CardSlot
+  title: string
+  choices: Array<{ ref: CardRef; label: string }>
+  onPick: (slot: CardSlot, ref: CardRef | null) => void
+}) {
+  // 插件移除了、不再声明的卡片：小组件照旧，这里也写照旧
+  const picked = choices.find(c => c.ref === preset.cards?.[slot]) ?? null
+  return <Menu label={<HStack foregroundStyle="label">
+    <Text>{title}</Text>
+    <Spacer />
+    <Text foregroundStyle="secondaryLabel" lineLimit={1}>{picked ? picked.label : title}</Text>
+    <Image systemName="chevron.up.chevron.down" font="footnote" foregroundStyle="secondaryLabel" />
+  </HStack>}>
+    <Button title={`${title}（照旧）`} {...(picked ? {} : { systemImage: "checkmark" })} action={() => onPick(slot, null)} />
+    <Divider />
+    {choices.map(c => <Button key={c.ref} title={c.label} {...(picked && picked.ref === c.ref ? { systemImage: "checkmark" } : {})} action={() => onPick(slot, c.ref)} />)}
+  </Menu>
+}
+
+/** 一套方案：名称（默认方案没有）、大数字、四格、「这一箱」和「最近加油」（有提供信息卡片的插件时）、锁屏圆形、预览；删除方案，默认方案是还原 */
 export function WidgetPresetPage({ data, app, initialName }: { data: AppData; app: AppActions; initialName: string }) {
   const [name, setName] = useState(initialName)
   const [draft, setDraft] = useState(initialName)
@@ -85,9 +110,14 @@ export function WidgetPresetPage({ data, app, initialName }: { data: AppData; ap
   const isDefault = name === DEFAULT_PRESET
   // 菜单里「自动 · …」按当前车辆现在的摘要算（有没有车况、油价）
   const snap = buildWidgetSnapshot(data)
+  const choices = cardChoices(pluginsOf(data))
 
   function pick(slot: WidgetSlot, content: WidgetContent | null) {
     save(app, setPresetSlot(presetsOf(app.getData()), name, slot, content))
+  }
+
+  function pickCard(slot: CardSlot, ref: CardRef | null) {
+    save(app, setPresetCard(presetsOf(app.getData()), name, slot, ref))
   }
 
   async function saveName() {
@@ -138,6 +168,11 @@ export function WidgetPresetPage({ data, app, initialName }: { data: AppData; ap
     <Section key="cells" header={<Text>四格</Text>} footer={<Text>中号、大号。选的内容暂时没有时（例如还没读到车况）写「—」；自动的格子换成有的内容。</Text>}>
       {CELL_SLOTS.map(slot => <SlotRow key={slot} preset={preset} slot={slot} snap={snap} onPick={pick} />)}
     </Section>
+    {choices.length
+      ? <Section key="cards" header={<Text>这一箱和最近加油</Text>} footer={<Text>中号、大号的「这一箱」，大号的「最近加油」，可以换成插件的信息卡片。</Text>}>
+        {CARD_SLOTS.map(c => <CardRow key={c.slot} preset={preset} slot={c.slot} title={c.title} choices={choices} onPick={pickCard} />)}
+      </Section>
+      : null}
     <Section key="circle" header={<Text>锁屏圆形</Text>}>
       <SlotRow preset={preset} slot="circle" snap={snap} onPick={pick} />
     </Section>
@@ -147,8 +182,12 @@ export function WidgetPresetPage({ data, app, initialName }: { data: AppData; ap
       <Button title="大号" action={() => { void preview("systemLarge") }} />
     </Section>
     {isDefault
-      ? <Section key="reset" footer={<Text>都是自动时不能还原。</Text>}>
-        <Button title="还原" disabled={!Object.keys(preset.slots).length} action={() => save(app, resetDefault(presetsOf(app.getData())))} />
+      ? <Section key="reset" footer={<Text>{choices.length ? "都是自动、照旧时不能还原。" : "都是自动时不能还原。"}</Text>}>
+        <Button
+          title="还原"
+          disabled={!Object.keys(preset.slots).length && !choices.some(c => Object.values(preset.cards ?? {}).includes(c.ref))}
+          action={() => save(app, resetDefault(presetsOf(app.getData())))}
+        />
       </Section>
       : <Section key="delete">
         <Button title="删除方案" role="destructive" action={() => { void remove(env.dismiss) }} />

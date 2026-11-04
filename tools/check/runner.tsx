@@ -1,7 +1,7 @@
 // 手机上的自动检查（开发用，不随油记发布）。电脑端是 tools/device_check.ts，说明见 tools/check/README.md。
 // 启动时把数据文件夹换成 FuelNoteCheck：账本、保单原件、小组件文件都在那里，不碰油记的真实数据；
 // 不读写钥匙串、不连小熊，只向电脑上的采样服务（tools/ocr_bridge.mjs）取保单文件；数据源插件只调示例插件。
-// 在 3200 端口等电脑的请求：/ping、/run/recognize、/run/ledger、/run/split、/run/benefits、/run/export、/run/service、/run/plugin、/run/map、/run/fill、/run/presets、/run/bare、/shot。识别扫描件要用这一页上的 WebView，所以这一页要留在屏幕上。
+// 在 3200 端口等电脑的请求：/ping、/run/recognize、/run/ledger、/run/split、/run/benefits、/run/export、/run/service、/run/plugin、/run/map、/run/fill、/run/presets、/run/info、/run/bare、/shot。识别扫描件要用这一页上的 WebView，所以这一页要留在屏幕上。
 import {
   Button, fetch, List, Navigation, NavigationStack, ScreenshotMaker, ScrollView, Section, Text, TextField, VirtualNode, VStack, WebView, ZStack, useEffect, useRef,
   useState,
@@ -77,7 +77,10 @@ import { PluginDetail } from "../../pages/plugin_detail"
 import { WidgetPresetPage, WidgetPresetsPage } from "../../pages/widget_presets"
 import { WidgetView } from "../../widget_view"
 import { addPreset, buildWidgetSnapshot, presetList, presetNameProblem, removePreset, renamePreset, setPresetSlot, WidgetPreset, WidgetSlot, WidgetSnapshot } from "../../common/model"
-import { presetFor } from "../../common/widget_layout"
+import { cardRefOf, cardSlotView, presetFor, setPresetCard } from "../../common/widget_layout"
+import { infoSummary, InfoPluginView, infoViewsFor, refreshInfo } from "../../common/model"
+import { INFO_CACHE_FILE, InfoCache } from "../../common/info_cards"
+import { InfoSheet } from "../../pages/info_cards"
 import { makeAppData } from "../../common/ledger"
 import { SettingsPage } from "../../pages/settings"
 import { nearbyStores, searchStores, storeFromPoi, storeOfPlace, warmSearchCenter } from "../../common/model"
@@ -90,7 +93,7 @@ const SANDBOX = "FuelNoteCheck"
 setDataRoot(SANDBOX)
 
 /** 改了这个值，手机重新运行后报到的 STAMP 跟着变（确认跑的是新代码） */
-export const STAMP = "63"
+export const STAMP = "64"
 const PORT = 3200
 const DAY = 86400e3
 const BJ_OFFSET = 8 * 3600e3
@@ -1223,7 +1226,7 @@ function bareScreen(screen: string, data: AppData): VirtualNode | null {
   const v = currentVehicle(data)
   if (!v) return null
   const app = { getData: () => data, setData: noop, addVehicle: async () => undefined }
-  if (screen === "bare-fuel") return <FuelTab data={data} subtitle={v.name} status={null} openStatus={noop} actions={fuelStub} />
+  if (screen === "bare-fuel") return <FuelTab data={data} subtitle={v.name} status={null} openStatus={noop} info={[]} openInfo={noop} actions={fuelStub} />
   if (screen === "bare-settings") return <SettingsPage data={data} app={app} />
   if (screen === "bare-expense-form") {
     return <ExpenseForm getData={() => data} vehicle={v} record={null} maintenance={null} odometer={null} initialCategory={MAINTENANCE_CATEGORY} preset={null} stores={benefitStub(data).stores} />
@@ -1359,9 +1362,9 @@ function fillScreen(screen: string, data: AppData): VirtualNode | null {
   const car = data.ledger.vehicles.find(v => v.id === FILL_CAR)
   if (!car) return null
   const snapshot = cachedStatus(data, car)
-  const view = { snapshot, tank: vehicleTank(data, car), busy: false, error: null, source: "示例", fill: fillViewFor(data, car, snapshot ? snapshot.status : null) }
-  if (screen === "fill-current") return <FuelTab data={data} subtitle={car.name} status={view} openStatus={noop} actions={fuelStub} />
-  if (screen === "fill-sheet") return <StatusSheet get={() => view} refresh={async () => null} />
+  const view = { snapshot, tank: vehicleTank(data, car), busy: false, error: null, source: "示例", fill: fillViewFor(data, car, snapshot ? snapshot.status : null), info: [] }
+  if (screen === "fill-current") return <FuelTab data={data} subtitle={car.name} status={view} openStatus={noop} info={[]} openInfo={noop} actions={fuelStub} />
+  if (screen === "fill-sheet") return <StatusSheet get={() => view} refresh={async () => null} refreshInfo={noop} />
   return null
 }
 
@@ -1418,8 +1421,8 @@ const WIDGET_SIZES: Record<string, { width: number; height: number }> = {
   systemSmall: { width: 170, height: 170 }, systemMedium: { width: 364, height: 170 }, systemLarge: { width: 364, height: 382 }, accessoryCircular: { width: 76, height: 76 },
 }
 
-/** 一个小组件：上面一行写是哪种情况，下面按尺寸画（底色是系统小组件的白、深灰；锁屏圆形放在深色的圆上，按深色画，像锁屏上的白字） */
-function WidgetShot({ title, s, family, slots }: { title: string; s: WidgetSnapshot; family: string; slots: WidgetPreset["slots"] }) {
+/** 一个小组件：上面一行写是哪种情况，下面按尺寸画（底色是系统小组件的白、深灰；锁屏圆形放在深色的圆上，按深色画，像锁屏上的白字）；cards 是换成卡片的两格（2.6） */
+function WidgetShot({ title, s, family, slots, cards }: { title: string; s: WidgetSnapshot; family: string; slots: WidgetPreset["slots"]; cards?: WidgetPreset["cards"] }) {
   const size = WIDGET_SIZES[family]
   const circle = family === "accessoryCircular"
   return <VStack alignment="leading" spacing={6}>
@@ -1431,7 +1434,7 @@ function WidgetShot({ title, s, family, slots }: { title: string; s: WidgetSnaps
         : { style: { light: "#FFFFFF", dark: "#1C1C1E" }, shape: { type: "rect", cornerRadius: 22, style: "continuous" } }}
       {...(circle ? { environments: { colorScheme: "dark" as const } } : {})}
     >
-      <WidgetView s={s} family={family} size={size} preset={{ name: title, slots }} app />
+      <WidgetView s={s} family={family} size={size} preset={{ name: title, slots, ...(cards ? { cards } : {}) }} app />
     </ZStack>
   </VStack>
 }
@@ -1481,6 +1484,150 @@ function presetsScreen(screen: string, data: AppData): VirtualNode | null {
       <WidgetShot key="d" title="大数字选剩余油量 · 没有车况（位-6）" s={noStatus} family="systemSmall" slots={{ hero: "fuel" }} />,
       <WidgetShot key="e" title="左上选剩余油量 · 没有车况（位-7）" s={noStatus} family="systemMedium" slots={{ top_left: "fuel" }} />,
       <WidgetShot key="f" title="圆形选续航 · 没有车况（位-9）" s={noStatus} family="accessoryCircular" slots={{ circle: "range" }} />,
+    ])
+  }
+  return null
+}
+
+// ---------- 插件的信息卡片（2.6，docs/specs/2026-11-04-presets-and-cards.md 第 7 节） ----------
+
+const infoEntry = (id: string) => readCache<InfoCache>(INFO_CACHE_FILE)?.plugins?.[id] ?? null
+
+/** 查一遍，记下每次通知时示例插件那一组的样子：查着没有、插件给的进度、第一张卡片有几行 */
+async function refreshAndWatch(data: AppData, force = false): Promise<string[]> {
+  const seen: string[] = []
+  await refreshInfo(data, () => {
+    const v = infoViewsFor(data).find(x => x.plugin.id === "example")
+    if (v) seen.push(`${v.busy ? "查着" : "查完"}${v.progress ? `「${v.progress}」` : ""} ${v.cards[0]?.rows.length ?? 0} 行`)
+  }, force)
+  return seen
+}
+
+/**
+ * 信息卡片（小组件方案和信息卡片设计第 7 节）：示例插件更新后声明「示例卡片」；分两批查到、先显示第一批和进度（卡-1）；
+ * 没变时不查（卡-2）；「重新查」；默认标号变了重查、传的标号跟着变；「当前」那一行；小组件的摘要；移除插件后清掉（卡-7）
+ */
+async function runInfo(): Promise<{ steps: Step[] }> {
+  const steps: Step[] = []
+  let data = loadData().data
+  const getData = () => data
+  if (!pluginsOf(data).some(p => p.script === EXAMPLE_PLUGIN)) data = await addPlugin(getData, EXAMPLE_PLUGIN)
+  // 像 2.5 添加的示例插件：还没有信息卡片。示例插件升到 1.2.0 后，打开油记时重新 describe
+  data = updateSettings(data, {
+    plugins: pluginsOf(data).map(p => (p.script === EXAMPLE_PLUGIN ? { script: p.script, id: p.id, name: p.name, capabilities: p.capabilities.filter(c => c !== "info") } : p)),
+  })
+  data = (await refreshPlugins(getData)) ?? data
+  const ref = pluginsOf(data).find(p => p.script === EXAMPLE_PLUGIN)
+  add(steps, "插件更新后重新 describe：多了信息卡片，声明了「示例卡片」（D28）", !!ref && ref.capabilities.includes("info") && ref.cards?.[0]?.title === "示例卡片",
+    ref ? `${ref.capabilities.join("、")} · ${JSON.stringify(ref.cards ?? [])} · ${ref.version ?? ""}` : "没有添加")
+  if (!ref) return { steps }
+  // 当前车辆用 fill 的示例车（有车况，没选过默认标号，按 95#）
+  if (!data.ledger.vehicles.some(v => v.id === FILL_CAR)) {
+    add(steps, "要先跑 fill（示例车）", false)
+    return { steps }
+  }
+  data = updateSettings(data, { current_vehicle_id: FILL_CAR })
+
+  writeCache(INFO_CACHE_FILE, null)
+  const t0 = Date.now()
+  const seen = await refreshAndWatch(data)
+  const first = infoEntry(ref.id)
+  add(steps, "卡-1：还没有卡片时一批一批地查；先显示第一批（1 行）和插件给的进度，查完是 2 行",
+    seen.includes("查着「正在读 1/2」 1 行") && seen[seen.length - 1] === "查完 2 行" && !!first && first.done,
+    `${seen.join(" → ")}；${Date.now() - t0} ms`)
+  add(steps, "缓存：传的默认标号 95、所在的省和市（和油价同一个地区，D24），卡片有效到今天 24 点",
+    !!first && first.params.grade === 95 && first.cards[0]?.until > Date.now() && first.cards[0].until - Date.now() <= 86400e3,
+    first ? `${JSON.stringify(first.params)} · 到 ${new Date(first.cards[0]?.until ?? 0).toLocaleString()}` : "没有缓存")
+
+  const again = await refreshAndWatch(data)
+  add(steps, "卡-2：卡片没过有效期、参数没变，不查", again.length === 0, again.join(" → "))
+  const forced = await refreshAndWatch(data, true)
+  const after = infoEntry(ref.id)
+  add(steps, "「重新查」：不看有效期，再查一遍", forced.length > 0 && !!after && !!first && after.fetched_at > first.fetched_at, forced.join(" → "))
+
+  // 默认标号改成 98#：传的参数变了，重查；示例卡片的摘要写传来的标号
+  const withGrade = (g: number | null) => commit(data, { ...data.ledger, vehicles: data.ledger.vehicles.map(v => (v.id === FILL_CAR ? { ...v, default_grade: g } : v)) })
+  data = withGrade(98)
+  const regrade = await refreshAndWatch(data)
+  const g98 = infoEntry(ref.id)
+  add(steps, "默认标号改成 98#：重查，传的标号是 98", regrade.length > 0 && g98?.params.grade === 98 && !!g98.cards[0]?.summary?.includes("98#"), g98?.cards[0]?.summary ?? "")
+  data = withGrade(null)
+  await refreshAndWatch(data)
+
+  const views = infoViewsFor(data)
+  const s = infoSummary(views)
+  add(steps, "「当前」那一行：示例卡片的摘要（D21）", s?.card.summary === "人民广场 1.2 km · 95# −0.3", s?.card.summary ?? "没有")
+
+  saveWidgetSnapshot(data)
+  const readWidget = () => JSON.parse(FileManager.readAsStringSync(`${dataDirectory()}/widget.json`)) as WidgetSnapshot
+  const cardRef = cardRefOf(ref.id, "sample")
+  const w = readWidget()
+  add(steps, "小组件的摘要：示例卡片（2 行）和方案菜单要写的组名、插件名", (w.cards ?? []).length === 1 && w.cards![0].rows.length === 2 && w.card_titles?.[cardRef]?.title === "示例卡片",
+    `${(w.cards ?? []).map(c => `${c.title} ${c.rows.length} 行`).join("、")} · ${JSON.stringify(w.card_titles ?? {})}`)
+  add(steps, "方案把「这一箱」换成示例卡片：写组名、插件名和摘要（D18）", cardSlotView(w, cardRef)?.card?.summary === "人民广场 1.2 km · 95# −0.3" && cardSlotView(w, cardRef)?.plugin === "示例")
+
+  const removed = removePlugin(data, ref.id)
+  saveWidgetSnapshot(removed)
+  const gone = readWidget()
+  add(steps, "卡-7：移除插件，清掉它的卡片；小组件里换成卡片的格子照旧", !infoEntry(ref.id) && !(gone.cards ?? []).length && cardSlotView(gone, cardRef) === null && infoViewsFor(removed).length === 0)
+  // 加回来、再查一次，给截图用；默认方案的「最近加油」换成示例卡片
+  data = await addPlugin(() => removed, EXAMPLE_PLUGIN)
+  await refreshAndWatch(data)
+  data = updateSettings(data, { widget_presets: setPresetCard(data.ledger.settings.widget_presets ?? [], "默认", "list", cardRef) })
+  saveWidgetSnapshot(data)
+  return { steps }
+}
+
+/** 截图用的「正在查」「今天没有」：示例卡片改成第一批的样子，或者一行都没有 */
+function infoStates(views: InfoPluginView[], state: "busy" | "empty"): InfoPluginView[] {
+  return views.map(v => ({
+    ...v,
+    ...(state === "busy" ? { busy: true, progress: "正在读 1/2" } : {}),
+    cards: v.cards.map(c => (state === "busy" ? { ...c, rows: c.rows.slice(0, 1) } : { ...c, rows: [], summary: null })),
+  }))
+}
+
+/** 信息卡片的截图（/run/info 之后）：车况详情（查到、正在查、一行都没有）、「当前」、没有车况的车（记录页、弹出的一页）、小组件、小组件方案 */
+function infoScreen(screen: string, data: AppData): VirtualNode | null {
+  const car = data.ledger.vehicles.find(v => v.id === FILL_CAR)
+  const views = infoViewsFor(data)
+  if (!car || !views.length) return null
+  const snapshot = cachedStatus(data, car)
+  const status = (info: InfoPluginView[]) => ({
+    snapshot, tank: vehicleTank(data, car), busy: false, error: null, source: "示例", fill: fillViewFor(data, car, snapshot ? snapshot.status : null), info,
+  })
+  if (screen === "info-sheet") return <StatusSheet get={() => status(views)} refresh={async () => null} refreshInfo={noop} />
+  if (screen === "info-sheet-busy") return <StatusSheet get={() => status(infoStates(views, "busy"))} refresh={async () => null} refreshInfo={noop} />
+  if (screen === "info-sheet-empty") return <StatusSheet get={() => status(infoStates(views, "empty"))} refresh={async () => null} refreshInfo={noop} />
+  if (screen === "info-current") return <FuelTab data={data} subtitle={car.name} status={status(views)} openStatus={noop} info={views} openInfo={noop} actions={fuelStub} />
+  // 没有车况的车：split 导入的真车
+  const real = data.ledger.vehicles.find(v => v.id !== FILL_CAR && fuelRecords(data, v).length > 1)
+  if (screen === "info-bare" && real) {
+    const d = makeAppData({ ...data.ledger, settings: { ...data.ledger.settings, current_vehicle_id: real.id } }, data.xxyh)
+    return <FuelTab data={d} subtitle={real.name} status={null} openStatus={noop} info={views} openInfo={noop} actions={fuelStub} />
+  }
+  if (screen === "info-bare-sheet") return <InfoSheet get={() => views} refresh={noop} />
+  if (screen === "info-settings") {
+    return <NavigationStack><WidgetPresetPage data={data} app={{ getData: () => data, setData: noop, addVehicle: async () => undefined }} initialName="默认" /></NavigationStack>
+  }
+  if (screen === "info-widgets") {
+    const all = gallerySnapshot(data, "all")
+    const ref = pluginsOf(data).find(p => p.script === EXAMPLE_PLUGIN)
+    if (!all || !ref) return null
+    const cardRef = cardRefOf(ref.id, "sample")
+    const card = (all.cards ?? [])[0]
+    if (!card) return null
+    const empty = { ...all, cards: [{ ...card, rows: [], row_count: 0, summary: null }] }
+    const unread = { ...all, cards: [] }
+    const expired = { ...all, cards: [{ ...card, until: Date.now() - 1 }] }
+    const page = (items: VirtualNode[]) => <ScrollView background="systemBackground"><VStack alignment="leading" spacing={14} padding={16}>{items}</VStack></ScrollView>
+    return page([
+      <WidgetShot key="m" title="中号 ·「这一箱」换成示例卡片" s={all} family="systemMedium" slots={{}} cards={{ tank: cardRef }} />,
+      <WidgetShot key="l" title="大号 ·「最近加油」换成示例卡片" s={all} family="systemLarge" slots={{}} cards={{ list: cardRef }} />,
+      <WidgetShot key="e" title="一行都没有：写插件给的 empty" s={empty} family="systemMedium" slots={{}} cards={{ tank: cardRef }} />,
+      <WidgetShot key="u" title="还没查过" s={unread} family="systemMedium" slots={{}} cards={{ tank: cardRef }} />,
+      <WidgetShot key="x" title="过了有效期" s={expired} family="systemMedium" slots={{}} cards={{ tank: cardRef }} />,
+      <WidgetShot key="le" title="大号 · 一行都没有" s={empty} family="systemLarge" slots={{}} cards={{ list: cardRef }} />,
     ])
   }
   return null
@@ -1556,6 +1703,7 @@ function screenElement(screen: string): VirtualNode | null {
   if (screen.startsWith("map-")) return mapScreen(screen, data)
   if (screen.startsWith("fill-")) return fillScreen(screen, data)
   if (screen.startsWith("presets-") || screen.startsWith("widgets-")) return presetsScreen(screen, data)
+  if (screen.startsWith("info-")) return infoScreen(screen, data)
   if (screen.startsWith("bare-")) return bareScreen(screen, data)
   // 2.0.0-beta.4：备份与恢复、恢复列表、看一眼再恢复（最新的一份恢复前副本）、备份密码；用记账留下的「恢复前」副本
   if (screen.startsWith("backup-")) {
@@ -1594,7 +1742,7 @@ function screenElement(screen: string): VirtualNode | null {
     if (screen === "fuel-stats") return <NavigationStack><FuelStats data={data} nav={FUEL_STATS_NAV} /></NavigationStack>
     if (screen === "expense-stats") return <NavigationStack><ExpenseStats data={data} nav={EXPENSE_STATS_NAV} /></NavigationStack>
     return screen.startsWith("fuel-")
-      ? <FuelTab data={data} subtitle={cur.name} status={null} openStatus={noop} actions={fuelStub} />
+      ? <FuelTab data={data} subtitle={cur.name} status={null} openStatus={noop} info={[]} openInfo={noop} actions={fuelStub} />
       : <ExpenseTab data={data} subtitle={cur.name} actions={expenseStub} />
   }
   const v = data.ledger.vehicles.find(x => x.name === "检查用车")
@@ -1677,6 +1825,7 @@ export function CheckPage() {
     server.registerAsyncHandler("/run/map", guarded("地图搜索", async () => jsonResponse(await runMap())))
     server.registerAsyncHandler("/run/fill", guarded("加满金额", async () => jsonResponse(await runFill())))
     server.registerAsyncHandler("/run/presets", guarded("小组件方案", async () => jsonResponse(await runPresets())))
+    server.registerAsyncHandler("/run/info", guarded("信息卡片", async () => jsonResponse(await runInfo())))
     server.registerAsyncHandler("/run/bare", guarded("什么都不接", async () => jsonResponse(await runBare())))
     server.registerAsyncHandler("/shot", guarded("截图", async req =>
       pngResponse(await takeShot(query(req, "screen"), query(req, "scheme") === "dark" ? "dark" : "light", Number(query(req, "height")) || 0))))

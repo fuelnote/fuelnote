@@ -17,6 +17,8 @@ const POSITION_WAIT_MS = 3000
 const PLACE_TTL_MS = 10 * 60e3
 
 let place: { at: number; region: PriceRegion } | null = null
+/** 正在取的那一次：油价和信息卡片同时要地区时共用，不反查两遍 */
+let locating: Promise<PriceRegion | null> | null = null
 /** 这次读油价出错的原因（显-8）、这次没定出地区（显-3）：只在内存里 */
 let lastError: string | null = null
 let noRegion = false
@@ -36,14 +38,28 @@ function usablePrice(data: AppData): PriceCache | null {
 }
 
 /** 手机所在的省、市：取不到位置、反查不出时 null（区-1） */
-async function here(): Promise<PriceRegion | null> {
+function here(): Promise<PriceRegion | null> {
   const now = Date.now()
-  if (place && now - place.at < PLACE_TTL_MS) return place.region
-  const p = await Promise.race([warmSearchCenter(), new Promise<null>(resolve => setTimeout(() => resolve(null), POSITION_WAIT_MS))])
-  const found = p ? await placeOf(p) : null
-  const region = found ? shortRegion(found.province, found.city) : null
-  if (region) place = { at: now, region }
-  return region
+  if (place && now - place.at < PLACE_TTL_MS) return Promise.resolve(place.region)
+  if (!locating) {
+    locating = (async () => {
+      try {
+        const p = await Promise.race([warmSearchCenter(), new Promise<null>(resolve => setTimeout(() => resolve(null), POSITION_WAIT_MS))])
+        const found = p ? await placeOf(p) : null
+        const region = found ? shortRegion(found.province, found.city) : null
+        if (region) place = { at: now, region }
+        return region
+      } finally {
+        locating = null
+      }
+    })()
+  }
+  return locating
+}
+
+/** 现在所在的地区：手机的位置，取不到时最近用过的油站（区-1～区-3）；信息卡片也按它传省、市（小组件方案和信息卡片设计 D24） */
+export async function currentRegion(data: AppData): Promise<{ region: PriceRegion; from: "location" | "station" } | null> {
+  return priceRegion(await here(), data.ledger.stations)
 }
 
 /**
@@ -53,7 +69,7 @@ async function here(): Promise<PriceRegion | null> {
 export async function refreshFuelPrice(data: AppData): Promise<boolean> {
   const plugin = pricePlugin(data)
   if (!plugin) return false
-  const picked = priceRegion(await here(), data.ledger.stations)
+  const picked = await currentRegion(data)
   noRegion = !picked
   if (!picked) return false
   const cache = usablePrice(data)

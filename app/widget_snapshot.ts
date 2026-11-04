@@ -7,6 +7,7 @@ import { WidgetSnapshot } from "../common/widget_data"
 import { saveWidgetFile } from "../platform/storage"
 import { sourceOf } from "./data_sources"
 import { widgetFillPrice } from "./fuel_price"
+import { widgetInfo } from "./info_cards"
 import { hasStatusSource, statusSource, stopsKey, vehicleTank } from "./vehicle_data"
 
 /** 摘要的内容（FuelNote Check 用它在 App 里画小组件） */
@@ -55,6 +56,8 @@ export function buildWidgetSnapshot(data: AppData, now = Date.now()): WidgetSnap
     fill_price: v ? widgetFillPrice(data, v) : null,
     // 小组件方案（小组件方案设计第 5 节）：小组件按「参数」选一套，不读账本
     presets: data.ledger.settings.widget_presets ?? [],
+    // 插件的信息卡片（同一设计 7.3 节）：方案里换成卡片的两格只读这里，不调插件
+    ...widgetInfo(data, now),
   }
 }
 

@@ -3,7 +3,8 @@
 // 纯逻辑：小组件（经 common/widget_runtime）和设置页（经 common/model）都用。
 import { gradeText } from "./types"
 import {
-  daysAgoText, fillAmountNow, fillDay, fuelTone, lastMonthCostNow, moneyText, monthCostNow, WidgetContent, WidgetPreset, WidgetSlot, WidgetSnapshot, WidgetStatus, yearCostNow,
+  CardRef, CardSlot, daysAgoText, fillAmountNow, fillDay, fuelTone, lastMonthCostNow, moneyText, monthCostNow, WidgetCard, WidgetContent, WidgetPreset, WidgetSlot,
+  WidgetSnapshot, WidgetStatus, yearCostNow,
 } from "./widget_data"
 
 /** 参数空着、或者填的名称没有这套方案时用的方案；它不能改名、不能删（设计第 5 节） */
@@ -227,13 +228,68 @@ export function usedElsewhere(preset: WidgetPreset, slot: WidgetSlot): Partial<R
   return out
 }
 
+// ---------- 换成信息卡片的两格（设计第 2 节、7.3 节，2.6） ----------
+
+const CARD_REF = /^card:([^/\s]+)\/(\S+)$/
+
+export const cardRefOf = (pluginId: string, cardId: string): CardRef => `card:${pluginId}/${cardId}`
+
+export function parseCardRef(ref: string): { pluginId: string; cardId: string } | null {
+  const m = CARD_REF.exec(ref)
+  return m ? { pluginId: m[1], cardId: m[2] } : null
+}
+
+/** 设置里菜单能选的卡片（D28）：提供信息卡片的插件在 describe 里声明的，写「<标题> · <插件名>」 */
+export function cardChoices(plugins: Array<{ id: string; name: string; capabilities: string[]; cards?: Array<{ id: string; title: string }> }>): Array<{ ref: CardRef; label: string }> {
+  return plugins.filter(p => p.capabilities.includes("info"))
+    .flatMap(p => (p.cards ?? []).map(c => ({ ref: cardRefOf(p.id, c.id), label: `${c.title} · ${p.name}` })))
+}
+
+/** 改方案里换成卡片的一格；ref 是 null 时照旧（这一箱、最近加油） */
+export function setPresetCard(presets: WidgetPreset[], name: string, slot: CardSlot, ref: CardRef | null): WidgetPreset[] {
+  const list = presets.some(p => p.name === name) ? presets : [...presets, { name, slots: {} }]
+  return list.map(p => {
+    if (p.name !== name) return p
+    const cards = { ...(p.cards ?? {}) }
+    if (ref) cards[slot] = ref
+    else delete cards[slot]
+    const { cards: _old, ...rest } = p
+    return Object.keys(cards).length ? { ...rest, cards } : rest
+  })
+}
+
+/**
+ * 卡片写成一行（7.3 节：记录页最上面、小组件的「这一箱」）：有摘要写摘要，按卡片的语气上色；
+ * 没有摘要时有行写「共 N 条」，一行都没有写插件给的 empty（D26）；都没有时写 pending（还没查完）
+ */
+export function cardLine(card: { summary: string | null; empty: string | null; tone: "good" | "warn" | null }, count: number, pending = "还没读到"): { text: string; tone: "good" | "warn" | null } {
+  if (card.summary) return { text: card.summary, tone: card.tone }
+  return { text: count ? `共 ${count} 条` : card.empty ?? pending, tone: null }
+}
+
+/**
+ * 小组件里换成卡片的一格（D26）：组名和插件名（按声明，还没查过也有）、卡片；
+ * 取不到时写原因：还没查过「还没读到」，过了有效期「已过期，打开油记更新」（一行都没有时由画的地方写卡片的 empty）。
+ * 插件移除了、不再声明这张卡片时 null：这一格照旧（卡-7）
+ */
+export function cardSlotView(s: WidgetSnapshot, ref: CardRef, now = Date.now()): { title: string; plugin: string; card: WidgetCard | null; reason: string | null } | null {
+  const named = s.card_titles?.[ref]
+  if (!named) return null
+  const parsed = parseCardRef(ref)
+  const card = parsed ? (s.cards ?? []).find(c => c.plugin_id === parsed.pluginId && c.id === parsed.cardId) ?? null : null
+  const head = { title: named.title, plugin: named.plugin_name }
+  if (!card) return { ...head, card: null, reason: "还没读到" }
+  if (card.until <= now) return { ...head, card: null, reason: "已过期，打开油记更新" }
+  return { ...head, card, reason: null }
+}
+
 /** 读账本时整理方案：丢掉不认识的格子、内容和这一格放不下的内容；名称去掉前后的空格，空的、重名的（只留第一个）丢掉 */
 export function normalizePresets(raw: unknown): WidgetPreset[] {
   if (!Array.isArray(raw)) return []
   const out: WidgetPreset[] = []
   for (const item of raw) {
     if (!item || typeof item !== "object") continue
-    const r = item as { name?: unknown; slots?: unknown }
+    const r = item as { name?: unknown; slots?: unknown; cards?: unknown }
     const name = typeof r.name === "string" ? r.name.trim() : ""
     if (!name || out.some(p => p.name === name)) continue
     const slots: WidgetPreset["slots"] = {}
@@ -243,7 +299,13 @@ export function normalizePresets(raw: unknown): WidgetPreset[] {
         if (choices && choices.includes(c as WidgetContent)) slots[slot as WidgetSlot] = c as WidgetContent
       }
     }
-    out.push({ name, slots })
+    const cards: Partial<Record<CardSlot, CardRef>> = {}
+    if (r.cards && typeof r.cards === "object") {
+      for (const [slot, ref] of Object.entries(r.cards as Record<string, unknown>)) {
+        if ((slot === "tank" || slot === "list") && typeof ref === "string" && parseCardRef(ref)) cards[slot] = ref as CardRef
+      }
+    }
+    out.push(Object.keys(cards).length ? { name, slots, cards } : { name, slots })
   }
   return out
 }
