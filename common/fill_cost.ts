@@ -1,5 +1,6 @@
 // 加满要多少钱（docs/specs/2026-11-03-fill-cost.md）：交给插件的地区（第 3 节）、油价缓存什么时候重查（第 4 节）、车况详情「加满」一组（第 5 节）。
 // 纯逻辑：取位置、反查地址、调插件和读写缓存在 app/fuel_price.ts。金额的算法和小组件共用 common/widget_data.ts。
+import { BJ_OFFSET } from "./format"
 import { FuelPrices, gradeText, PriceRegion, Station } from "./types"
 import { fillAmount, fillLitres } from "./widget_data"
 
@@ -60,11 +61,11 @@ export type FillView = { litres: number; amount: number | null; priceLabel: stri
 
 const pad = (n: number) => String(n).padStart(2, "0")
 
-/** 「上海 10/29 起的」；不知道生效时间时「上海的」 */
+/** 「上海 10/29 起的」（按北京时间，和手机的时区无关）；不知道生效时间时「上海的」 */
 function since(p: FuelPrices): string {
   if (p.effective == null) return `${p.region}的`
-  const d = new Date(p.effective)
-  return `${p.region} ${pad(d.getMonth() + 1)}/${pad(d.getDate())} 起的`
+  const d = new Date(p.effective + BJ_OFFSET)
+  return `${p.region} ${pad(d.getUTCMonth() + 1)}/${pad(d.getUTCDate())} 起的`
 }
 
 /** 显-1～显-9：不知道剩余油量或油箱容量时 null（没有这一组） */
