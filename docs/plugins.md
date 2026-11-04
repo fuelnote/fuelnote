@@ -213,10 +213,10 @@ type InfoRow = {
   value: string          // 右边
   detail: string | null  // 左边下面一行
   tone: Tone | null
-  place: Place | null    // 这一行指向的地点（2.6.0-beta.3 起）：长按这一行可以导航到这里
+  place: InfoPlace | null // 这一行指向的地点（2.6 起）：长按这一行可以导航到这里
 }
 
-type Place = {
+type InfoPlace = {
   name: string           // 地点的名称，导航软件里显示，例如「中国石化××加油站」
   lng: number            // WGS-84，和交易里的油站一样（第 2 节）；国内的地图要的坐标由油记换算
   lat: number
@@ -249,10 +249,12 @@ type Tone = "good" | "warn"   // 好（绿色）、提醒（橙色）；不给�
 
 ## 11. 示例插件
 
-`tools/plugin_example/` 是完整的示例：返回按当前时间编的交易（有一组分两笔付的，旁边还有单价不同、油站不同的各一笔），以及一辆示例车的行程（每次加油前开到那个油站，另外每天一趟）、车况和养修（一次换了机油的保养另记一笔补漆，带车险赠送的储值和油漆面次数两种提示；一次自付 0 的保修，对照只有名称），固定的示例油价（不用登录，地区名就是传来的省名），以及一张「示例卡片」（分两批给，第一批一行，第二批两行：一行好、一行提醒；有效到当天 24 点）；自己打开时可以切换已连接、已过期、未连接。
+示例插件在单独的仓库 [fuelnote/fuelnote-plugin-example](https://github.com/fuelnote/fuelnote-plugin-example)。它是模板仓库，README 是接入指南：怎么用它建自己的插件、在手机上调试、发布和更新。
 
-- `npm run plugin:install` 装到 `../FuelNote 示例插件`。第一次要在手机上新建同名的空脚本，再在开发服务器页面里选它。
-- 在油记的「设置 › 数据源 › 添加插件」里添加它。
+它不连任何服务，返回按当前时间编的交易（有一组分两笔付的，旁边还有单价不同、油站不同的各一笔），以及一辆示例车的行程（每次加油前开到那个油站，另外每天一趟）、车况和养修（一次换了机油的保养另记一笔补漆，带车险赠送的储值和油漆面次数两种提示；一次自付 0 的保修，对照只有名称），固定的示例油价（不用登录，地区名就是传来的省名），以及一张「示例卡片」（分两批给，第一批一行，第二批两行：一行好、一行提醒，每行带地点；有效到当天 24 点）；自己打开时可以切换已连接、已过期、未连接。
+
+- 试用：在 Scripting 里用 `https://github.com/fuelnote/fuelnote-plugin-example/releases/latest/download/fuelnote-plugin-example.zip` 导入，再在油记的「设置 › 数据源 › 添加插件」里添加它。
+- 开发油记时，把它克隆到 `../FuelNote 示例插件`：FuelNote Check 只调它。
 
 ## 12. 版本
 

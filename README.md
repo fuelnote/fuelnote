@@ -145,7 +145,7 @@ https://github.com/fuelnote/fuelnote/releases/latest/download/FuelNote.zip
 2. 打开「设置 › 数据源 › 添加插件」：只列出带油记插件标记（`fuelnote.json`）的脚本，不运行其他脚本。选中后油记运行一次这个插件，确认版本和提供的数据再添加。
 3. 轻点插件进入详情：看连接状态和打码的账号；「管理连接」打开插件自己的页面；「移除插件」只从油记里去掉，不删脚本，也不动插件里的凭据。
 
-`FuelNote 示例插件` 返回编的加油交易，可以拿来试用。
+[示例插件](https://github.com/fuelnote/fuelnote-plugin-example)返回编的加油交易、车况和信息卡片，可以拿来试用。
 
 插件可以给信息卡片（2.6 起，例如易捷插件的「今天的优惠」）：记录页「当前」下面每张卡片一组，写摘要和条数，轻点弹出全部；没有车况的车写在记录页最上面。插件给了地点的一行，长按可以用高德地图、百度地图或苹果地图导航。打开油记时，卡片过了插件给的有效期、或者默认标号、所在的省市变了才查，在后台一批一批地查；点开的一页里可以「重新查」。「设置 › 小组件 › 方案」里可以把「这一箱」「最近加油」换成卡片。
 
@@ -225,4 +225,4 @@ git push origin main v1.2.0
 
 ### 写数据源插件
 
-不改油记也能接入别的数据：写一个 Scripting 脚本，实现 `docs/plugins.md` 里的契约，文件夹里放 `fuelnote.json`。`tools/plugin_example/` 是示例，`npm run plugin:install` 装到 `../FuelNote 示例插件`。
+不改油记也能接入别的数据：写一个 Scripting 脚本，实现 `docs/plugins.md` 里的契约，文件夹里放 `fuelnote.json`。从[示例插件](https://github.com/fuelnote/fuelnote-plugin-example)开始最快：它是模板仓库，README 是接入指南。

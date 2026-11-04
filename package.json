@@ -10,7 +10,6 @@
     "bump": "node tools/version.mjs",
     "probe:install": "node tools/install_probe.mjs",
     "check:install": "node tools/install_check.mjs",
-    "plugin:install": "node tools/install_plugin.mjs",
     "device-check": "tsx tools/device_check.ts",
     "ocr-bridge": "node tools/ocr_bridge.mjs"
   },

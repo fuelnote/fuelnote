@@ -5,7 +5,6 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs"
 import { dirname, join, relative } from "node:path"
 import { fileURLToPath } from "node:url"
-import { installExamplePlugin } from "./install_plugin.mjs"
 
 const here = dirname(fileURLToPath(import.meta.url))
 const app = join(here, "..")
@@ -47,6 +46,7 @@ for (const [rel, content] of files) {
   changed++
 }
 console.log(`已更新 ${to}：${changed} 个文件有变化（共 ${files.size} 个）`)
-// 示例插件也装上：Check 的 plugin 一项要在脚本目录里找到它
-const plugin = installExamplePlugin()
-console.log(`已更新 ${plugin.to}：${plugin.changed} 个文件有变化（共 ${plugin.total} 个）`)
+// 示例插件在自己的仓库（fuelnote/fuelnote-plugin-example），克隆在 ../FuelNote 示例插件：Check 的 plugin 一项要在脚本目录里找到它
+if (!existsSync(join(to, "..", "FuelNote 示例插件", "fuelnote.json"))) {
+  console.log("没找到示例插件：把 https://github.com/fuelnote/fuelnote-plugin-example 克隆到 scripts/FuelNote 示例插件")
+}

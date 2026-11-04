@@ -93,7 +93,7 @@ const SANDBOX = "FuelNoteCheck"
 setDataRoot(SANDBOX)
 
 /** 改了这个值，手机重新运行后报到的 STAMP 跟着变（确认跑的是新代码） */
-export const STAMP = "69"
+export const STAMP = "70"
 const PORT = 3200
 const DAY = 86400e3
 const BJ_OFFSET = 8 * 3600e3
@@ -1555,7 +1555,7 @@ async function runInfo(): Promise<{ steps: Step[] }> {
   await refreshAndWatch(data)
 
   const groups = infoGroups(infoViewsFor(data))
-  add(steps, "记录页「当前」下面的一组：示例卡片的摘要和条数（D4）", groups.length === 1 && groups[0].text === "人民广场 1.2 km · 95# −0.3" && groups[0].count === 2,
+  add(steps, "记录页「当前」下面的一组：示例卡片的摘要和条数（D4）", groups.length === 1 && groups[0].text === "人民广场 95# 每升减 0.3 元" && groups[0].count === 2,
     groups.map(g => `${g.title}：${g.text}${g.count ? ` · 共 ${g.count} 条` : ""}`).join("、") || "没有")
 
   saveWidgetSnapshot(data)
@@ -1564,7 +1564,7 @@ async function runInfo(): Promise<{ steps: Step[] }> {
   const w = readWidget()
   add(steps, "小组件的摘要：示例卡片（2 行）和方案菜单要写的组名、插件名", (w.cards ?? []).length === 1 && w.cards![0].rows.length === 2 && w.card_titles?.[cardRef]?.title === "示例卡片",
     `${(w.cards ?? []).map(c => `${c.title} ${c.rows.length} 行`).join("、")} · ${JSON.stringify(w.card_titles ?? {})}`)
-  add(steps, "方案把「这一箱」换成示例卡片：写组名、插件名和摘要（D18）", cardSlotView(w, cardRef)?.card?.summary === "人民广场 1.2 km · 95# −0.3" && cardSlotView(w, cardRef)?.plugin === "示例")
+  add(steps, "方案把「这一箱」换成示例卡片：写组名、插件名和摘要（D18）", cardSlotView(w, cardRef)?.card?.summary === "人民广场 95# 每升减 0.3 元" && cardSlotView(w, cardRef)?.plugin === "示例")
 
   const removed = removePlugin(data, ref.id)
   saveWidgetSnapshot(removed)

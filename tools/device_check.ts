@@ -39,7 +39,9 @@ function phoneUrl(): string {
 /** 电脑上的 Check（STAMP）和示例插件的版本：手机上跑的要和它们一样 */
 function localVersions(): { stamp: string; example: string } {
   const stamp = /STAMP = "(\d+)"/.exec(readFileSync("tools/check/runner.tsx", "utf8"))?.[1] ?? ""
-  const example = (JSON.parse(readFileSync("tools/plugin_example/script.json", "utf8")) as { version: string }).version
+  // 示例插件在自己的仓库（fuelnote/fuelnote-plugin-example），克隆在 ../FuelNote 示例插件
+  const examplePath = join("..", "FuelNote 示例插件", "script.json")
+  const example = existsSync(examplePath) ? (JSON.parse(readFileSync(examplePath, "utf8")) as { version: string }).version : "没有克隆示例插件"
   return { stamp, example }
 }
 

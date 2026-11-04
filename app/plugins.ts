@@ -11,7 +11,7 @@ import { isMainDataRoot, readCache, writeCache } from "../platform/storage"
 import { RemoteVehicle, ServiceVisit, Trip, VehicleStatus } from "../providers/types"
 import { updateSettings } from "./store"
 
-/** 示例插件的脚本名（tools/plugin_example）：Check 的数据文件夹里只调它 */
+/** 示例插件的脚本名（仓库 fuelnote/fuelnote-plugin-example）：Check 的数据文件夹里只调它 */
 export const EXAMPLE_PLUGIN = "FuelNote 示例插件"
 const CACHE_FILE = "plugins.json"
 
