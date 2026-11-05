@@ -65,7 +65,7 @@
 
 - [x] `pages/plugin_detail.tsx`：启用的打勾；停用的图标和名称变灰；不能停用的（车辆、仅剩的一项）右侧灰色的锁，这一行不是按钮。说明照画稿，没有车辆的插件不写车辆那一句。
 - [x] 设计 5.2 节、D29，CHANGELOG、README、`CLAUDE.md` 跟着改。
-- [ ] FuelNote Check 的 `toggles` 截图（STAMP 74），看完截图。
+- [x] FuelNote Check 的 `toggles` 截图（STAMP 74），看完截图（13/13；仅剩「油价」时油价带锁，车辆不在用、变灰不带锁；停用「信息」时车辆带锁），和 R33One 对过。
 
 ## 易捷插件 0.4.3、沃尔沃插件 0.2.1
 
