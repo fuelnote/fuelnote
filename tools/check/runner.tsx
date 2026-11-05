@@ -100,7 +100,7 @@ const SANDBOX = "FuelNoteCheck"
 setDataRoot(SANDBOX)
 
 /** 改了这个值，手机重新运行后报到的 STAMP 跟着变（确认跑的是新代码） */
-export const STAMP = "79"
+export const STAMP = "80"
 const PORT = 3200
 const DAY = 86400e3
 const BJ_OFFSET = 8 * 3600e3
@@ -1020,7 +1020,8 @@ async function runPlugin(): Promise<{ steps: Step[] }> {
 
   data = await addPlugin(getData, EXAMPLE_PLUGIN)
   const ref = pluginsOf(data).find(p => p.script === EXAMPLE_PLUGIN)
-  add(steps, "添加：调一次 describe，存进设置（id、名称、提供的数据）", !!ref && ref.id === "example" && ref.capabilities.join() === "fuel,vehicles,trips,vehicle_status,service,fuel_price",
+  add(steps, "添加：调一次 describe，存进设置（id、名称、提供的数据、声明的两张卡片）", !!ref && ref.id === "example"
+    && ref.capabilities.join() === "fuel,vehicles,trips,vehicle_status,service,fuel_price,info" && (ref.cards ?? []).map(c => c.id).join() === "sample,notice",
     ref ? JSON.stringify(ref) : "没有")
   if (!ref) return { steps }
   let dup = ""
@@ -1829,10 +1830,12 @@ function pluginScreen(screen: string, data: AppData): VirtualNode | null {
   if (screen === "plugin-filled" && v && pickShot) {
     return <FuelForm data={data} vehicle={v} record={null} initialPick={{ plugin: pickShot.plugin, result: { txn: pickShot.txn, parts: pickShot.parts } }} />
   }
-  // 2.3.0-beta.2：编辑从示例插件记的加油，最上面一行「来源」（画稿 SvFuelSourceTop；用最近一次加油，只在截图里带上来源）
-  const last = v ? fuelRecords(data, v)[0] : undefined
-  if (screen === "plugin-fuel-source" && v && last) {
-    return <FuelForm data={data} vehicle={v} record={{ ...toFuelData(last), id: last.id, data_source: { id: "example", name: "示例" } }} />
+  // 2.3.0-beta.2：编辑从示例插件记的加油，最上面一行「来源」（画稿 SvFuelSourceTop；用最近一次加油，只在截图里带上来源）。
+  // 用有加油记录的车：先跑过 fill、toggles 时当前车辆是没有加油记录的示例车
+  const fv = [v, ...data.ledger.vehicles].find((x): x is Vehicle => !!x && fuelRecords(data, x).length > 0)
+  const last = fv ? fuelRecords(data, fv)[0] : undefined
+  if (screen === "plugin-fuel-source" && fv && last) {
+    return <FuelForm data={data} vehicle={fv} record={{ ...toFuelData(last), id: last.id, data_source: { id: "example", name: "示例" } }} />
   }
   return null
 }
