@@ -3,7 +3,7 @@
 import { joinPath } from "../common/files"
 import { AppData } from "../common/ledger"
 import { forgetInfo, INFO_CACHE_FILE, InfoCache } from "../common/info_cards"
-import { addProblem, FuelTxn, PLUGIN_MARKER, pluginRef, PluginResult, PluginState, PluginStatus, refreshedRef, setItem, usedCapabilities } from "../common/plugin"
+import { addProblem, FuelTxn, PLUGIN_MARKER, pluginRef, PluginResult, PluginState, PluginStatus, pluginPaused, refreshedRef, setItem, usedCapabilities } from "../common/plugin"
 import { createPluginSource, PluginCacheFile } from "../common/plugin_source"
 import { FuelPrices, InfoBatch, PluginCapability, PluginRef, PriceRegion } from "../common/types"
 import { callPlugin } from "../platform/plugin_bridge"
@@ -80,10 +80,11 @@ export async function addPlugin(getData: () => AppData, script: string): Promise
  * 插件更新以后重读它的名称和提供的数据（2.4）：只看 script.json 的版本，和上次 describe 时不同才调 describe（2.4 以前添加的没有记版本，调一次）。
  * 打开油记、回到前台时调；有变化时返回新的数据，没有时 null
  */
-export async function refreshPlugins(getData: () => AppData): Promise<AppData | null> {
+export async function refreshPlugins(getData: () => AppData, only?: string): Promise<AppData | null> {
+  // 全部停用的插件不运行（D31）；用户点进它的详情时（only）才读
   const stale = pluginsOf(getData()).filter(p => {
     const v = pluginVersion(p.script)
-    return !!v && v !== p.version
+    return !!v && v !== p.version && (only ? p.id === only : !pluginPaused(p))
   })
   const updates = new Map<string, PluginRef>()
   for (const ref of stale) {

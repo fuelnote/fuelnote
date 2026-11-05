@@ -2,7 +2,7 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
 import {
-  addProblem, capabilityLine, cardShown, enabledCards, itemSwitch, parseDescribe, pluginItems, parseFuel, parseFuelPrices, parseService, refreshedRef, parseStatus, parseTrips, parseVehicles, parseVehicleStatus, PLUGIN_TIMEOUT_MS, pluginRef,
+  addProblem, capabilityLine, cardShown, enabledCards, itemSwitch, parseDescribe, pluginItems, pluginPaused, parseFuel, parseFuelPrices, parseService, refreshedRef, parseStatus, parseTrips, parseVehicles, parseVehicleStatus, PLUGIN_TIMEOUT_MS, pluginRef,
   pluginStateText, pluginSubtitle, setItem, sourceCaption, stateOfError, stateOfStatus, usedCapabilities,
 } from "../common/plugin"
 import { normalizeLedger } from "../common/ledger_file"
@@ -261,25 +261,33 @@ test("开-8：行程、车况、养修都停用了，「车辆」也不算用到
   assert.deepEqual(usedCapabilities({ ...VOLVO, off: ["trips", "service"] }), ["vehicles", "vehicle_status"])
 })
 
-test("开-7：车辆不能单独停用（fixed）；仅剩一项启用时它带锁（locked）；卡片也算一项", () => {
+test("开-7：车辆不能单独停用（fixed）；其余每一项（卡片也算一项）都能停用，全部停用也可以", () => {
   assert.equal(itemSwitch(VOLVO, "vehicles"), "fixed")
   assert.equal(itemSwitch(VOLVO, "trips"), "on")
   const one = { ...VOLVO, off: ["trips", "service"] }
-  assert.equal(itemSwitch(one, "vehicle_status"), "locked")
+  assert.equal(itemSwitch(one, "vehicle_status"), "on")
   assert.equal(itemSwitch(one, "trips"), "off")
-  assert.equal(itemSwitch({ ...EJOY, off: ["fuel", "fuel_price"] }, "card:discounts"), "locked")
-  assert.equal(itemSwitch({ ...EJOY, off: ["fuel", "card:discounts"] }, "fuel_price"), "locked")
-  assert.equal(itemSwitch({ script: "s", id: "p", name: "只有油价", capabilities: ["fuel_price"] }, "fuel_price"), "locked")
+  const all = setItem(one, "vehicle_status", false)
+  assert.deepEqual(all.off, ["trips", "vehicle_status", "service"])
+  assert.deepEqual(usedCapabilities(all), [])
+  assert.equal(itemSwitch({ ...EJOY, off: ["fuel", "fuel_price"] }, "card:discounts"), "on")
 })
 
-test("启用、停用：停用写进 off（按项的顺序），启用从 off 去掉，off 空了不留这个键；车辆和仅剩的一项不变", () => {
+test("开-12 全部停用（D31）：插件暂停，油记不再运行它；设置列表写「已全部停用」", () => {
+  const paused: PluginRef = { ...EJOY, off: ["fuel", "fuel_price", "card:discounts"] }
+  assert.equal(pluginPaused(paused), true)
+  assert.equal(pluginPaused(EJOY), false)
+  assert.equal(pluginPaused({ ...VOLVO, off: ["trips", "vehicle_status", "service"] }), true, "车辆不算：行程、车况、养修都停用就是全部停用")
+  assert.equal(sourceCaption(paused, "0.4.3"), "版本 0.4.3 · 已全部停用")
+  assert.equal(sourceCaption(paused, ""), "已全部停用")
+})
+
+test("启用、停用：停用写进 off（按项的顺序），启用从 off 去掉，off 空了不留这个键；车辆、没变的不变", () => {
   const off = setItem(EXAMPLE, "card:notice", false)
   assert.deepEqual(off.off, ["card:notice"])
   assert.deepEqual(setItem(off, "fuel_price", false).off, ["fuel_price", "card:notice"])
   assert.ok(!("off" in setItem(off, "card:notice", true)))
   assert.equal(setItem(VOLVO, "vehicles", false), VOLVO)
-  const one = { ...VOLVO, off: ["trips", "service"] }
-  assert.equal(setItem(one, "vehicle_status", false), one)
   assert.equal(setItem(EXAMPLE, "card:sample", true), EXAMPLE)
 })
 
@@ -293,6 +301,10 @@ test("开-9：插件升级多了一项（能力或卡片）时新的启用；没
   const plain: PluginRef = { script: "s", id: "p", name: "插件", version: "1", capabilities: ["fuel", "info"], off: ["info"] }
   const carded = refreshedRef(plain, { id: "p", name: "插件", version: "2", capabilities: ["fuel", "info"], cards: [{ id: "a", title: "甲" }] }, [plain])
   assert.ok(carded && !("off" in carded) && usedCapabilities(carded).includes("info"))
+  // 全部停用的插件升级多了一项：新的也停用，照旧暂停（开-12）
+  const paused: PluginRef = { ...old, off: ["fuel", "fuel_price", "card:discounts"] }
+  const still = refreshedRef(paused, { id: "ejoy", name: "易捷", version: "0.4.3", capabilities: ["fuel", "fuel_price", "info"], cards: [{ id: "discounts", title: "今天的优惠" }, { id: "points", title: "积分" }] }, [paused])
+  assert.ok(still && pluginPaused(still) && still.off?.join() === "fuel,fuel_price,card:discounts,card:points")
 })
 
 test("版本号（5.1 节）：设置列表那一行写版本和启用的几项（卡片写名称）；插件详情的副标题写版本和脚本名；读不到版本时不写这一段", () => {

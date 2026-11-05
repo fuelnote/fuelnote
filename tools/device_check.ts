@@ -390,7 +390,9 @@ async function infoCheck(phone: string): Promise<number> {
   return bad
 }
 
-const SHOTS_TOGGLES: Array<[string, number]> = [["toggles-settings", 0], ["toggles-detail", 1200], ["toggles-detail-off", 1200], ["toggles-detail-locked", 1200]]
+const SHOTS_TOGGLES: Array<[string, number]> = [
+  ["toggles-settings", 0], ["toggles-settings-paused", 0], ["toggles-detail", 1200], ["toggles-detail-off", 1200], ["toggles-detail-paused", 1200],
+]
 
 /** 逐项开关和版本号（2.7，插件化设计 5.1、5.2 节）：开-1～开-10；截图设置列表、插件详情（全开、关了「信息」、只剩一项） */
 async function togglesCheck(phone: string): Promise<number> {

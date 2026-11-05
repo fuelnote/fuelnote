@@ -86,6 +86,16 @@
 - [x] 契约 `docs/plugins.md` 第 4、9、11、13 节；设计 5.2 节、D30；小组件方案和信息卡片设计 7.3 节；CHANGELOG、README、`CLAUDE.md`。
 - [x] FuelNote Check：`toggles` 改成按项（停用「示例公告」后插件只收到「示例卡片」、两张都停用、重新启用、升级多一张卡片），`info` 改成两张卡片；STAMP 76。在手机上跑 `fill`、`info`、`toggles`，看完截图（2026-11-05：fill 8/8、info 10/10、toggles 16/16；开-11 交给插件 `["sample"]`，插件只给了示例卡片，说明 `Script.run` 传数组参数没问题）。
 
+## 2.7.0-beta.6
+
+用户 2026-11-05 问「为什么一定要留一个选项」：可以全部停用，全部停用就是暂停；设置列表右边写「已停用」，油记不再运行插件（设计 5.2 节、D31）。
+
+- [x] `common/plugin.ts`：`itemSwitch` 去掉 `locked`；`pluginPaused`；`sourceCaption` 全部停用时写「已全部停用」；`refreshedRef` 暂停的插件新的项也停用。测试 `tests/plugin.test.ts`（开-7、开-12）。
+- [x] `app/plugins.ts`：`refreshPlugins` 跳过暂停的插件，`only` 时只读这一个（插件详情用）。
+- [x] `pages/settings.tsx`：暂停的插件右边写「已停用」，不问连接状态。`pages/plugin_detail.tsx`：只有车辆带锁；说明改写；打开时读这个插件的说明（插件更新了）。
+- [x] 设计 5.2 节、D29、D31，契约第 13 节，CHANGELOG、README、`CLAUDE.md`。
+- [ ] FuelNote Check：`toggles` 的开-7 改成仅剩一项也能停用，加开-12（全部停用、暂停时插件更新、启用一项恢复）；截图加设置列表和插件详情的全部停用；STAMP 77。在手机上跑，看完截图。
+
 ## 易捷插件 0.4.3、沃尔沃插件 0.2.1
 
 - [x] 自己的页面用大标题，副标题「版本 x」（R30Plugins A）；版本号，插件计划里记上。

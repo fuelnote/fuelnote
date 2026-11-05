@@ -81,7 +81,7 @@ import { cardRefOf, cardSlotView, presetFor, setPresetCard } from "../../common/
 import { infoGroups, InfoPluginView, infoViewsFor, refreshInfo, viewsOfGroup } from "../../common/model"
 import { INFO_CACHE_FILE, InfoCache } from "../../common/info_cards"
 import { infoKey } from "../../app/info_cards"
-import { enabledCards, itemSwitch, pluginSubtitle, setItem, sourceCaption, usedCapabilities } from "../../common/plugin"
+import { enabledCards, itemSwitch, pluginPaused, pluginSubtitle, setItem, sourceCaption, usedCapabilities } from "../../common/plugin"
 import { pluginsWith, setPluginItem } from "../../app/plugins"
 import { pricePluginId } from "../../app/fuel_price"
 import { canReadTrips, hasStatusSource } from "../../app/vehicle_data"
@@ -100,7 +100,7 @@ const SANDBOX = "FuelNoteCheck"
 setDataRoot(SANDBOX)
 
 /** 改了这个值，手机重新运行后报到的 STAMP 跟着变（确认跑的是新代码） */
-export const STAMP = "76"
+export const STAMP = "77"
 const PORT = 3200
 const DAY = 86400e3
 const BJ_OFFSET = 8 * 3600e3
@@ -1678,12 +1678,29 @@ async function runToggles(): Promise<{ steps: Step[] }> {
   add(steps, "开-8 行程、车况、养修都停用：车辆也不算用到，车辆的「车辆数据」里不列这个插件",
     !usedCapabilities(ref()).includes("vehicles") && !vehicleSources(data).some(src => src.id === id) && itemSwitch(ref(), "vehicles") === "fixed",
     usedCapabilities(ref()).join("、"))
-  // 开-7：仅剩油价
+  // 开-7、开-12：再停用加油交易、两张卡片、油价，全部停用（D31）
   for (const k of ["fuel", "card:sample", "card:notice"]) data = setPluginItem(data, id, k, false)
-  const last = ref()
-  add(steps, "开-7 仅剩「油价」启用：它带锁（locked），再停用也不变", itemSwitch(last, "fuel_price") === "locked" && setItem(last, "fuel_price", false) === last
-    && setPluginItem(data, id, "fuel_price", false).ledger.settings.plugins.find(p => p.id === id)?.off?.length === 6,
-    usedCapabilities(last).join("、"))
+  add(steps, "开-7 仅剩「油价」启用：它也能停用（没有锁）", itemSwitch(ref(), "fuel_price") === "on" && setItem(ref(), "fuel_price", false) !== ref())
+  data = setPluginItem(data, id, "fuel_price", false)
+  const savedOff = loadData().data.ledger.settings.plugins.find(p => p.id === id)?.off ?? []
+  add(steps, "开-12 全部停用：插件暂停；设置列表写「已全部停用」；加油交易、油价、信息卡片、车况、行程、养修、车辆关联都不再用它",
+    pluginPaused(ref()) && savedOff.length === 7 && sourceCaption(ref(), version) === `版本 ${version} · 已全部停用`
+    && pluginsWith(data, "fuel").length === 0 && pricePluginId(data) === null && infoViewsFor(data).length === 0
+    && !hasStatusSource(data, car) && !canReadTrips(data, car) && serviceSourceOf(data, car) === null && !vehicleSources(data).some(src => src.id === id),
+    `${sourceCaption(ref(), version)}；停用 ${savedOff.length} 项`)
+  // 暂停时插件更新了：打开油记不读它的说明；点进详情才读，新的项也停用
+  data = updateSettings(data, {
+    plugins: pluginsOf(data).map(p => (p.id === id ? { ...p, cards: (p.cards ?? []).slice(0, 1), version: "0", off: (p.off ?? []).filter(k => k !== "card:notice") } : p)),
+  })
+  const skipped = await refreshPlugins(() => data)
+  const opened = await refreshPlugins(() => data, id)
+  if (opened) data = opened
+  add(steps, "开-12 暂停时插件更新了：打开油记时不运行它；点进详情时才读说明，新多的「示例公告」也停用，照旧暂停",
+    skipped === null && !!opened && enabledCards(ref())?.length === 0 && (ref().cards ?? []).length === 2 && pluginPaused(ref()),
+    `打开油记 ${skipped ? "读了" : "没读"}；点进详情 ${opened ? "读了" : "没读"}；卡片 ${(ref().cards ?? []).map(c => c.title).join("、")}；停用 ${ref().off?.join("、") ?? "没有"}`)
+  data = setPluginItem(data, id, "fuel", true)
+  add(steps, "开-12 启用一项：不再暂停，设置列表照常写版本和启用的项", !pluginPaused(ref()) && sourceCaption(ref(), version) === `版本 ${version} · 加油交易`,
+    sourceCaption(ref(), version))
   data = allOn(data)
 
   // 开-9：像旧版本只声明了「示例卡片」、停用着「油价」的示例插件，升级后重新 describe
@@ -1702,8 +1719,11 @@ async function runToggles(): Promise<{ steps: Step[] }> {
   return { steps }
 }
 
+/** 示例插件全部停用（暂停，D31） */
+const ALL_ITEMS = ["fuel", "trips", "vehicle_status", "service", "fuel_price", "card:sample", "card:notice"]
+
 /**
- * 逐项启用的截图（/run/toggles 之后）：设置列表（示例插件停用了「示例公告」）、插件详情（全部启用、停用「示例公告」、仅剩「油价」）。
+ * 逐项启用的截图（/run/toggles 之后）：设置列表（示例插件停用了「示例公告」、全部停用）、插件详情（全部启用、停用「示例公告」、全部停用）。
  * 只在内存里改，存着的设置是全开的
  */
 function toggleScreen(screen: string, data: AppData): VirtualNode | null {
@@ -1711,14 +1731,14 @@ function toggleScreen(screen: string, data: AppData): VirtualNode | null {
   if (!ref) return null
   const offs: Record<string, string[]> = {
     "toggles-settings": ["card:notice"], "toggles-detail": [], "toggles-detail-off": ["card:notice"],
-    "toggles-detail-locked": ["fuel", "trips", "vehicle_status", "service", "card:sample", "card:notice"],
+    "toggles-settings-paused": ALL_ITEMS, "toggles-detail-paused": ALL_ITEMS,
   }
   const off = offs[screen]
   if (!off) return null
   const plugins = pluginsOf(data).map(p => (p.id === ref.id ? off.reduce((acc, k) => setItem(acc, k, false), p) : p))
   const d = makeAppData({ ...data.ledger, settings: { ...data.ledger.settings, plugins } }, data.xxyh)
   const app = { getData: () => d, setData: noop, addVehicle: async () => undefined }
-  if (screen === "toggles-settings") return <SettingsPage data={d} app={app} />
+  if (screen.startsWith("toggles-settings")) return <SettingsPage data={d} app={app} />
   return <NavigationStack><PluginDetail app={app} pluginId={ref.id} /></NavigationStack>
 }
 

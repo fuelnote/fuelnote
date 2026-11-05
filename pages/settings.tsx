@@ -1,7 +1,8 @@
 // 设置
 import { Button, Capsule, HStack, Image, List, Navigation, NavigationLink, NavigationStack, Script, Section, Spacer, Text, Toggle, useState, VStack } from "scripting"
 import {
-  AppData, currentVehicle, missingSources, OCR_ENGINE_TITLES, pluginsOf, pluginState, pluginStateText, pluginStatus, pluginVersion, sourceCaption, updateSettings, Vehicle,
+  AppData, currentVehicle, missingSources, OCR_ENGINE_TITLES, pluginPaused, pluginsOf, pluginState, pluginStateText, pluginStatus, pluginVersion, sourceCaption, updateSettings,
+  Vehicle,
 } from "../common/model"
 import { CaptureSettings } from "./capture_settings"
 import { BackupRowLabel, BackupSettings } from "./backup_settings"
@@ -69,8 +70,8 @@ export function SettingsPage({ data, app }: { data: AppData; app: AppActions }) 
   const xxyhDetail = xxyhRowDetail(data)
   const plugins = pluginsOf(data)
   const [, setTick] = useState(0)
-  /** 每次回到设置页问一次各个插件的状态 */
-  const refreshPlugins = () => { for (const p of plugins) void pluginStatus(p).then(() => setTick(t => t + 1)) }
+  /** 每次回到设置页问一次各个插件的状态；全部停用的插件不运行（D31） */
+  const refreshPlugins = () => { for (const p of plugins.filter(x => !pluginPaused(x))) void pluginStatus(p).then(() => setTick(t => t + 1)) }
   const openAdd = () => Navigation.present({ element: <PluginAdd getData={app.getData} onAdded={app.setData} /> })
 
   return <NavigationStack>
@@ -93,9 +94,11 @@ export function SettingsPage({ data, app }: { data: AppData; app: AppActions }) 
       <Section header={<Text>数据源</Text>} footer={<Text>插件是独立的 Scripting 脚本，只提供数据；记账和核对都在油记中完成。插件的凭据保存在插件中，不在油记的备份里。</Text>}>
         {missingSources(data).map(v => <MissingSourceRow key={`missing-${v.id}`} vehicle={v} onAdd={() => { void openAdd() }} />)}
         {plugins.map(p => {
-          const state = pluginState(p.id)
+          // 全部停用的写「已停用」，不写连接状态（D31）
+          const paused = pluginPaused(p)
+          const state = paused ? null : pluginState(p.id)
           return <NavigationLink key={p.id} destination={<PluginDetail app={app} pluginId={p.id} />}>
-            <SourceRow title={p.name} detail={sourceCaption(p, pluginVersion(p.script))} state={state ? pluginStateText(state) : ""} warn={state === "expired"} />
+            <SourceRow title={p.name} detail={sourceCaption(p, pluginVersion(p.script))} state={paused ? "已停用" : state ? pluginStateText(state) : ""} warn={state === "expired"} />
           </NavigationLink>
         })}
         <Button title="添加插件" systemImage="plus" action={() => { void openAdd() }} />
