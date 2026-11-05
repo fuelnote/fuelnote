@@ -33,25 +33,25 @@ export function capabilityLine(caps: PluginCapability[]): string {
 
 /**
  * 插件详情「提供的数据」的一项：一种能力，或一张声明过的信息卡片（声明了卡片时「信息」换成每张卡片，key 是 card:<id>）。
- * 没声明卡片的插件照旧一项「信息」
+ * 没声明卡片的插件照旧一项「信息」。「车辆」不列（D32）：它只用来关联车，随行程、车况、养修使用
  */
 export type PluginItem = { key: string; cap: PluginCapability; card: InfoCardDecl | null; title: string }
 
 export const cardKey = (id: string): string => `card:${id}`
 
 export function pluginItems(ref: PluginRef): PluginItem[] {
-  return ref.capabilities.flatMap((cap): PluginItem[] => (cap === "info" && ref.cards?.length
+  return ref.capabilities.filter(c => c !== "vehicles").flatMap((cap): PluginItem[] => (cap === "info" && ref.cards?.length
     ? ref.cards.map(card => ({ key: cardKey(card.id), cap, card, title: card.title }))
     : [{ key: cap, cap, card: null, title: CAPABILITY_TITLES[cap] }]))
 }
 
 const isOff = (ref: PluginRef, key: string) => (ref.off ?? []).includes(key)
 
-/** 用到的能力：启用的项的能力；卡片都停用时不算「信息」，行程、车况、养修都停用时也不算「车辆」（开-8）。油记各处只看用到的能力 */
+/** 用到的能力：启用的项的能力；卡片都停用时不算「信息」；「车辆」在行程、车况、养修有一项启用时算（开-8）。油记各处只看用到的能力 */
 export function usedCapabilities(ref: PluginRef): PluginCapability[] {
   const on = new Set(pluginItems(ref).filter(i => !isOff(ref, i.key)).map(i => i.cap))
-  const caps = ref.capabilities.filter(c => on.has(c))
-  return caps.some(c => VEHICLE_CAPABILITIES.includes(c)) ? caps : caps.filter(c => c !== "vehicles")
+  const vehicles = VEHICLE_CAPABILITIES.some(c => on.has(c))
+  return ref.capabilities.filter(c => on.has(c) || (c === "vehicles" && vehicles))
 }
 
 /** 启用的卡片：请求 info 时交给插件（开-11）；插件没声明卡片时 null，不传 */
@@ -65,11 +65,10 @@ export function cardShown(ref: PluginRef, id: string): boolean {
   return on ? on.some(c => c.id === id) : true
 }
 
-/** 一项的状态：车辆不能单独停用（fixed，随行程、车况、养修启用）；其余都能停用，全部停用也可以（开-7、开-12） */
-export type ItemSwitch = "on" | "off" | "fixed"
+/** 一项的状态：每一项都能停用，全部停用也可以（开-7、开-12） */
+export type ItemSwitch = "on" | "off"
 
 export function itemSwitch(ref: PluginRef, key: string): ItemSwitch {
-  if (key === "vehicles") return "fixed"
   return isOff(ref, key) ? "off" : "on"
 }
 
@@ -78,22 +77,20 @@ export function pluginPaused(ref: PluginRef): boolean {
   return usedCapabilities(ref).length === 0
 }
 
-/** 启用或停用一项：停用写进 off（按项的顺序），启用从 off 去掉，off 空了不留这个键；车辆、没变的照原样返回 */
+/** 启用或停用一项：停用写进 off（按项的顺序），启用从 off 去掉，off 空了不留这个键；不是一项的（例如车辆）、没变的照原样返回 */
 export function setItem(ref: PluginRef, key: string, on: boolean): PluginRef {
-  const now = itemSwitch(ref, key)
-  if (now === "fixed" || (now === "on") === on) return ref
+  if (!pluginItems(ref).some(i => i.key === key) || (itemSwitch(ref, key) === "on") === on) return ref
   const off = pluginItems(ref).map(i => i.key).filter(k => (k === key ? !on : isOff(ref, k)))
   const { off: _old, ...rest } = ref
   return off.length ? { ...rest, off } : rest
 }
 
 /**
- * 设置 › 数据源一行的下面（5.1 节）：「版本 0.4.2 · 加油交易、油价、今天的优惠」，写启用的项（车辆在用时也写）；
+ * 设置 › 数据源一行的下面（5.1 节）：「版本 0.4.2 · 加油交易、油价、今天的优惠」，写启用的项；
  * 全部停用时写「已全部停用」（D31）；读不到版本时不写版本
  */
 export function sourceCaption(ref: PluginRef, version: string): string {
-  const used = usedCapabilities(ref)
-  const titles = pluginItems(ref).filter(i => !isOff(ref, i.key) && used.includes(i.cap)).map(i => i.title)
+  const titles = pluginItems(ref).filter(i => !isOff(ref, i.key)).map(i => i.title)
   return [version ? `版本 ${version}` : "", titles.length ? titles.join("、") : "已全部停用"].filter(Boolean).join(" · ")
 }
 
@@ -499,7 +496,7 @@ export function refreshedRef(ref: PluginRef, info: PluginInfo, plugins: PluginRe
   // 停用的几项照旧停用，新版本没有了的项去掉；新多出来的项（能力或卡片）启用（开-9）。全部停用的插件新的项也停用，照旧暂停（开-12）
   const fresh = pluginRef(ref.script, info)
   const keys = pluginItems(fresh).map(i => i.key)
-  const off = pluginPaused(ref) ? keys.filter(k => k !== "vehicles") : (ref.off ?? []).filter(k => keys.includes(k))
+  const off = pluginPaused(ref) ? keys : (ref.off ?? []).filter(k => keys.includes(k))
   const next = { ...fresh, ...(off.length ? { off } : {}) }
   const same = next.name === ref.name && next.version === ref.version && next.capabilities.join() === ref.capabilities.join()
     && JSON.stringify(next.cards ?? []) === JSON.stringify(ref.cards ?? [])

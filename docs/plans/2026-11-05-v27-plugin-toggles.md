@@ -96,6 +96,15 @@
 - [x] 设计 5.2 节、D29、D31，契约第 13 节，CHANGELOG、README、`CLAUDE.md`。
 - [x] FuelNote Check：`toggles` 的开-7 改成仅剩一项也能停用，加开-12（全部停用、暂停时插件更新、启用一项恢复）；截图加设置列表和插件详情的全部停用；STAMP 77。在手机上跑，看完截图（2026-11-05：19/19；设置列表写「版本 1.4.0 · 已全部停用」、右边「已停用」）。
 
+## 2.7.0-beta.7
+
+用户 2026-11-05 问「车辆带锁，为什么其他选项关闭了，也算停用呢」：「车辆」不列为一项，写在说明里（设计 5.2 节、D32）。
+
+- [x] `common/plugin.ts`：`pluginItems` 不列 `vehicles`；`usedCapabilities` 在行程、车况、养修有一项启用时带上 `vehicles`；`itemSwitch` 只有 `on`、`off`；`setItem` 不是一项的照原样返回。测试 `tests/plugin.test.ts`。
+- [x] `pages/plugin_detail.tsx`：每一行都是按钮，没有锁；有车辆数据的插件说明里写关联车辆那一句。
+- [x] 设计 5.2 节、D32，契约第 13 节，CHANGELOG、README、`CLAUDE.md`。
+- [ ] FuelNote Check：设置列表那一行不写「车辆」，开-8 检查「车辆」不是一项；STAMP 78。在手机上跑 `toggles`，看完截图。
+
 ## 易捷插件 0.4.3、沃尔沃插件 0.2.1
 
 - [x] 自己的页面用大标题，副标题「版本 x」（R30Plugins A）；版本号，插件计划里记上。

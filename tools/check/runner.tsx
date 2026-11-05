@@ -81,7 +81,7 @@ import { cardRefOf, cardSlotView, presetFor, setPresetCard } from "../../common/
 import { infoGroups, InfoPluginView, infoViewsFor, refreshInfo, viewsOfGroup } from "../../common/model"
 import { INFO_CACHE_FILE, InfoCache } from "../../common/info_cards"
 import { infoKey } from "../../app/info_cards"
-import { enabledCards, itemSwitch, pluginPaused, pluginSubtitle, setItem, sourceCaption, usedCapabilities } from "../../common/plugin"
+import { enabledCards, itemSwitch, pluginItems, pluginPaused, pluginSubtitle, setItem, sourceCaption, usedCapabilities } from "../../common/plugin"
 import { pluginsWith, setPluginItem } from "../../app/plugins"
 import { pricePluginId } from "../../app/fuel_price"
 import { canReadTrips, hasStatusSource } from "../../app/vehicle_data"
@@ -100,7 +100,7 @@ const SANDBOX = "FuelNoteCheck"
 setDataRoot(SANDBOX)
 
 /** 改了这个值，手机重新运行后报到的 STAMP 跟着变（确认跑的是新代码） */
-export const STAMP = "77"
+export const STAMP = "78"
 const PORT = 3200
 const DAY = 86400e3
 const BJ_OFFSET = 8 * 3600e3
@@ -1615,7 +1615,7 @@ async function runToggles(): Promise<{ steps: Step[] }> {
   const ref = () => pluginsOf(data).find(p => p.id === id) ?? found
   const version = pluginVersion(EXAMPLE_PLUGIN)
   add(steps, "5.1：设置列表那一行写版本和启用的几项（卡片写名称）；插件详情的副标题写版本和脚本名（版本取手机上的 script.json）",
-    sourceCaption(ref(), version) === `版本 ${version} · 加油交易、车辆、行程、车况、养修、油价、示例卡片、示例公告` && pluginSubtitle(ref(), version) === `版本 ${version} · 脚本 ${EXAMPLE_PLUGIN}`,
+    sourceCaption(ref(), version) === `版本 ${version} · 加油交易、行程、车况、养修、油价、示例卡片、示例公告` && pluginSubtitle(ref(), version) === `版本 ${version} · 脚本 ${EXAMPLE_PLUGIN}`,
     `${sourceCaption(ref(), version)}；${pluginSubtitle(ref(), version)}`)
   await refreshAndWatch(data, true)
   const keyOn = infoKey(data)
@@ -1675,8 +1675,8 @@ async function runToggles(): Promise<{ steps: Step[] }> {
 
   // 开-8：行程、车况、养修都停用
   for (const k of ["trips", "vehicle_status", "service"]) data = setPluginItem(data, id, k, false)
-  add(steps, "开-8 行程、车况、养修都停用：车辆也不算用到，车辆的「车辆数据」里不列这个插件",
-    !usedCapabilities(ref()).includes("vehicles") && !vehicleSources(data).some(src => src.id === id) && itemSwitch(ref(), "vehicles") === "fixed",
+  add(steps, "开-8 行程、车况、养修都停用：车辆也不算用到，车辆的「车辆数据」里不列这个插件；「车辆」不是一项（D32）",
+    !usedCapabilities(ref()).includes("vehicles") && !vehicleSources(data).some(src => src.id === id) && !pluginItems(ref()).some(i => i.key === "vehicles"),
     usedCapabilities(ref()).join("、"))
   // 开-7、开-12：再停用加油交易、两张卡片、油价，全部停用（D31）
   for (const k of ["fuel", "card:sample", "card:notice"]) data = setPluginItem(data, id, k, false)

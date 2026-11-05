@@ -1,11 +1,11 @@
 // 插件详情（插件化设计第 5 节，画稿 DsDetail，从设置 › 数据源推入）：提供的数据；连接状态和打码的账号，每次打开时问一次插件；
 // 管理连接打开插件自己的页面；移除插件只从油记里去掉。
 // 2.7（5.1、5.2 节，画稿第三十轮 R30DetailA，第三十三轮 R33One，第三十四轮 R34Cards）：副标题写版本和脚本名；提供的数据轻点一行启用或停用：
-// 启用的打勾，停用的图标和名称变灰；车辆不能单独停用，右侧灰色的锁，不是按钮（D29）；可以全部停用，插件暂停（D31）。声明了卡片时「信息」换成每张卡片一行（D30）。
+// 启用的打勾，停用的图标和名称变灰（D29）；可以全部停用，插件暂停（D31）；「车辆」不列，写在说明里（D32）。声明了卡片时「信息」换成每张卡片一行（D30）。
 import { Button, EnvironmentValuesReader, HStack, Image, List, ProgressView, Section, Spacer, Text, useState, VStack } from "scripting"
 import {
   connectPlugin, ItemSwitch, itemSwitch, PluginCapability, PluginItem, pluginItems, pluginsOf, pluginState, pluginStateText, pluginStatus, pluginSubtitle, pluginVersion,
-  refreshPlugins, removePlugin, setPluginItem, usedCapabilities,
+  refreshPlugins, removePlugin, setPluginItem,
 } from "../common/model"
 import { AppActions } from "./components"
 
@@ -26,22 +26,18 @@ function hint(cap: PluginCapability, name: string): string {
   return `记费用时，从${name}选择一次进店，填入需记录的各笔费用`
 }
 
-/** 「提供的数据」下面的说明（画稿 R33One；2.7.0-beta.6 起可以全部停用，D31）：没有车辆的插件不写车辆那一句 */
+/** 「提供的数据」下面的说明（画稿 R33One；可以全部停用，D31；「车辆」写在这里，D32）：没有车辆的插件不写车辆那一句 */
 function capsFooter(hasVehicles: boolean): string {
   return "轻点以启用或停用。停用后，油记不再向插件请求该项数据，相关功能随之隐藏；已有记录不受影响。全部停用时，油记不再运行该插件，设置保留，可随时启用。"
-    + (hasVehicles ? "带锁的项目不能单独停用：车辆数据随行程、车况、养修启用。" : "")
+    + (hasVehicles ? "行程、车况、养修需要先在车辆设置的「车辆数据」中关联车辆。" : "")
 }
 
 /** 一张卡片那一行的说明（画稿 R34Cards） */
 const CARD_HINT = "信息卡片，显示在记录页「当前」下方，可添加到小组件"
 
-/**
- * 一项（画稿 R33One、R34Cards）：图标、名称和说明，右边启用的打勾、车辆在用时灰色的锁。停用的图标和名称变灰；
- * 车辆在行程、车况、养修都停用时也变灰、没有锁（开-8）
- */
-function ItemRow({ item, name, state, used }: { item: PluginItem; name: string; state: ItemSwitch; used: boolean }) {
-  const dim = !used
-  const locked = state === "fixed" && used
+/** 一项（画稿 R33One、R34Cards）：图标、名称和说明，右边启用的打勾；停用的图标和名称变灰 */
+function ItemRow({ item, name, state }: { item: PluginItem; name: string; state: ItemSwitch }) {
+  const dim = state === "off"
   return <HStack spacing={12}>
     <Image systemName={ICONS[item.cap]} font="title3" foregroundStyle={dim ? "secondaryLabel" : "accentColor"} frame={{ width: 28 }} />
     <VStack alignment="leading" spacing={2}>
@@ -50,7 +46,6 @@ function ItemRow({ item, name, state, used }: { item: PluginItem; name: string; 
     </VStack>
     <Spacer />
     {state === "on" ? <Image systemName="checkmark" font="body" fontWeight="semibold" foregroundStyle="accentColor" /> : null}
-    {locked ? <Image systemName="lock" font="body" foregroundStyle="secondaryLabel" /> : null}
   </HStack>
 }
 
@@ -79,7 +74,7 @@ export function PluginDetail({ app, pluginId }: { app: AppActions; pluginId: str
     setView(r.ok ? { loading: false, account: r.value.account, error: null } : { loading: false, account: null, error: r.error.message })
   }
 
-  /** 启用或停用一项：存进设置，这一页跟着重画；车辆、仅剩的一项不是按钮（setItem 里也挡住） */
+  /** 启用或停用一项：存进设置，这一页跟着重画 */
   function toggle(key: string, on: boolean) {
     app.setData(setPluginItem(app.getData(), plugin.id, key, on))
     setTick(t => t + 1)
@@ -107,11 +102,8 @@ export function PluginDetail({ app, pluginId }: { app: AppActions; pluginId: str
     <Section header={<Text>提供的数据</Text>} footer={<Text>{capsFooter(plugin.capabilities.includes("vehicles"))}</Text>}>
       {pluginItems(plugin).map(item => {
         const sw = itemSwitch(plugin, item.key)
-        const used = sw !== "off" && usedCapabilities(plugin).includes(item.cap)
-        // 车辆不能单独停用，不是按钮：按下没有反应，也不高亮
-        if (sw === "fixed") return <ItemRow key={item.key} item={item} name={plugin.name} state={sw} used={used} />
         return <Button key={item.key} action={() => toggle(item.key, sw === "off")}>
-          <ItemRow item={item} name={plugin.name} state={sw} used={used} />
+          <ItemRow item={item} name={plugin.name} state={sw} />
         </Button>
       })}
     </Section>
