@@ -1,14 +1,14 @@
-// 把手机上的自动检查装到 Scripting 的脚本目录（../FuelNote Check），开发服务器才能同步到手机。说明见 tools/check/README.md。
+// 把手机上的自动检查装到 Scripting 的脚本目录（../FuelNoteCheck），开发服务器才能同步到手机。说明见 tools/check/README.md。
 // 连同油记的代码一起复制（common、platform、pages 等），tools/check 里的 "../../" 导入改成 "./"。只写有变化的文件，
 // 先写到脚本目录外的临时文件夹再改名：直接覆盖时开发服务器可能读到写了一半的文件，手机会按旧内容重新运行。
-// 第一次需要在手机上新建一个同名的空脚本「FuelNote Check」，再在开发服务器页面里选它。
+// 第一次需要在手机上新建一个同名的空脚本「FuelNoteCheck」，再在开发服务器页面里选它。
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs"
 import { dirname, join, relative } from "node:path"
 import { fileURLToPath } from "node:url"
 
 const here = dirname(fileURLToPath(import.meta.url))
 const app = join(here, "..")
-const to = join(app, "..", "FuelNote Check")
+const to = join(app, "..", "FuelNoteCheck")
 const tmp = join(to, "..", ".install-tmp")
 const DIRS = ["app", "common", "platform", "pages", "providers", "sync", "stations", "readers"]
 /** 根目录下 Check 要用的文件：小组件的视图（2.5，Check 在 App 里画小组件截图） */
@@ -46,7 +46,7 @@ for (const [rel, content] of files) {
   changed++
 }
 console.log(`已更新 ${to}：${changed} 个文件有变化（共 ${files.size} 个）`)
-// 示例插件在自己的仓库（fuelnote/fuelnote-plugin-example），克隆在 ../FuelNote 示例插件：Check 的 plugin 一项要在脚本目录里找到它
-if (!existsSync(join(to, "..", "FuelNote 示例插件", "fuelnote.json"))) {
-  console.log("没找到示例插件：把 https://github.com/fuelnote/fuelnote-plugin-example 克隆到 scripts/FuelNote 示例插件")
+// 示例插件在自己的仓库（fuelnote/fuelnote-plugin-example），克隆在 ../FuelNoteExample：Check 的 plugin 一项要在脚本目录里找到它
+if (!existsSync(join(to, "..", "FuelNoteExample", "fuelnote.json"))) {
+  console.log("没找到示例插件：把 https://github.com/fuelnote/fuelnote-plugin-example 克隆到 scripts/FuelNoteExample")
 }

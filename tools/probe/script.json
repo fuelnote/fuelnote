@@ -1,7 +1,7 @@
 {
-  "name" : "FuelNote Probe",
+  "name" : "FuelNoteProbe",
   "localizedNames" : {
-    "zh" : "油记识别采样"
+    "zh" : "油记·识别采样"
   },
   "description" : "开发用：对加油小票和截图运行 iOS 文字识别，把结果传回电脑",
   "localizedDescriptions" : {

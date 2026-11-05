@@ -8,7 +8,7 @@ import { VehicleStatus } from "../providers/types"
 
 const MIN = 60e3
 const T0 = new Date(2026, 9, 19, 12, 0).getTime()
-const LINK: StatusLink = { key: "v1|example|VIN", provider: "example", script: "FuelNote 示例插件", vehicle_id: "VIN", tank_l: 55 }
+const LINK: StatusLink = { key: "v1|example|VIN", provider: "example", script: "FuelNoteExample", vehicle_id: "VIN", tank_l: 55 }
 
 function status(fuel_l: number): VehicleStatus {
   return { ts: T0 - 90 * MIN, fuel_l, range_km: 430, avg_consumption: 13.2, odometer_km: 82959.065 }

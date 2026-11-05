@@ -90,7 +90,7 @@ function errorTitle(e: PluginError, name: string): string {
 /**
  * plugin：提供加油交易的插件；at：表单里已有的时间（截图、停车、手动改过的才算，默认的现在不算），没有时 null。
  * back：没有时间时一开始就加载到的月份（「更换」时是上次加载到的，common/fuel_pick.ts 的 pickOpening），没有时只列本月和上月。
- * selected：先勾上的交易（「更换」时是原来选的几笔；FuelNote Check 截图也用）。选好以后关闭并交回合成后的一笔、它是哪几笔、列到的最早月份
+ * selected：先勾上的交易（「更换」时是原来选的几笔；FuelNoteCheck 截图也用）。选好以后关闭并交回合成后的一笔、它是哪几笔、列到的最早月份
  */
 export function FuelPick({ plugin, at, back, selected: preset }: { plugin: PluginRef; at: number | null; back?: string | null; selected?: string[] }) {
   const dismiss = Navigation.useDismiss()

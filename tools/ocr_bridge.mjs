@@ -1,5 +1,5 @@
 // 本机文字识别采样的电脑端（设计文档 16.3 节、20.10 节）。
-// 把电脑上的小票图片发给手机上的「FuelNote Probe」，收回 iOS Vision 的识别结果；手机相册里选的图片也传回来保存。
+// 把电脑上的小票图片发给手机上的「FuelNoteProbe」，收回 iOS Vision 的识别结果；手机相册里选的图片也传回来保存。
 // 保单 PDF 也发给手机，收回 PDFKit 逐页取出的文字（保险 1.5 的解析规则以它为准）；保单文件夹里的图片（交强险标志 JPG）和读不出文字的 PDF 收回 Vision 识别的文字块。
 // 图片、PDF 和结果都只放在 XXYH_ROOT 下（git 忽略），不进本仓库；只在局域网使用。
 //
@@ -15,7 +15,7 @@
 //   POST /pdf_image?name=<n>   那张截图（JPEG），存到 out/insurance/pdf_images/
 //   POST /result               一条识别结果（JSON），追加到 out/ocr/vision.jsonl
 //   POST /upload?name=<name>   手机相册里的图片，存到 materials/receipts_phone/
-//   POST /check_hello          手机上的「FuelNote Check」报到 { port, stamp }：记下手机地址，写到 out/check/phone.json
+//   POST /check_hello          手机上的「FuelNoteCheck」报到 { port, stamp }：记下手机地址，写到 out/check/phone.json
 import { createServer } from "node:http"
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs"
 import { basename, extname, join } from "node:path"
@@ -188,7 +188,7 @@ const server = createServer(async (req, res) => {
       const info = { address, port: r.port, stamp: r.stamp, error: r.error ?? null, at: new Date().toISOString() }
       mkdirSync(join(ROOT, "out/check"), { recursive: true })
       writeFileSync(join(ROOT, "out/check/phone.json"), JSON.stringify(info, null, 2))
-      console.log(`FuelNote Check 报到：http://${address}:${r.port}（STAMP ${r.stamp}）${r.error ? ` 启动失败：${r.error}` : ""}`)
+      console.log(`FuelNoteCheck 报到：http://${address}:${r.port}（STAMP ${r.stamp}）${r.error ? ` 启动失败：${r.error}` : ""}`)
       return send(res, 200, { ok: true })
     }
     if (req.method === "POST" && url.pathname === "/upload") {

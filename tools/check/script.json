@@ -1,7 +1,7 @@
 {
-  "name" : "FuelNote Check",
+  "name" : "FuelNoteCheck",
   "localizedNames" : {
-    "zh" : "油记自动检查"
+    "zh" : "油记·自动检查"
   },
   "description" : "开发用：在手机上开端口，让电脑触发检查、截取界面，验证结果传回电脑",
   "localizedDescriptions" : {

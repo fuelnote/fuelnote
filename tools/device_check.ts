@@ -1,8 +1,8 @@
-// 手机上的自动检查（电脑端）。手机上开着「FuelNote Check」（tools/check），它向采样服务报到后，这里直接请求手机。说明见 tools/check/README.md。
+// 手机上的自动检查（电脑端）。手机上开着「FuelNoteCheck」（tools/check），它向采样服务报到后，这里直接请求手机。说明见 tools/check/README.md。
 //
 //   XXYH_ROOT=E:/GitHub/xxyh npx tsx tools/device_check.ts [--wait] [recognize] [ledger] [shots] [split] [benefits] [export] [service] [plugin] [map] [fill] [presets] [info] [toggles]   （不写时都做）
 //
-// --wait：先等手机上打开新版的「FuelNote Check」（STAMP 和示例插件的版本都和电脑上的一样，最多 30 分钟）再开始。可以先在后台跑着，手机上一打开就检查。
+// --wait：先等手机上打开新版的「FuelNoteCheck」（STAMP 和示例插件的版本都和电脑上的一样，最多 30 分钟）再开始。可以先在后台跑着，手机上一打开就检查。
 //
 // 真实数据（期望值、小熊里的保险费用、小熊备份）只从 XXYH_ROOT 读，计划在这里生成后发给手机；结果和截图存到 XXYH_ROOT/out/check/，不进仓库。
 // split（1.6，设计文档第 21 节）：把最新的小熊备份发给手机，在检查用的文件夹里导入选中的那辆车，用同一套纯函数算出期望值来比较。
@@ -31,7 +31,7 @@ type Step = { name: string; ok: boolean; detail: string }
 
 function phoneUrl(): string {
   const file = join(OUT, "phone.json")
-  if (!existsSync(file)) throw new Error("手机还没报到：先在手机上打开「FuelNote Check」")
+  if (!existsSync(file)) throw new Error("手机还没报到：先在手机上打开「FuelNoteCheck」")
   const p = readJson(file) as { address: string; port: number; stamp: string }
   return `http://${p.address}:${p.port}`
 }
@@ -39,8 +39,8 @@ function phoneUrl(): string {
 /** 电脑上的 Check（STAMP）和示例插件的版本：手机上跑的要和它们一样 */
 function localVersions(): { stamp: string; example: string } {
   const stamp = /STAMP = "(\d+)"/.exec(readFileSync("tools/check/runner.tsx", "utf8"))?.[1] ?? ""
-  // 示例插件在自己的仓库（fuelnote/fuelnote-plugin-example），克隆在 ../FuelNote 示例插件
-  const examplePath = join("..", "FuelNote 示例插件", "script.json")
+  // 示例插件在自己的仓库（fuelnote/fuelnote-plugin-example），克隆在 ../FuelNoteExample
+  const examplePath = join("..", "FuelNoteExample", "script.json")
   const example = existsSync(examplePath) ? (JSON.parse(readFileSync(examplePath, "utf8")) as { version: string }).version : "没有克隆示例插件"
   return { stamp, example }
 }
@@ -52,7 +52,7 @@ function mismatch(p: Ping): string | null {
   const want = localVersions()
   if (p.stamp !== want.stamp) return `手机上的 Check 是 STAMP ${p.stamp}，电脑上是 ${want.stamp}：等它换成新代码（npm run check:install 以后约 2 秒）`
   if (p.example !== want.example) {
-    return `手机上的示例插件是 ${p.example ?? "没装"}，电脑上是 ${want.example}：在开发服务器页面里选一次「FuelNote 示例插件」，再打开「FuelNote Check」`
+    return `手机上的示例插件是 ${p.example ?? "没装"}，电脑上是 ${want.example}：在开发服务器页面里选一次「FuelNoteExample」，再打开「FuelNoteCheck」`
   }
   return null
 }
@@ -70,11 +70,11 @@ async function waitForPhone(): Promise<string> {
       if (!why) return phone
       line = why
     } catch {
-      line = "等手机上打开「FuelNote Check」……"
+      line = "等手机上打开「FuelNoteCheck」……"
     }
     if (line !== said) console.log(line)
     said = line
-    if (Date.now() > deadline) throw new Error("等了 30 分钟，手机上还没打开新版的「FuelNote Check」")
+    if (Date.now() > deadline) throw new Error("等了 30 分钟，手机上还没打开新版的「FuelNoteCheck」")
     await new Promise(resolve => setTimeout(resolve, 2000))
   }
 }

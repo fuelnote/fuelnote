@@ -100,7 +100,7 @@ const SANDBOX = "FuelNoteCheck"
 setDataRoot(SANDBOX)
 
 /** 改了这个值，手机重新运行后报到的 STAMP 跟着变（确认跑的是新代码） */
-export const STAMP = "78"
+export const STAMP = "79"
 const PORT = 3200
 const DAY = 86400e3
 const BJ_OFFSET = 8 * 3600e3
@@ -2011,7 +2011,7 @@ export function CheckPage() {
   }, [])
 
   return <NavigationStack>
-    <List navigationTitle="FuelNote Check" navigationBarTitleDisplayMode="inline" toolbar={{ cancellationAction: <Button title="关闭" action={dismiss} /> }}>
+    <List navigationTitle="油记·自动检查" navigationBarTitleDisplayMode="inline" toolbar={{ cancellationAction: <Button title="关闭" action={dismiss} /> }}>
       <Section header={<Text>状态</Text>} footer={<Text>保持这一页在屏幕上，屏幕不要锁。电脑会自己发请求，不用点任何东西；数据在单独的文件夹 FuelNoteCheck，不碰油记的数据。</Text>}>
         <Text>{status}</Text>
         {last ? <Text font="footnote" foregroundStyle="secondaryLabel">{last}</Text> : null}

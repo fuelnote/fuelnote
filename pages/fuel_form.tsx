@@ -30,7 +30,7 @@ export type FuelFormProps = {
   record: (FuelData & { id: string; data_source?: DataSourceMark }) | null
   /** 快捷指令、分享传入的图片：打开后直接识别（设计文档第 19 节） */
   initialImage?: UIImage | null
-  /** 已经选好的数据源交易：打开后直接填入（FuelNote Check 截图用） */
+  /** 已经选好的数据源交易：打开后直接填入（FuelNoteCheck 截图用） */
   initialPick?: { plugin: PluginRef; result: FuelPickResult } | null
   /** 保存时先调它（写进账本、刷新列表），返回 false 时表单不关；不传时把结果交回去（2.1.0-beta.8） */
   onSave?: (r: FuelFormResult) => Promise<boolean>

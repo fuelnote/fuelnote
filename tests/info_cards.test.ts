@@ -36,7 +36,7 @@ test("describe 声明的卡片（D28）：要有 id 和标题，同一个 id 只
   assert.ok(r.ok)
   assert.deepEqual(r.ok && r.value.cards, [{ id: "sample", title: "示例卡片" }])
   assert.deepEqual(r.ok && r.value.capabilities, ["fuel", "info"])
-  const ref = pluginRef("FuelNote 示例插件", r.ok ? r.value : (null as never))
+  const ref = pluginRef("FuelNoteExample", r.ok ? r.value : (null as never))
   assert.deepEqual(ref.cards, [{ id: "sample", title: "示例卡片" }])
   const old: PluginRef = { ...ref, cards: [] }
   assert.deepEqual(refreshedRef(old, r.ok ? r.value : (null as never), [old])?.cards, [{ id: "sample", title: "示例卡片" }])

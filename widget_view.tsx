@@ -1,5 +1,5 @@
 // 小组件的视图（设计文档 18.2 节「小组件改版（1.4）」，画布「小组件第六轮」）。widget.tsx 只从这里导入，这里只从 common/widget_runtime 导入（打包器的限制，设计文档 9.4 节）。
-// 尺寸和 family 由调用方给（小组件里是 Widget.displaySize、Widget.family），FuelNote Check 也能在 App 里画出来截图。
+// 尺寸和 family 由调用方给（小组件里是 Widget.displaySize、Widget.family），FuelNoteCheck 也能在 App 里画出来截图。
 // - 油耗是主体：大数字为最近油耗，下面一行与平均的对比；剩余油量、续航、油费在旁边的数字格里（1.6 起只算加油）。
 // - 不用柱状图（用户要求，2026-10-20）；剩余油量是一条横向油量条，油量低时为橙色。
 // - 每个尺寸都有横向的「记加油」按钮：小号在底部，中号、大号在左栏底部（不占数字格）。
@@ -61,7 +61,7 @@ const LEVEL = {
 const PAD = 12
 const rounded = (radius: number) => ({ type: "rect" as const, cornerRadius: radius, style: "continuous" as const })
 
-/** FuelNote Check 在 App 里画小组件截图时为 true（WidgetView 的 app）：小组件专用的底色在 App 里不一定画得出来，改用普通的 background */
+/** FuelNoteCheck 在 App 里画小组件截图时为 true（WidgetView 的 app）：小组件专用的底色在 App 里不一定画得出来，改用普通的 background */
 let inApp = false
 /** 底板、数字格、按钮的底色：小组件里用 widgetBackground（着色外观下隐藏），App 里用 background */
 function bg(style: DynamicShapeStyle, shape: "capsule" | ReturnType<typeof rounded>) {
@@ -452,7 +452,7 @@ function Inline({ s }: { s: WidgetSnapshot }) {
 
 /**
  * 按尺寸画小组件：family、size 在小组件里是 Widget.family、Widget.displaySize；preset 是参数选的方案（小组件方案设计第 5 节）；
- * app 是 FuelNote Check 在 App 里画（底色用 background）
+ * app 是 FuelNoteCheck 在 App 里画（底色用 background）
  */
 export function WidgetView({ s, family, size, preset, app }: { s: WidgetSnapshot; family: string; size: { width: number; height: number }; preset: WidgetPreset; app?: boolean }) {
   inApp = !!app

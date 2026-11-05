@@ -71,7 +71,7 @@ export const stopWhere = (s: Stop) => (s.candidate ? s.candidate.station.name : 
 
 /**
  * 标签里的一页：标题和工具栏由标签给，副标题各页自己定。
- * 「记录 | 统计」（设计文档 21.2 节，1.6.0-beta.3 用户在 FuelNote Check 里比较六种放法后选定）：记录页右上角「+」旁边一个统计图标，
+ * 「记录 | 统计」（设计文档 21.2 节，1.6.0-beta.3 用户在 FuelNoteCheck 里比较六种放法后选定）：记录页右上角「+」旁边一个统计图标，
  * 点开推入「油耗统计」「费用统计」一页，左上角返回（也可以从左边缘右滑返回），返回后记录页停在原来的位置
  */
 export type TabNav = { title: string; toolbar: ToolBarProps }

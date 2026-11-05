@@ -10,7 +10,7 @@ const DAY = 86400e3
 /** 北京时间 */
 const bj = (s: string) => Date.parse(`${s}+08:00`)
 const NOW = bj("2026-10-12T14:03:00")
-const REF: PluginRef = { script: "FuelNote 示例插件", id: "example", name: "示例", capabilities: ["fuel"] }
+const REF: PluginRef = { script: "FuelNoteExample", id: "example", name: "示例", capabilities: ["fuel"] }
 
 function txn(id: string, ts: number) {
   return { id, ts, liters: 40, price: 7.5, amount: 300, paid: 300, grade: 95, station: null, channel: "油卡", plate: null }
@@ -211,7 +211,7 @@ test("脚本不在（Script.run 返回 null）：插件不可用，不改上次�
 })
 
 test("车辆、行程、车况：不缓存，每次都调插件；参数带车辆 id 和时间；成功记「已连接」，出错记插件说的状态", async () => {
-  const ref: PluginRef = { script: "FuelNote 示例插件", id: "example", name: "示例", capabilities: ["vehicles", "trips", "vehicle_status"] }
+  const ref: PluginRef = { script: "FuelNoteExample", id: "example", name: "示例", capabilities: ["vehicles", "trips", "vehicle_status"] }
   let expired = false
   const h = harness({
     respond: (action, params) => {
@@ -263,7 +263,7 @@ test("油价（2.4）：参数是省、市，这里不缓存；成功、出错�
 })
 
 test("养修：「插件 + 车辆」缓存 10 分钟；下拉不看缓存；出错不缓存；重新连接时清掉；参数带车辆 id", async () => {
-  const ref: PluginRef = { script: "FuelNote 示例插件", id: "example", name: "示例", capabilities: ["vehicles", "service"] }
+  const ref: PluginRef = { script: "FuelNoteExample", id: "example", name: "示例", capabilities: ["vehicles", "service"] }
   let fail = false
   const visit = {
     id: "v1", arrive_ts: NOW - DAY, odometer: 100, title: "保养", dealer: null,

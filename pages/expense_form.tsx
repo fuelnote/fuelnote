@@ -36,7 +36,7 @@ export type ExpenseFormResult = {
   service?: { from: DataSourceMark; settlement: Settlement; others: Array<{ expense: ExpenseData; uses: Use[]; settlement: Settlement }> }
 }
 
-/** 新记时这辆车关联的、提供养修的数据源（「从<数据源名>选」）：连接时内置的打开凭据页，插件打开它自己的连接页。initial：打开时已经选好的进店（FuelNote Check 截图用） */
+/** 新记时这辆车关联的、提供养修的数据源（「从<数据源名>选」）：连接时内置的打开凭据页，插件打开它自己的连接页。initial：打开时已经选好的进店（FuelNoteCheck 截图用） */
 export type ServiceEntryProps = { source: DataSource; connect: () => Promise<void>; initial?: ServiceVisit | null }
 
 const itemsText = (items: string[]) => (items.length <= 2 ? items.join("、") : `${items[0]} 等 ${items.length} 项`)

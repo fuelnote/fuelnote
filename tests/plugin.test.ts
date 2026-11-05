@@ -97,7 +97,7 @@ test("添加前：没有提供数据、提供了车辆数据却没有车辆、id
   assert.equal(addProblem(info("example", ["vehicles", "trips", "vehicle_status"]), added), null)
   assert.equal(addProblem(info("volvo_cn", ["vehicles", "trips", "vehicle_status", "service"]), added), null)
   assert.equal(addProblem(info("ejoy"), added), "「易捷」已经添加过了")
-  assert.deepEqual(pluginRef("FuelNote 示例插件", info("example")), { script: "FuelNote 示例插件", id: "example", name: "示例", capabilities: ["fuel"], version: "1.0.0" })
+  assert.deepEqual(pluginRef("FuelNoteExample", info("example")), { script: "FuelNoteExample", id: "example", name: "示例", capabilities: ["fuel"], version: "1.0.0" })
 })
 
 test("显示：提供的数据、连接状态；上次调用的结果", () => {
@@ -225,7 +225,7 @@ test("插件更新后（2.4）：版本变了重新 describe，名称、提供�
 // ---------- 2.7 逐项启用和版本号（插件化设计 5.1、5.2 节） ----------
 
 const EXAMPLE: PluginRef = {
-  script: "FuelNote 示例插件", id: "example", name: "示例", version: "1.4.0",
+  script: "FuelNoteExample", id: "example", name: "示例", version: "1.4.0",
   capabilities: ["fuel", "vehicles", "trips", "vehicle_status", "service", "fuel_price", "info"],
   cards: [{ id: "sample", title: "示例卡片" }, { id: "notice", title: "示例公告" }],
 }

@@ -1,5 +1,5 @@
 // 数据源插件（插件化设计第 5 节）：已装的插件（带 fuelnote.json 的脚本）、添加和移除、状态、连接、读加油交易。
-// 排队、超时和缓存在 common/plugin_source.ts，这里注入 Script.run 和缓存文件。FuelNote Check 的数据文件夹里只放行示例插件。
+// 排队、超时和缓存在 common/plugin_source.ts，这里注入 Script.run 和缓存文件。FuelNoteCheck 的数据文件夹里只放行示例插件。
 import { joinPath } from "../common/files"
 import { AppData } from "../common/ledger"
 import { forgetInfo, INFO_CACHE_FILE, InfoCache } from "../common/info_cards"
@@ -12,7 +12,7 @@ import { RemoteVehicle, ServiceVisit, Trip, VehicleStatus } from "../providers/t
 import { updateSettings } from "./store"
 
 /** 示例插件的脚本名（仓库 fuelnote/fuelnote-plugin-example）：Check 的数据文件夹里只调它 */
-export const EXAMPLE_PLUGIN = "FuelNote 示例插件"
+export const EXAMPLE_PLUGIN = "FuelNoteExample"
 const CACHE_FILE = "plugins.json"
 
 const allowed = (script: string) => isMainDataRoot() || script === EXAMPLE_PLUGIN

@@ -30,12 +30,12 @@ function secretItems(): Array<{ key: string; label: string }> {
   ]
 }
 
-/** 本机现在保存了哪些凭据（名称）；FuelNote Check 的数据文件夹里不读钥匙串 */
+/** 本机现在保存了哪些凭据（名称）；FuelNoteCheck 的数据文件夹里不读钥匙串 */
 export const storedSecretLabels = (): string[] => (isMainDataRoot() ? secretItems().filter(i => getSecret(i.key)).map(i => i.label) : [])
 
 // ---------- 包含凭据：备份密码 ----------
 
-/** FuelNote Check 的数据文件夹里不读钥匙串：备份都不带凭据 */
+/** FuelNoteCheck 的数据文件夹里不读钥匙串：备份都不带凭据 */
 const backupKey = (): BackupKey | null => (isMainDataRoot() ? parseBackupKey(getSecret(SECRET_BACKUP_KEY)) : null)
 
 /** 设了备份密码就带凭据 */

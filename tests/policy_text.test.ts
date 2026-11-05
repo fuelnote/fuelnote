@@ -600,7 +600,7 @@ for (const source of ["pdfkit", "pdftotext"]) {
   })
 }
 
-// 读不出文字的两份（2020 年人寿）：手机上 WebView 截图、Vision 识别的文字块（FuelNote Probe 传回的 pdf_ocr.jsonl）
+// 读不出文字的两份（2020 年人寿）：手机上 WebView 截图、Vision 识别的文字块（FuelNoteProbe 传回的 pdf_ocr.jsonl）
 const ocrFile = outDir && join(outDir, "pdf_ocr.jsonl")
 const ocrReady = !!ocrFile && existsSync(ocrFile) && existsSync(join(outDir, "expected.json"))
 test("真实保单（截图识别）：读不出文字的保单截图后逐项一致；交强险标志的图片认成标志", { skip: ocrReady ? false : "需要 XXYH_ROOT 和 out/insurance/pdf_ocr.jsonl" }, () => {

@@ -9,7 +9,7 @@
 - 脚本文件夹里放 `fuelnote.json`：`{ "contract": 1 }`。「设置 › 数据源 › 添加插件」只列带这个文件的脚本，不运行其他脚本。
 - 列表里的名称、版本、图标取脚本自己的 `script.json`（`localizedNames.zh` 或 `name`、`version`、`icon`、`color`）。设置 › 数据源和插件详情写的版本也取它（2.7 起），同步了新版就跟着变。
 - 插件自己的页面（用户在 Scripting 里直接打开、或者油记打开它连接时）建议用大标题，下面一行写「版本 x」（`navigationSubtitle`，`Script.metadata.version`）：同步了新版以后，一打开就知道装的是哪一版。这不是契约，示例插件这样写。
-- 名称：显示名（`localizedNames.zh`）写「油记·<数据源>」，在 Scripting 的脚本列表里认得出是油记的插件；油记里显示的是 `describe` 返回的 `name`，插件自己页面的标题也用它。脚本名（`script.json` 的 `name`，也是文件夹名）建议写成 `FuelNote<数据源>`，定了不要改：油记按脚本名调用插件，改了要在油记里重新添加。仓库名建议 `fuelnote-plugin-<数据源>`。示例插件的脚本名「FuelNote 示例插件」早于这条，不改。
+- 名称：显示名（`localizedNames.zh`）写「油记·<数据源>」，在 Scripting 的脚本列表里认得出是油记的插件；油记里显示的是 `describe` 返回的 `name`，插件自己页面的标题也用它。脚本名（`script.json` 的 `name`，也是文件夹名）建议写成 `FuelNote<数据源>`，定了不要改：油记按脚本名调用插件，改了要在油记里重新添加。仓库名建议 `fuelnote-plugin-<数据源>`。示例插件的脚本名是 `FuelNoteExample`（2.7.0 之后从「FuelNote 示例插件」改过来，插件化设计 D33）。
 - 分发：把运行需要的文件打成 zip（文件放在根目录），Scripting 用 zip 的地址导入；`script.json` 的 `remoteResource` 指向同一个地址，就按 `autoUpdateInterval` 自动更新（Scripting 文档 script 一节）。私有的插件可以放在 Secret Gist：拿到链接的人都能下载。
 
 ## 2. 调用
@@ -257,7 +257,7 @@ type Tone = "good" | "warn"   // 好（绿色）、提醒（橙色）；不给�
 它不连任何服务，返回按当前时间编的交易（有一组分两笔付的，旁边还有单价不同、油站不同的各一笔），以及一辆示例车的行程（每次加油前开到那个油站，另外每天一趟）、车况和养修（一次换了机油的保养另记一笔补漆，带车险赠送的储值和油漆面次数两种提示；一次自付 0 的保修，对照只有名称），固定的示例油价（不用登录，地区名就是传来的省名），以及两张信息卡片：「示例卡片」（分两批给，第一批一行，第二批两行：一行好、一行提醒，每行带地点；有效到当天 24 点）和「示例公告」（1.4.0 起，第二批才给），只给参数 `cards` 里要的；自己打开时可以切换已连接、已过期、未连接。
 
 - 试用：在 Scripting 里用 `https://github.com/fuelnote/fuelnote-plugin-example/releases/latest/download/fuelnote-plugin-example.zip` 导入，再在油记的「设置 › 数据源 › 添加插件」里添加它。
-- 开发油记时，把它克隆到 `../FuelNote 示例插件`：FuelNote Check 只调它。
+- 开发油记时，把它克隆到 `../FuelNoteExample`：FuelNoteCheck 只调它。
 
 ## 12. 版本
 

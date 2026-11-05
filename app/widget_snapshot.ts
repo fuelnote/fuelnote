@@ -10,7 +10,7 @@ import { widgetFillPrice } from "./fuel_price"
 import { widgetInfo } from "./info_cards"
 import { hasStatusSource, statusSource, stopsKey, vehicleTank } from "./vehicle_data"
 
-/** 摘要的内容（FuelNote Check 用它在 App 里画小组件） */
+/** 摘要的内容（FuelNoteCheck 用它在 App 里画小组件） */
 export function buildWidgetSnapshot(data: AppData, now = Date.now()): WidgetSnapshot {
   const v = currentVehicle(data)
   // 小组件属于油耗（设计文档 21.3 节）：只读加油记录，花费只算加油

@@ -1,5 +1,5 @@
 // 门店（2.1 设计第 10 节；2.2 起用系统地图，插件化设计 6.1 节）：搜索门店（附近、关键字），在系统地图里打开，记费用那时车停的地方。
-// 门店的存、改、删在 app/records.ts。系统地图不要 Key，FuelNote Check 的数据文件夹里也能搜。
+// 门店的存、改、删在 app/records.ts。系统地图不要 Key，FuelNoteCheck 的数据文件夹里也能搜。
 import { LngLat } from "../common/geo"
 import { AppData } from "../common/ledger"
 import { parkedAt } from "../common/stores"

@@ -30,7 +30,7 @@ export function AddPerksForm({ getData, vehicle, presetYear, stores, scanned }: 
   /** 从保单详情「赠送」一行打开：预选这一年的车险 */
   presetYear: string | null
   stores: StoreActions
-  /** 已有的识别结果和原文：打开时直接显示识别后的样子（FuelNote Check 截图用） */
+  /** 已有的识别结果和原文：打开时直接显示识别后的样子（FuelNoteCheck 截图用） */
   scanned?: { raw: string; scan: PerkScan; summary: string }
 }) {
   const dismiss = Navigation.useDismiss()

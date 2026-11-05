@@ -73,7 +73,7 @@ function CarSections({ car }: { car: CarExport }) {
   </>
 }
 
-/** 计划的内容（预览页和 FuelNote Check 的截图共用） */
+/** 计划的内容（预览页和 FuelNoteCheck 的截图共用） */
 export function ExportPlanView({ prepared, exported, busy, onExport }: { prepared: PreparedExport; exported: boolean; busy: boolean; onExport: () => void }) {
   const { plan, version } = prepared
   const cc = plan.cloud_changed
