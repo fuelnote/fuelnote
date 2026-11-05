@@ -101,7 +101,7 @@ const SANDBOX = "FuelNoteCheck"
 setDataRoot(SANDBOX)
 
 /** 改了这个值，手机重新运行后报到的 STAMP 跟着变（确认跑的是新代码） */
-export const STAMP = "71"
+export const STAMP = "72"
 const PORT = 3200
 const DAY = 86400e3
 const BJ_OFFSET = 8 * 3600e3
@@ -1643,8 +1643,11 @@ async function runToggles(): Promise<{ steps: Step[] }> {
     add(steps, name, check(), detail())
     data = setPluginCapability(data, id, cap, true)
   }
-  one("fuel_price", "开-2 关「油价」：没有用油价的插件，不算加满金额", () => pricePluginId(data) === null && fillViewFor(data, car, { fuel_l: 32.5 }) === null,
-    () => `油价插件 ${pricePluginId(data) ?? "没有"}`)
+  one("fuel_price", "开-2 关「油价」：没有用油价的插件，「加满」只写升数、不算金额（同显-5），小组件的摘要没有价格", () => {
+    saveWidgetSnapshot(data)
+    const fill = fillViewFor(data, car, { fuel_l: 32.5 })
+    return pricePluginId(data) === null && !!fill && fill.amount == null && readWidget().fill_price == null
+  }, () => `油价插件 ${pricePluginId(data) ?? "没有"}；${fillViewFor(data, car, { fuel_l: 32.5 })?.note ?? "没有这一组"}`)
   one("fuel", "开-3 关「加油交易」：记加油没有「从示例选」", () => pluginsWith(data, "fuel").length === 0, () => `${pluginsWith(data, "fuel").length} 个`)
   one("vehicle_status", "开-4 关「车况」：「当前」和小组件不显示油量，小组件不调插件；车照样关联着", () => {
     saveWidgetSnapshot(data)
