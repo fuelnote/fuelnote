@@ -14,15 +14,16 @@ const ICONS: Record<PluginCapability, string> = {
   info: "rectangle.stack",
 }
 
+/** 每一项用在哪里（2.7.0-beta.4 起用正式的产品用语） */
 function hint(cap: PluginCapability, name: string): string {
-  if (cap === "fuel") return `记加油时从${name}选择一笔或几笔`
-  if (cap === "vehicles") return "在车辆的「车辆数据」里关联到车"
-  if (cap === "trips") return "记加油时按时间配停车、填里程"
-  if (cap === "vehicle_status") return "记录页「当前」的油量和里程"
-  if (cap === "fuel_price") return "按所在地区的挂牌价算加满要多少钱"
+  if (cap === "fuel") return `记加油时，从${name}选择一笔或多笔交易填入`
+  if (cap === "vehicles") return "在车辆设置的「车辆数据」中关联车辆"
+  if (cap === "trips") return "记加油时，按付款时间匹配停车记录并填入里程"
+  if (cap === "vehicle_status") return "在记录页「当前」显示剩余油量和里程"
+  if (cap === "fuel_price") return "按所在地区的挂牌价计算加满金额"
   // 信息卡片（2.6）：只说放在哪，卡片里写什么由插件定
-  if (cap === "info") return "记录页「当前」下面的信息卡片，也能放进小组件"
-  return `记费用时从${name}选一次进店，要记的几笔一起填好`
+  if (cap === "info") return "在记录页「当前」下方显示信息卡片，可添加到小组件"
+  return `记费用时，从${name}选择一次进店，填入需记录的各笔费用`
 }
 
 /** 「提供的数据」下面的说明（画稿 R33One）：没有车辆的插件不写车辆那一句 */
