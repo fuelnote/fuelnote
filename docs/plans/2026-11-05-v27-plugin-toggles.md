@@ -103,7 +103,7 @@
 - [x] `common/plugin.ts`：`pluginItems` 不列 `vehicles`；`usedCapabilities` 在行程、车况、养修有一项启用时带上 `vehicles`；`itemSwitch` 只有 `on`、`off`；`setItem` 不是一项的照原样返回。测试 `tests/plugin.test.ts`。
 - [x] `pages/plugin_detail.tsx`：每一行都是按钮，没有锁；有车辆数据的插件说明里写关联车辆那一句。
 - [x] 设计 5.2 节、D32，契约第 13 节，CHANGELOG、README、`CLAUDE.md`。
-- [ ] FuelNote Check：设置列表那一行不写「车辆」，开-8 检查「车辆」不是一项；STAMP 78。在手机上跑 `toggles`，看完截图。
+- [x] FuelNote Check：设置列表那一行不写「车辆」，开-8 检查「车辆」不是一项；STAMP 78。在手机上跑 `toggles`，看完截图（2026-11-05：19/19，插件详情没有「车辆」一行、没有锁）。
 
 ## 易捷插件 0.4.3、沃尔沃插件 0.2.1
 
