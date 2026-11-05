@@ -72,7 +72,7 @@
 用户 2026-11-05：每一项的说明（「也能放进小组件」「要记的几笔一起填好」）改成正式用语。
 
 - [x] `pages/plugin_detail.tsx` 的 `hint`：七项的说明改写，画稿第三十三轮的四张跟着改。
-- [ ] FuelNote Check 的 `toggles` 截图（STAMP 75），看完截图。
+- [x] FuelNote Check 的 `toggles` 截图（STAMP 75），看完截图（13/13，七项的说明都是新写法）。
 
 ## 易捷插件 0.4.3、沃尔沃插件 0.2.1
 
