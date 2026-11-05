@@ -329,9 +329,10 @@ export type PriceRegion = { province: string; city: string }
 
 /**
  * 添加的插件：脚本名（`Script.run` 用）、插件自己的 id、名称、提供的数据；version 是上次 describe 时的版本（2.4 起，插件更新后重读）；
- * cards 是它声明会给的信息卡片（2.6 起，小组件方案的菜单按它列）；off 是用户在插件详情里关掉的几项（2.7 起，插件化设计 5.2 节，只在有关掉的项时写）
+ * cards 是它声明会给的信息卡片（2.6 起，小组件方案的菜单和插件详情按它列）；off 是用户在插件详情里停用的几项（2.7 起，插件化设计 5.2 节，
+ * 能力的名称或 card:<卡片 id>，只在有停用的项时写）
  */
-export type PluginRef = { script: string; id: string; name: string; capabilities: PluginCapability[]; version?: string; cards?: InfoCardDecl[]; off?: PluginCapability[] }
+export type PluginRef = { script: string; id: string; name: string; capabilities: PluginCapability[]; version?: string; cards?: InfoCardDecl[]; off?: string[] }
 
 /** 插件在 describe 里声明的一张信息卡片（docs/plugins.md 第 9 节，2.6） */
 export type InfoCardDecl = { id: string; title: string }

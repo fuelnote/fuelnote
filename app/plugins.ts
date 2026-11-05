@@ -3,7 +3,7 @@
 import { joinPath } from "../common/files"
 import { AppData } from "../common/ledger"
 import { forgetInfo, INFO_CACHE_FILE, InfoCache } from "../common/info_cards"
-import { addProblem, FuelTxn, PLUGIN_MARKER, pluginRef, PluginResult, PluginState, PluginStatus, refreshedRef, setCapability, usedCapabilities } from "../common/plugin"
+import { addProblem, FuelTxn, PLUGIN_MARKER, pluginRef, PluginResult, PluginState, PluginStatus, refreshedRef, setItem, usedCapabilities } from "../common/plugin"
 import { createPluginSource, PluginCacheFile } from "../common/plugin_source"
 import { FuelPrices, InfoBatch, PluginCapability, PluginRef, PriceRegion } from "../common/types"
 import { callPlugin } from "../platform/plugin_bridge"
@@ -96,9 +96,9 @@ export async function refreshPlugins(getData: () => AppData): Promise<AppData | 
   return updateSettings(data, { plugins: pluginsOf(data).map(p => updates.get(p.id) ?? p) })
 }
 
-/** 插件详情里拨一项的开关（2.7，插件化设计 5.2 节）：存进设置，跟着备份；车辆、只剩的一项拨不动（开-7） */
-export function setPluginCapability(data: AppData, id: string, cap: PluginCapability, on: boolean): AppData {
-  return updateSettings(data, { plugins: pluginsOf(data).map(p => (p.id === id ? setCapability(p, cap, on) : p)) })
+/** 插件详情里启用或停用一项（能力或一张卡片，2.7，插件化设计 5.2 节）：存进设置，跟着备份；车辆、仅剩的一项不变（开-7） */
+export function setPluginItem(data: AppData, id: string, key: string, on: boolean): AppData {
+  return updateSettings(data, { plugins: pluginsOf(data).map(p => (p.id === id ? setItem(p, key, on) : p)) })
 }
 
 /** 移除：只从油记里去掉，清掉它的缓存（2.6 起也清掉它的信息卡片，卡-7）；不删脚本，也不动插件里的凭据，已记的加油不受影响 */

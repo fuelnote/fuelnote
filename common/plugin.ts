@@ -29,37 +29,66 @@ export function capabilityLine(caps: PluginCapability[]): string {
   return caps.map(c => CAPABILITY_TITLES[c]).join("、")
 }
 
-// ---------- 逐项开关（2.7，插件化设计 5.2 节） ----------
+// ---------- 逐项启用（2.7，插件化设计 5.2 节） ----------
 
-/** 用到的项：提供的去掉关掉的；行程、车况、养修都没用到时「车辆」也不算（开-8）。油记各处只看用到的项 */
-export function usedCapabilities(ref: PluginRef): PluginCapability[] {
-  const off = ref.off ?? []
-  const on = ref.capabilities.filter(c => !off.includes(c))
-  return on.some(c => VEHICLE_CAPABILITIES.includes(c)) ? on : on.filter(c => c !== "vehicles")
+/**
+ * 插件详情「提供的数据」的一项：一种能力，或一张声明过的信息卡片（声明了卡片时「信息」换成每张卡片，key 是 card:<id>）。
+ * 没声明卡片的插件照旧一项「信息」
+ */
+export type PluginItem = { key: string; cap: PluginCapability; card: InfoCardDecl | null; title: string }
+
+export const cardKey = (id: string): string => `card:${id}`
+
+export function pluginItems(ref: PluginRef): PluginItem[] {
+  return ref.capabilities.flatMap((cap): PluginItem[] => (cap === "info" && ref.cards?.length
+    ? ref.cards.map(card => ({ key: cardKey(card.id), cap, card, title: card.title }))
+    : [{ key: cap, cap, card: null, title: CAPABILITY_TITLES[cap] }]))
 }
 
-/** 插件详情里一项的开关：车辆没有开关（fixed）；只剩这一项开着时不能关（locked，开-7） */
-export type CapabilitySwitch = "on" | "off" | "locked" | "fixed"
+const isOff = (ref: PluginRef, key: string) => (ref.off ?? []).includes(key)
 
-export function capabilitySwitch(ref: PluginRef, cap: PluginCapability): CapabilitySwitch {
-  if (cap === "vehicles") return "fixed"
-  if ((ref.off ?? []).includes(cap)) return "off"
-  const others = ref.capabilities.filter(c => c !== "vehicles" && c !== cap && !(ref.off ?? []).includes(c))
+/** 用到的能力：启用的项的能力；卡片都停用时不算「信息」，行程、车况、养修都停用时也不算「车辆」（开-8）。油记各处只看用到的能力 */
+export function usedCapabilities(ref: PluginRef): PluginCapability[] {
+  const on = new Set(pluginItems(ref).filter(i => !isOff(ref, i.key)).map(i => i.cap))
+  const caps = ref.capabilities.filter(c => on.has(c))
+  return caps.some(c => VEHICLE_CAPABILITIES.includes(c)) ? caps : caps.filter(c => c !== "vehicles")
+}
+
+/** 启用的卡片：请求 info 时交给插件（开-11）；插件没声明卡片时 null，不传 */
+export function enabledCards(ref: PluginRef): InfoCardDecl[] | null {
+  return ref.cards?.length ? ref.cards.filter(c => !isOff(ref, cardKey(c.id))) : null
+}
+
+/** 这张卡片显示不显示：声明了卡片时只显示声明过、启用的；没声明卡片时都显示 */
+export function cardShown(ref: PluginRef, id: string): boolean {
+  const on = enabledCards(ref)
+  return on ? on.some(c => c.id === id) : true
+}
+
+/** 一项的状态：车辆不能单独停用（fixed）；仅剩这一项启用时带锁（locked，开-7） */
+export type ItemSwitch = "on" | "off" | "locked" | "fixed"
+
+export function itemSwitch(ref: PluginRef, key: string): ItemSwitch {
+  if (key === "vehicles") return "fixed"
+  if (isOff(ref, key)) return "off"
+  const others = pluginItems(ref).filter(i => i.key !== "vehicles" && i.key !== key && !isOff(ref, i.key))
   return others.length ? "on" : "locked"
 }
 
-/** 拨开关：关掉写进 off，打开从 off 去掉，off 空了不留这个键；车辆、只剩的一项、没变的照原样返回 */
-export function setCapability(ref: PluginRef, cap: PluginCapability, on: boolean): PluginRef {
-  const now = capabilitySwitch(ref, cap)
+/** 启用或停用一项：停用写进 off（按项的顺序），启用从 off 去掉，off 空了不留这个键；车辆、仅剩的一项、没变的照原样返回 */
+export function setItem(ref: PluginRef, key: string, on: boolean): PluginRef {
+  const now = itemSwitch(ref, key)
   if (now === "fixed" || now === "locked" || (now === "on") === on) return ref
-  const off = on ? (ref.off ?? []).filter(c => c !== cap) : CAPABILITIES.filter(c => c === cap || (ref.off ?? []).includes(c))
+  const off = pluginItems(ref).map(i => i.key).filter(k => (k === key ? !on : isOff(ref, k)))
   const { off: _old, ...rest } = ref
   return off.length ? { ...rest, off } : rest
 }
 
-/** 设置 › 数据源一行的下面（5.1 节）：「版本 1.3.0 · 加油交易、油价」；读不到版本时只写用到的几项 */
+/** 设置 › 数据源一行的下面（5.1 节）：「版本 0.4.2 · 加油交易、油价、今天的优惠」，写启用的项（车辆在用时也写）；读不到版本时只写这几项 */
 export function sourceCaption(ref: PluginRef, version: string): string {
-  return [version ? `版本 ${version}` : "", capabilityLine(usedCapabilities(ref))].filter(Boolean).join(" · ")
+  const used = usedCapabilities(ref)
+  const titles = pluginItems(ref).filter(i => !isOff(ref, i.key) && used.includes(i.cap)).map(i => i.title)
+  return [version ? `版本 ${version}` : "", titles.join("、")].filter(Boolean).join(" · ")
 }
 
 /** 插件详情的副标题（5.1 节）：「版本 0.2.0 · 脚本 FuelNoteVolvo」 */
@@ -461,9 +490,11 @@ export function pluginRef(script: string, info: PluginInfo): PluginRef {
  */
 export function refreshedRef(ref: PluginRef, info: PluginInfo, plugins: PluginRef[]): PluginRef | null {
   if (info.id !== ref.id || addProblem(info, plugins.filter(p => p.id !== ref.id))) return null
-  // 关掉的几项照旧关着，新版本不再提供的去掉；新多出来的开着（开-9）
-  const off = (ref.off ?? []).filter(c => info.capabilities.includes(c))
-  const next = { ...pluginRef(ref.script, info), ...(off.length ? { off } : {}) }
+  // 停用的几项照旧停用，新版本没有了的项去掉；新多出来的项（能力或卡片）启用（开-9）
+  const fresh = pluginRef(ref.script, info)
+  const keys = pluginItems(fresh).map(i => i.key)
+  const off = (ref.off ?? []).filter(k => keys.includes(k))
+  const next = { ...fresh, ...(off.length ? { off } : {}) }
   const same = next.name === ref.name && next.version === ref.version && next.capabilities.join() === ref.capabilities.join()
     && JSON.stringify(next.cards ?? []) === JSON.stringify(ref.cards ?? [])
   return same ? null : next

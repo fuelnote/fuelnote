@@ -2,8 +2,8 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
 import {
-  addProblem, capabilityLine, capabilitySwitch, parseDescribe, parseFuel, parseFuelPrices, parseService, refreshedRef, parseStatus, parseTrips, parseVehicles, parseVehicleStatus, PLUGIN_TIMEOUT_MS, pluginRef,
-  pluginStateText, pluginSubtitle, setCapability, sourceCaption, stateOfError, stateOfStatus, usedCapabilities,
+  addProblem, capabilityLine, cardShown, enabledCards, itemSwitch, parseDescribe, pluginItems, parseFuel, parseFuelPrices, parseService, refreshedRef, parseStatus, parseTrips, parseVehicles, parseVehicleStatus, PLUGIN_TIMEOUT_MS, pluginRef,
+  pluginStateText, pluginSubtitle, setItem, sourceCaption, stateOfError, stateOfStatus, usedCapabilities,
 } from "../common/plugin"
 import { normalizeLedger } from "../common/ledger_file"
 import { emptyLedger, PluginCapability, PluginRef } from "../common/types"
@@ -222,62 +222,89 @@ test("插件更新后（2.4）：版本变了重新 describe，名称、提供�
   assert.equal(refreshedRef(same, { id: "ejoy", name: "易捷", version: "0.3.0", capabilities: ["fuel", "fuel_price"], cards: [] }, [same]), null)
 })
 
-// ---------- 2.7 逐项开关和版本号（插件化设计 5.1、5.2 节） ----------
+// ---------- 2.7 逐项启用和版本号（插件化设计 5.1、5.2 节） ----------
 
 const EXAMPLE: PluginRef = {
-  script: "FuelNote 示例插件", id: "example", name: "示例", version: "1.3.0",
+  script: "FuelNote 示例插件", id: "example", name: "示例", version: "1.4.0",
   capabilities: ["fuel", "vehicles", "trips", "vehicle_status", "service", "fuel_price", "info"],
+  cards: [{ id: "sample", title: "示例卡片" }, { id: "notice", title: "示例公告" }],
 }
 const VOLVO: PluginRef = { script: "FuelNoteVolvo", id: "volvo_cn", name: "沃尔沃", version: "0.2.0", capabilities: ["vehicles", "trips", "vehicle_status", "service"] }
+const EJOY: PluginRef = { script: "FuelNoteEjoy", id: "ejoy", name: "易捷", version: "0.4.2", capabilities: ["fuel", "fuel_price", "info"], cards: [{ id: "discounts", title: "今天的优惠" }] }
+const keys = (ref: PluginRef) => pluginItems(ref).map(i => i.key).join()
 
-test("用到的项：提供的去掉关掉的；没关时就是提供的", () => {
-  assert.deepEqual(usedCapabilities(EXAMPLE), EXAMPLE.capabilities)
-  assert.deepEqual(usedCapabilities({ ...EXAMPLE, off: ["info", "fuel_price"] }), ["fuel", "vehicles", "trips", "vehicle_status", "service"])
+test("每一项：能力按顺序；声明了卡片时「信息」换成每张卡片（card:<id>，名称是卡片的标题）；没声明卡片时一行「信息」", () => {
+  assert.equal(keys(EXAMPLE), "fuel,vehicles,trips,vehicle_status,service,fuel_price,card:sample,card:notice")
+  assert.deepEqual(pluginItems(EJOY).map(i => i.title), ["加油交易", "油价", "今天的优惠"])
+  assert.deepEqual(pluginItems({ ...EJOY, cards: [] }).map(i => [i.key, i.title]), [["fuel", "加油交易"], ["fuel_price", "油价"], ["info", "信息"]])
+  assert.equal(pluginItems(EJOY)[2].cap, "info")
 })
 
-test("开-8：行程、车况、养修都关了，「车辆」也不算用到", () => {
+test("用到的项：提供的去掉停用的；卡片都停用时不算用到「信息」；没停用时就是提供的", () => {
+  assert.deepEqual(usedCapabilities(EXAMPLE), EXAMPLE.capabilities)
+  assert.deepEqual(usedCapabilities({ ...EXAMPLE, off: ["card:notice", "fuel_price"] }), ["fuel", "vehicles", "trips", "vehicle_status", "service", "info"])
+  assert.deepEqual(usedCapabilities({ ...EXAMPLE, off: ["card:notice", "card:sample"] }), ["fuel", "vehicles", "trips", "vehicle_status", "service", "fuel_price"])
+  assert.deepEqual(usedCapabilities({ ...EJOY, cards: [], off: ["info"] }), ["fuel", "fuel_price"])
+})
+
+test("开-11：启用的卡片（请求时交给插件）；没声明卡片时 null（不传）", () => {
+  assert.deepEqual(enabledCards({ ...EXAMPLE, off: ["card:notice"] })?.map(c => c.id), ["sample"])
+  assert.deepEqual(enabledCards(EXAMPLE)?.map(c => c.id), ["sample", "notice"])
+  assert.equal(enabledCards({ ...EJOY, cards: [] }), null)
+  assert.equal(cardShown({ ...EXAMPLE, off: ["card:notice"] }, "notice"), false)
+  assert.equal(cardShown(EXAMPLE, "other"), false, "声明了卡片时，没声明的不显示")
+  assert.equal(cardShown({ ...EJOY, cards: [] }, "anything"), true, "没声明卡片时都显示")
+})
+
+test("开-8：行程、车况、养修都停用了，「车辆」也不算用到", () => {
   assert.deepEqual(usedCapabilities({ ...EXAMPLE, off: ["trips", "vehicle_status", "service"] }), ["fuel", "fuel_price", "info"])
   assert.deepEqual(usedCapabilities({ ...VOLVO, off: ["trips", "service"] }), ["vehicles", "vehicle_status"])
 })
 
-test("开-7：车辆没有开关；只剩一项开着时不能关；关掉的是 off", () => {
-  assert.equal(capabilitySwitch(VOLVO, "vehicles"), "fixed")
-  assert.equal(capabilitySwitch(VOLVO, "trips"), "on")
-  const one = { ...VOLVO, off: ["trips", "service"] as PluginCapability[] }
-  assert.equal(capabilitySwitch(one, "vehicle_status"), "locked")
-  assert.equal(capabilitySwitch(one, "trips"), "off")
-  const ejoy: PluginRef = { script: "FuelNoteEjoy", id: "ejoy", name: "易捷", capabilities: ["fuel", "fuel_price", "info"], off: ["fuel", "info"] }
-  assert.equal(capabilitySwitch(ejoy, "fuel_price"), "locked")
-  assert.equal(capabilitySwitch({ script: "s", id: "p", name: "只有油价", capabilities: ["fuel_price"] }, "fuel_price"), "locked")
+test("开-7：车辆不能单独停用（fixed）；仅剩一项启用时它带锁（locked）；卡片也算一项", () => {
+  assert.equal(itemSwitch(VOLVO, "vehicles"), "fixed")
+  assert.equal(itemSwitch(VOLVO, "trips"), "on")
+  const one = { ...VOLVO, off: ["trips", "service"] }
+  assert.equal(itemSwitch(one, "vehicle_status"), "locked")
+  assert.equal(itemSwitch(one, "trips"), "off")
+  assert.equal(itemSwitch({ ...EJOY, off: ["fuel", "fuel_price"] }, "card:discounts"), "locked")
+  assert.equal(itemSwitch({ ...EJOY, off: ["fuel", "card:discounts"] }, "fuel_price"), "locked")
+  assert.equal(itemSwitch({ script: "s", id: "p", name: "只有油价", capabilities: ["fuel_price"] }, "fuel_price"), "locked")
 })
 
-test("拨开关：关掉写进 off，打开从 off 去掉，off 空了不留这个键；车辆和只剩的一项不变", () => {
-  const off = setCapability(EXAMPLE, "info", false)
-  assert.deepEqual(off.off, ["info"])
-  assert.deepEqual(setCapability(off, "fuel_price", false).off, ["fuel_price", "info"])
-  assert.ok(!("off" in setCapability(off, "info", true)))
-  assert.equal(setCapability(VOLVO, "vehicles", false), VOLVO)
-  const one = { ...VOLVO, off: ["trips", "service"] as PluginCapability[] }
-  assert.equal(setCapability(one, "vehicle_status", false), one)
-  assert.equal(setCapability(EXAMPLE, "info", true), EXAMPLE)
+test("启用、停用：停用写进 off（按项的顺序），启用从 off 去掉，off 空了不留这个键；车辆和仅剩的一项不变", () => {
+  const off = setItem(EXAMPLE, "card:notice", false)
+  assert.deepEqual(off.off, ["card:notice"])
+  assert.deepEqual(setItem(off, "fuel_price", false).off, ["fuel_price", "card:notice"])
+  assert.ok(!("off" in setItem(off, "card:notice", true)))
+  assert.equal(setItem(VOLVO, "vehicles", false), VOLVO)
+  const one = { ...VOLVO, off: ["trips", "service"] }
+  assert.equal(setItem(one, "vehicle_status", false), one)
+  assert.equal(setItem(EXAMPLE, "card:sample", true), EXAMPLE)
 })
 
-test("开-9：插件升级多了一项时新的开着；少了一项时从关掉的里去掉", () => {
-  const old: PluginRef = { script: "FuelNoteEjoy", id: "ejoy", name: "易捷", version: "0.4.2", capabilities: ["fuel", "fuel_price"], off: ["fuel_price"] }
-  const more = refreshedRef(old, { id: "ejoy", name: "易捷", version: "0.4.3", capabilities: ["fuel", "fuel_price", "info"], cards: [] }, [old])
-  assert.ok(more && more.off?.join() === "fuel_price" && usedCapabilities(more).join() === "fuel,info")
-  const less = refreshedRef(old, { id: "ejoy", name: "易捷", version: "0.4.3", capabilities: ["fuel"], cards: [] }, [old])
+test("开-9：插件升级多了一项（能力或卡片）时新的启用；没有了的项从 off 里去掉", () => {
+  const old: PluginRef = { script: "FuelNoteEjoy", id: "ejoy", name: "易捷", version: "0.4.2", capabilities: ["fuel", "fuel_price", "info"], cards: [{ id: "discounts", title: "今天的优惠" }], off: ["fuel_price"] }
+  const more = refreshedRef(old, { id: "ejoy", name: "易捷", version: "0.4.3", capabilities: ["fuel", "fuel_price", "info"], cards: [{ id: "discounts", title: "今天的优惠" }, { id: "points", title: "积分" }] }, [old])
+  assert.ok(more && more.off?.join() === "fuel_price" && enabledCards(more)?.map(c => c.id).join() === "discounts,points")
+  const less = refreshedRef(old, { id: "ejoy", name: "易捷", version: "0.4.3", capabilities: ["fuel", "info"], cards: [{ id: "discounts", title: "今天的优惠" }] }, [old])
   assert.ok(less && !("off" in less))
+  // 以前没声明卡片、停用了「信息」，升级后声明了卡片：「信息」这一项没有了，卡片是新的项，启用
+  const plain: PluginRef = { script: "s", id: "p", name: "插件", version: "1", capabilities: ["fuel", "info"], off: ["info"] }
+  const carded = refreshedRef(plain, { id: "p", name: "插件", version: "2", capabilities: ["fuel", "info"], cards: [{ id: "a", title: "甲" }] }, [plain])
+  assert.ok(carded && !("off" in carded) && usedCapabilities(carded).includes("info"))
 })
 
-test("版本号（5.1 节）：设置列表那一行写版本和用到的几项；插件详情的副标题写版本和脚本名；读不到版本时不写这一段", () => {
-  assert.equal(sourceCaption({ ...EXAMPLE, off: ["info"] }, "1.3.1"), "版本 1.3.1 · 加油交易、车辆、行程、车况、养修、油价")
+test("版本号（5.1 节）：设置列表那一行写版本和启用的几项（卡片写名称）；插件详情的副标题写版本和脚本名；读不到版本时不写这一段", () => {
+  assert.equal(sourceCaption(EJOY, "0.4.2"), "版本 0.4.2 · 加油交易、油价、今天的优惠")
+  assert.equal(sourceCaption({ ...EXAMPLE, off: ["card:notice"] }, "1.4.0"), "版本 1.4.0 · 加油交易、车辆、行程、车况、养修、油价、示例卡片")
   assert.equal(sourceCaption(VOLVO, ""), "车辆、行程、车况、养修")
+  assert.equal(sourceCaption({ ...VOLVO, off: ["trips", "vehicle_status"] }, "0.2.0"), "版本 0.2.0 · 车辆、养修")
   assert.equal(pluginSubtitle(VOLVO, "0.2.0"), "版本 0.2.0 · 脚本 FuelNoteVolvo")
   assert.equal(pluginSubtitle(VOLVO, ""), "脚本 FuelNoteVolvo")
 })
 
-test("账本的设置：插件关掉的几项原样保留（跟着备份）", () => {
-  const l = normalizeLedger({ ...emptyLedger(), settings: { plugins: [{ ...VOLVO, off: ["service"] }] } } as unknown as Record<string, unknown>)
-  assert.deepEqual(l.settings.plugins[0].off, ["service"])
+test("账本的设置：插件停用的几项原样保留（跟着备份）", () => {
+  const l = normalizeLedger({ ...emptyLedger(), settings: { plugins: [{ ...EJOY, off: ["card:discounts"] }] } } as unknown as Record<string, unknown>)
+  assert.deepEqual(l.settings.plugins[0].off, ["card:discounts"])
 })

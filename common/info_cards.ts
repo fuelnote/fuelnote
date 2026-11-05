@@ -1,13 +1,13 @@
 // 插件的信息卡片（docs/specs/2026-11-04-presets-and-cards.md 第 7 节，2.6）：缓存、什么时候查（7.2 节，卡-*）、给页面的视图、
 // 「当前」那一行（D21）、没有车况的车记录页最上面那一组（D14）、小组件摘要里的卡片。油记只认卡片的字段，不认卡片里写的是什么（D1、D20）：
 // 有效期、文字都由插件给。纯逻辑：调插件、读写缓存在 app/info_cards.ts。
-import { usedCapabilities } from "./plugin"
-import { InfoCard, InfoTone, PluginRef } from "./types"
+import { cardShown, enabledCards, usedCapabilities } from "./plugin"
+import { InfoCard, InfoCardDecl, InfoTone, PluginRef } from "./types"
 import { CardRef, WidgetCard } from "./widget_data"
 import { cardLine, cardRefOf } from "./widget_layout"
 
 /** 传给插件的参数：车辆的默认标号（D16），所在的省、市（和油价同一个地区，D24；定不出地区时不查，D29） */
-export type InfoParams = { grade: number; province: string; city: string }
+export type InfoParams = { grade: number; province: string; city: string; cards?: string[] }
 
 /** 一个插件的缓存：什么时候查的、传的参数、卡片、查完没有、出错的原因 */
 export type InfoEntry = { fetched_at: number; params: InfoParams; cards: InfoCard[]; done: boolean; error: string | null }
@@ -21,7 +21,9 @@ export const EMPTY_INFO_CACHE: InfoCache = { schema_version: 1, plugins: {} }
 /** 插件一张卡片都没给时，隔多久再查（不然每次打开都查） */
 const NO_CARDS_RETRY_MS = 24 * 3600e3
 
+// 交给插件的卡片（启用的，开-11）变了也算参数变了
 const sameParams = (a: InfoParams, b: InfoParams) => a.grade === b.grade && a.province === b.province && a.city === b.city
+  && (a.cards ?? []).join() === (b.cards ?? []).join()
 
 /**
  * 要不要查（卡-1～卡-5）：没有缓存、参数变了（默认标号、省、市）、上次没查完或出错、有卡片过了有效期时要查。
@@ -55,13 +57,16 @@ export function forgetInfo(cache: InfoCache, pluginId: string): InfoCache {
 }
 
 /**
- * 给页面的：一个插件的卡片（没过有效期的）、在查着没有、插件给的进度、出错的原因；
- * title 是还没有卡片时那一组的组名（声明的第一张卡片的标题，没声明时插件名）
+ * 给页面的：一个插件的卡片（没过有效期的；声明了卡片时只有声明过、启用的）、在查着没有、插件给的进度、出错的原因；
+ * title 是没声明卡片的插件还没有卡片时那一组的组名；pending 是声明了、启用、这次还没查到的卡片（没查完时每张占一组，D30）；
+ * order 是声明的卡片的顺序（没声明时空的，按插件给的顺序）
  */
 export type InfoPluginView = {
   plugin: { id: string; name: string }
   title: string
   cards: InfoCard[]
+  pending: InfoCardDecl[]
+  order: string[]
   busy: boolean
   progress: string | null
   error: string | null
@@ -72,13 +77,17 @@ export type InfoPluginView = {
  * 插件查完了、一张卡片都没给时不列这个插件（不多一组）
  */
 export function infoViews(cache: InfoCache, plugins: PluginRef[], running: ReadonlyMap<string, string | null>, now: number): InfoPluginView[] {
-  // 关掉了「信息」的不列（开-1）
+  // 卡片都停用了的不列；声明了卡片时只显示声明过、启用的（开-1）
   return plugins.filter(p => usedCapabilities(p).includes("info")).flatMap(p => {
     const e = cache.plugins[p.id]
     const busy = running.has(p.id)
-    if (!busy && e && e.done && !e.cards.length) return []
+    const finished = !busy && !!e && e.done
+    if (finished && e && !e.cards.some(c => cardShown(p, c.id))) return []
+    const cards = liveCards(e, now).filter(c => cardShown(p, c.id))
+    const declared = enabledCards(p) ?? []
     return [{
-      plugin: { id: p.id, name: p.name }, title: p.cards?.[0]?.title ?? p.name, cards: liveCards(e, now), busy,
+      plugin: { id: p.id, name: p.name }, title: p.cards?.[0]?.title ?? p.name, cards,
+      pending: finished ? [] : declared.filter(d => !cards.some(c => c.id === d.id)), order: declared.map(d => d.id), busy,
       progress: busy ? running.get(p.id) ?? null : null, error: busy ? null : e?.error ?? null,
     }]
   })
@@ -96,23 +105,28 @@ export type InfoGroup = {
 }
 
 /**
- * 记录页「当前」下面（没有「当前」时在最上面）每张卡片一组，按添加插件的顺序（7.3 节）：有摘要写摘要和「共 N 条」；
+ * 记录页「当前」下面（没有「当前」时在最上面）每张卡片一组，按添加插件的顺序、声明的顺序（7.3 节）：有摘要写摘要和「共 N 条」；
  * 没有摘要时写「共 N 条」，一行都没有写 empty、照样显示（卡-6，D32）；查着、卡片还没有内容时写进度。
- * 插件还没有卡片时一组，组名按声明，写进度、出错的原因或「还没读到」（D30）
+ * 声明了、启用、还没查到的卡片每张一组（没声明卡片的插件还没有卡片时一组，组名是插件名），写进度、出错的原因或「还没读到」（D30）
  */
 export function infoGroups(views: InfoPluginView[]): InfoGroup[] {
   return views.flatMap((v): InfoGroup[] => {
-    if (!v.cards.length) {
-      const text = v.busy ? progressText(v) : v.error ? `没有查完：${v.error}` : "还没读到"
-      return [{ key: v.plugin.id, plugin_id: v.plugin.id, card_id: null, title: v.title, icon: null, text, tone: null, count: null }]
+    const state = v.busy ? progressText(v) : v.error ? `没有查完：${v.error}` : "还没读到"
+    if (!v.cards.length && !v.pending.length) {
+      return [{ key: v.plugin.id, plugin_id: v.plugin.id, card_id: null, title: v.title, icon: null, text: state, tone: null, count: null }]
     }
-    return v.cards.map(card => {
+    const got = v.cards.map((card): InfoGroup => {
       const line = cardLine(card, card.rows.length, v.busy ? progressText(v) : undefined)
       return {
         key: `${v.plugin.id}/${card.id}`, plugin_id: v.plugin.id, card_id: card.id, title: card.title, icon: card.icon, text: line.text, tone: line.tone,
         count: card.summary && card.rows.length ? card.rows.length : null,
       }
     })
+    const waiting = v.pending.map((d): InfoGroup => ({
+      key: `${v.plugin.id}/${d.id}`, plugin_id: v.plugin.id, card_id: d.id, title: d.title, icon: null, text: state, tone: null, count: null,
+    }))
+    const rank = (g: InfoGroup) => (g.card_id && v.order.includes(g.card_id) ? v.order.indexOf(g.card_id) : v.order.length)
+    return [...got, ...waiting].sort((a, b) => rank(a) - rank(b))
   })
 }
 
@@ -123,19 +137,19 @@ export function viewsOfGroup(views: InfoPluginView[], g: { plugin_id: string; ca
 
 /** 小组件的摘要里写的卡片：还添加着的插件、没过有效期的，每张最多 3 行（大号放得下的），带插件名和总行数 */
 export function widgetCards(cache: InfoCache, plugins: PluginRef[], now: number): WidgetCard[] {
-  return plugins.flatMap(p => liveCards(cache.plugins[p.id], now).map(c => ({
+  return plugins.flatMap(p => liveCards(cache.plugins[p.id], now).filter(c => cardShown(p, c.id)).map(c => ({
     plugin_id: p.id, plugin_name: p.name, id: c.id, title: c.title, icon: c.icon, tone: c.tone,
     // 小组件不导航：地点不写进 widget.json
     rows: c.rows.slice(0, 3).map(r => ({ label: r.label, value: r.value, detail: r.detail, tone: r.tone })), row_count: c.rows.length, empty: c.empty, summary: c.summary, until: c.until,
   })))
 }
 
-/** 方案里换成卡片的格子要写的组名和插件名：按 describe 的声明（D28），还没查过也有；移除了的插件没有（小组件照旧，卡-7） */
+/** 方案里换成卡片的格子要写的组名和插件名：按 describe 的声明（D28），还没查过也有；移除了的插件、停用的卡片没有（小组件照旧，卡-7、开-1） */
 export function cardTitles(plugins: PluginRef[]): Record<CardRef, { title: string; plugin_name: string }> {
   const out: Record<CardRef, { title: string; plugin_name: string }> = {}
   for (const p of plugins) {
     if (!usedCapabilities(p).includes("info")) continue
-    for (const c of p.cards ?? []) out[cardRefOf(p.id, c.id)] = { title: c.title, plugin_name: p.name }
+    for (const c of enabledCards(p) ?? []) out[cardRefOf(p.id, c.id)] = { title: c.title, plugin_name: p.name }
   }
   return out
 }

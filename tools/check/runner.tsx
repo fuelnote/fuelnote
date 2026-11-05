@@ -81,9 +81,8 @@ import { cardRefOf, cardSlotView, presetFor, setPresetCard } from "../../common/
 import { infoGroups, InfoPluginView, infoViewsFor, refreshInfo, viewsOfGroup } from "../../common/model"
 import { INFO_CACHE_FILE, InfoCache } from "../../common/info_cards"
 import { infoKey } from "../../app/info_cards"
-import type { PluginCapability } from "../../common/types"
-import { capabilitySwitch, pluginSubtitle, setCapability, sourceCaption, usedCapabilities } from "../../common/plugin"
-import { pluginsWith, setPluginCapability } from "../../app/plugins"
+import { enabledCards, itemSwitch, pluginSubtitle, setItem, sourceCaption, usedCapabilities } from "../../common/plugin"
+import { pluginsWith, setPluginItem } from "../../app/plugins"
 import { pricePluginId } from "../../app/fuel_price"
 import { canReadTrips, hasStatusSource } from "../../app/vehicle_data"
 import { vehicleSources } from "../../app/data_sources"
@@ -101,7 +100,7 @@ const SANDBOX = "FuelNoteCheck"
 setDataRoot(SANDBOX)
 
 /** 改了这个值，手机重新运行后报到的 STAMP 跟着变（确认跑的是新代码） */
-export const STAMP = "75"
+export const STAMP = "76"
 const PORT = 3200
 const DAY = 86400e3
 const BJ_OFFSET = 8 * 3600e3
@@ -1563,14 +1562,15 @@ async function runInfo(): Promise<{ steps: Step[] }> {
   await refreshAndWatch(data)
 
   const groups = infoGroups(infoViewsFor(data))
-  add(steps, "记录页「当前」下面的一组：示例卡片的摘要和条数（D4）", groups.length === 1 && groups[0].text === "人民广场 95# 每升减 0.3 元" && groups[0].count === 2,
+  add(steps, "记录页「当前」下面每张卡片一组：示例卡片的摘要和条数（D4），示例公告（示例插件 1.4.0）", groups.length === 2 && groups[0].text === "人民广场 95# 每升减 0.3 元" && groups[0].count === 2
+    && groups[1].title === "示例公告",
     groups.map(g => `${g.title}：${g.text}${g.count ? ` · 共 ${g.count} 条` : ""}`).join("、") || "没有")
 
   saveWidgetSnapshot(data)
   const readWidget = () => JSON.parse(FileManager.readAsStringSync(`${dataDirectory()}/widget.json`)) as WidgetSnapshot
   const cardRef = cardRefOf(ref.id, "sample")
   const w = readWidget()
-  add(steps, "小组件的摘要：示例卡片（2 行）和方案菜单要写的组名、插件名", (w.cards ?? []).length === 1 && w.cards![0].rows.length === 2 && w.card_titles?.[cardRef]?.title === "示例卡片",
+  add(steps, "小组件的摘要：示例卡片（2 行）、示例公告和方案菜单要写的组名、插件名", (w.cards ?? []).length === 2 && w.cards![0].rows.length === 2 && w.card_titles?.[cardRef]?.title === "示例卡片",
     `${(w.cards ?? []).map(c => `${c.title} ${c.rows.length} 行`).join("、")} · ${JSON.stringify(w.card_titles ?? {})}`)
   add(steps, "方案把「这一箱」换成示例卡片：写组名、插件名和摘要（D18）", cardSlotView(w, cardRef)?.card?.summary === "人民广场 95# 每升减 0.3 元" && cardSlotView(w, cardRef)?.plugin === "示例")
 
@@ -1614,92 +1614,108 @@ async function runToggles(): Promise<{ steps: Step[] }> {
   const id = found.id
   const ref = () => pluginsOf(data).find(p => p.id === id) ?? found
   const version = pluginVersion(EXAMPLE_PLUGIN)
-  add(steps, "5.1：设置列表那一行写版本和用到的几项；插件详情的副标题写版本和脚本名（版本取手机上的 script.json）",
-    sourceCaption(ref(), version) === `版本 ${version} · 加油交易、车辆、行程、车况、养修、油价、信息` && pluginSubtitle(ref(), version) === `版本 ${version} · 脚本 ${EXAMPLE_PLUGIN}`,
+  add(steps, "5.1：设置列表那一行写版本和启用的几项（卡片写名称）；插件详情的副标题写版本和脚本名（版本取手机上的 script.json）",
+    sourceCaption(ref(), version) === `版本 ${version} · 加油交易、车辆、行程、车况、养修、油价、示例卡片、示例公告` && pluginSubtitle(ref(), version) === `版本 ${version} · 脚本 ${EXAMPLE_PLUGIN}`,
     `${sourceCaption(ref(), version)}；${pluginSubtitle(ref(), version)}`)
-  await refreshAndWatch(data)
+  await refreshAndWatch(data, true)
   const keyOn = infoKey(data)
   const readWidget = () => JSON.parse(FileManager.readAsStringSync(`${dataDirectory()}/widget.json`)) as WidgetSnapshot
+  const groupIds = () => infoGroups(infoViewsFor(data)).map(g => g.card_id).join()
+  const menu = () => cardChoices(pluginsWith(data, "info").map(p => ({ ...p, cards: enabledCards(p) ?? [] }))).map(c => c.label).join("、")
+  add(steps, "两张声明的卡片各一组：示例卡片、示例公告（D30）", groupIds() === "sample,notice", groupIds())
 
-  // 开-1 关「信息」
-  data = setPluginCapability(data, id, "info", false)
+  // 开-1、开-11：停用「示例公告」
+  data = setPluginItem(data, id, "card:notice", false)
   const saved = loadData().data.ledger.settings.plugins.find(p => p.id === id)
-  add(steps, "关掉的几项存进设置（跟着备份）", saved?.off?.join() === "info", JSON.stringify(saved?.off ?? null))
-  const seen = await refreshAndWatch(data, true)
+  add(steps, "停用的几项存进设置（跟着备份）", saved?.off?.join() === "card:notice", JSON.stringify(saved?.off ?? null))
+  const seen = await refreshAndWatch(data)
+  const asked = infoEntry(id)
   saveWidgetSnapshot(data)
   const w = readWidget()
-  const cardRef = cardRefOf(id, "sample")
-  add(steps, "开-1 关「信息」：没有卡片组，不查（「重新查」也不查），小组件里放了它的格子回到默认，方案菜单不列它的卡片",
-    infoViewsFor(data).length === 0 && seen.length === 0 && !(w.cards ?? []).length && cardSlotView(w, cardRef) === null && cardChoices(pluginsWith(data, "info")).length === 0,
-    `组 ${infoViewsFor(data).length}、查了 ${seen.length} 次、小组件卡片 ${(w.cards ?? []).length}、菜单 ${cardChoices(pluginsWith(data, "info")).length}`)
-  data = setPluginCapability(data, id, "info", true)
+  add(steps, "开-11 停用「示例公告」：启用的卡片变了，重查；只请求「示例卡片」（插件收到 cards，只给了它）",
+    seen.length > 0 && asked?.params.cards?.join() === "sample" && asked.cards.map(c => c.id).join() === "sample",
+    `查了 ${seen.length} 次；交给插件 ${JSON.stringify(asked?.params.cards ?? null)}；插件给了 ${asked?.cards.map(c => c.id).join("、") ?? "没有"}`)
+  add(steps, "开-1 停用一张卡片：记录页只剩「示例卡片」一组；小组件里放「示例公告」的格子回到默认；方案菜单只列「示例卡片」",
+    groupIds() === "sample" && (w.cards ?? []).map(c => c.id).join() === "sample" && cardSlotView(w, cardRefOf(id, "notice")) === null && menu() === "示例卡片 · 示例",
+    `组 ${groupIds()}；小组件卡片 ${(w.cards ?? []).map(c => c.id).join("、")}；菜单 ${menu()}`)
+  // 两张都停用：不算用到「信息」
+  data = setPluginItem(data, id, "card:sample", false)
+  const none = await refreshAndWatch(data, true)
+  saveWidgetSnapshot(data)
+  const w0 = readWidget()
+  add(steps, "开-1 两张卡片都停用：没有卡片组，不查（「重新查」也不查），小组件里没有卡片，方案菜单是空的",
+    !usedCapabilities(ref()).includes("info") && infoViewsFor(data).length === 0 && none.length === 0 && !(w0.cards ?? []).length && menu() === "",
+    `组 ${infoViewsFor(data).length}、查了 ${none.length} 次、小组件卡片 ${(w0.cards ?? []).length}`)
+  data = setPluginItem(setPluginItem(data, id, "card:sample", true), id, "card:notice", true)
   const back = await refreshAndWatch(data)
-  add(steps, "开-10 重新打开「信息」：用到信息的插件变了，回到前台时照常查，卡片组回来", infoKey(data) === keyOn && infoGroups(infoViewsFor(data)).length === 1,
-    `${back.join(" → ") || "缓存里的卡片还没过期，不用查"}；组 ${infoGroups(infoViewsFor(data)).length}`)
+  add(steps, "开-10 重新启用两张卡片：回到前台时照常查，两组都回来", infoKey(data) === keyOn && back.length > 0 && groupIds() === "sample,notice",
+    `${back.join(" → ")}；组 ${groupIds()}`)
 
-  // 开-2～开-6：各关一项，看用到它的地方，再打开
-  const one = (cap: PluginCapability, name: string, check: () => boolean, detail: () => string) => {
-    data = setPluginCapability(data, id, cap, false)
+  // 开-2～开-6：各停用一项，看用到它的地方，再启用
+  const one = (key: string, name: string, check: () => boolean, detail: () => string) => {
+    data = setPluginItem(data, id, key, false)
     add(steps, name, check(), detail())
-    data = setPluginCapability(data, id, cap, true)
+    data = setPluginItem(data, id, key, true)
   }
-  one("fuel_price", "开-2 关「油价」：没有用油价的插件，「加满」只写升数、不算金额（同显-5），小组件的摘要没有价格", () => {
+  one("fuel_price", "开-2 停用「油价」：没有用油价的插件，「加满」只写升数、不算金额（同显-5），小组件的摘要没有价格", () => {
     saveWidgetSnapshot(data)
     const fill = fillViewFor(data, car, { fuel_l: 32.5 })
     return pricePluginId(data) === null && !!fill && fill.amount == null && readWidget().fill_price == null
   }, () => `油价插件 ${pricePluginId(data) ?? "没有"}；${fillViewFor(data, car, { fuel_l: 32.5 })?.note ?? "没有这一组"}`)
-  one("fuel", "开-3 关「加油交易」：记加油没有「从示例选」", () => pluginsWith(data, "fuel").length === 0, () => `${pluginsWith(data, "fuel").length} 个`)
-  one("vehicle_status", "开-4 关「车况」：「当前」和小组件不显示油量，小组件不调插件；车照样关联着", () => {
+  one("fuel", "开-3 停用「加油交易」：记加油没有「从示例选」", () => pluginsWith(data, "fuel").length === 0, () => `${pluginsWith(data, "fuel").length} 个`)
+  one("vehicle_status", "开-4 停用「车况」：「当前」和小组件不显示油量，小组件不调插件；车照样关联着", () => {
     saveWidgetSnapshot(data)
-    const s = readWidget()
-    return !hasStatusSource(data, car) && s.status === null && s.status_link === null && car.provider?.id === id
+    const st = readWidget()
+    return !hasStatusSource(data, car) && st.status === null && st.status_link === null && car.provider?.id === id
   }, () => `车况 ${hasStatusSource(data, car)}`)
-  one("trips", "开-5 关「行程」：记加油不配停车", () => !canReadTrips(data, car), () => `能读行程 ${canReadTrips(data, car)}`)
-  one("service", "开-6 关「养修」：记费用没有「从示例选」", () => serviceSourceOf(data, car) === null, () => serviceSourceOf(data, car)?.name ?? "没有")
-  add(steps, "都打开以后照旧：油价、加油交易、车况、行程、养修都在", pricePluginId(data) === id && pluginsWith(data, "fuel").length === 1 && hasStatusSource(data, car)
+  one("trips", "开-5 停用「行程」：记加油不配停车", () => !canReadTrips(data, car), () => `能读行程 ${canReadTrips(data, car)}`)
+  one("service", "开-6 停用「养修」：记费用没有「从示例选」", () => serviceSourceOf(data, car) === null, () => serviceSourceOf(data, car)?.name ?? "没有")
+  add(steps, "都启用以后照旧：油价、加油交易、车况、行程、养修都在", pricePluginId(data) === id && pluginsWith(data, "fuel").length === 1 && hasStatusSource(data, car)
     && canReadTrips(data, car) && !!serviceSourceOf(data, car))
 
-  // 开-8：行程、车况、养修都关了
-  for (const c of ["trips", "vehicle_status", "service"] as PluginCapability[]) data = setPluginCapability(data, id, c, false)
-  add(steps, "开-8 行程、车况、养修都关了：车辆也不算用到，车辆的「车辆数据」里不列这个插件",
-    !usedCapabilities(ref()).includes("vehicles") && !vehicleSources(data).some(s => s.id === id) && capabilitySwitch(ref(), "vehicles") === "fixed",
+  // 开-8：行程、车况、养修都停用
+  for (const k of ["trips", "vehicle_status", "service"]) data = setPluginItem(data, id, k, false)
+  add(steps, "开-8 行程、车况、养修都停用：车辆也不算用到，车辆的「车辆数据」里不列这个插件",
+    !usedCapabilities(ref()).includes("vehicles") && !vehicleSources(data).some(src => src.id === id) && itemSwitch(ref(), "vehicles") === "fixed",
     usedCapabilities(ref()).join("、"))
-  // 开-7：只剩油价
-  for (const c of ["fuel", "info"] as PluginCapability[]) data = setPluginCapability(data, id, c, false)
+  // 开-7：仅剩油价
+  for (const k of ["fuel", "card:sample", "card:notice"]) data = setPluginItem(data, id, k, false)
   const last = ref()
-  add(steps, "开-7 只剩「油价」开着：它拨不动（locked），再关也不变", capabilitySwitch(last, "fuel_price") === "locked" && setCapability(last, "fuel_price", false) === last
-    && setPluginCapability(data, id, "fuel_price", false).ledger.settings.plugins.find(p => p.id === id)?.off?.length === 5,
+  add(steps, "开-7 仅剩「油价」启用：它带锁（locked），再停用也不变", itemSwitch(last, "fuel_price") === "locked" && setItem(last, "fuel_price", false) === last
+    && setPluginItem(data, id, "fuel_price", false).ledger.settings.plugins.find(p => p.id === id)?.off?.length === 6,
     usedCapabilities(last).join("、"))
   data = allOn(data)
 
-  // 开-9：像旧版本没有「信息」、关着「油价」的示例插件，升级后重新 describe
+  // 开-9：像旧版本只声明了「示例卡片」、停用着「油价」的示例插件，升级后重新 describe
   data = updateSettings(data, {
     plugins: pluginsOf(data).map(p => (p.id === id
-      ? { script: p.script, id: p.id, name: p.name, capabilities: p.capabilities.filter(c => c !== "info"), version: "0", off: ["fuel_price"] as PluginCapability[] }
+      ? { script: p.script, id: p.id, name: p.name, capabilities: p.capabilities, cards: (p.cards ?? []).slice(0, 1), version: "0", off: ["fuel_price"] }
       : p)),
   })
   data = (await refreshPlugins(() => data)) ?? data
-  add(steps, "开-9 插件升级多了「信息」：新的一项开着，关着的「油价」照旧关着", usedCapabilities(ref()).includes("info") && ref().off?.join() === "fuel_price",
-    `${usedCapabilities(ref()).join("、")}；关着 ${ref().off?.join("、") ?? "没有"}`)
+  add(steps, "开-9 插件升级多了「示例公告」：新的一张启用，停用着的「油价」照旧停用",
+    enabledCards(ref())?.map(c => c.id).join() === "sample,notice" && ref().off?.join() === "fuel_price",
+    `启用的卡片 ${enabledCards(ref())?.map(c => c.title).join("、") ?? "没有"}；停用 ${ref().off?.join("、") ?? "没有"}`)
   data = allOn(data)
+  await refreshAndWatch(data, true)
   saveWidgetSnapshot(data)
   return { steps }
 }
 
 /**
- * 逐项开关的截图（/run/toggles 之后）：设置列表（示例插件关了「信息」）、插件详情（全开、关了「信息」、只剩「油价」）。
+ * 逐项启用的截图（/run/toggles 之后）：设置列表（示例插件停用了「示例公告」）、插件详情（全部启用、停用「示例公告」、仅剩「油价」）。
  * 只在内存里改，存着的设置是全开的
  */
 function toggleScreen(screen: string, data: AppData): VirtualNode | null {
   const ref = pluginsOf(data).find(p => p.script === EXAMPLE_PLUGIN)
   if (!ref) return null
-  const offs: Record<string, PluginCapability[]> = {
-    "toggles-settings": ["info"], "toggles-detail": [], "toggles-detail-off": ["info"],
-    "toggles-detail-locked": ["fuel", "trips", "vehicle_status", "service", "info"],
+  const offs: Record<string, string[]> = {
+    "toggles-settings": ["card:notice"], "toggles-detail": [], "toggles-detail-off": ["card:notice"],
+    "toggles-detail-locked": ["fuel", "trips", "vehicle_status", "service", "card:sample", "card:notice"],
   }
   const off = offs[screen]
   if (!off) return null
-  const plugins = pluginsOf(data).map(p => (p.id === ref.id ? off.reduce((acc, c) => setCapability(acc, c, false), p) : p))
+  const plugins = pluginsOf(data).map(p => (p.id === ref.id ? off.reduce((acc, k) => setItem(acc, k, false), p) : p))
   const d = makeAppData({ ...data.ledger, settings: { ...data.ledger.settings, plugins } }, data.xxyh)
   const app = { getData: () => d, setData: noop, addVehicle: async () => undefined }
   if (screen === "toggles-settings") return <SettingsPage data={d} app={app} />

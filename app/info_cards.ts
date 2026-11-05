@@ -9,6 +9,7 @@ import { CardRef, WidgetCard } from "../common/widget_data"
 import { readCache, writeCache } from "../platform/storage"
 import { currentRegion } from "./fuel_price"
 import { pluginInfo, pluginsWith } from "./plugins"
+import { enabledCards } from "../common/plugin"
 
 /** 一次最多要几批：插件一直给 next 时到这里停下，下次打开再查 */
 const MAX_BATCHES = 30
@@ -49,12 +50,19 @@ async function paramsFor(data: AppData): Promise<InfoParams | null> {
   return picked ? { grade: vehicleGrade(v), province: picked.region.province, city: picked.region.city } : null
 }
 
+/** 一个插件的参数：加上启用的卡片（插件声明了卡片时，开-11），启用的卡片变了就重查 */
+function paramsOf(ref: PluginRef, params: InfoParams): InfoParams {
+  const cards = enabledCards(ref)
+  return cards ? { ...params, cards: cards.map(c => c.id) } : params
+}
+
 /** 一个插件一批一批地查（卡-1、卡-5）：每批整个替换卡片，写缓存、调 onChange；出错停下，已经查到的照样留着，下次打开再查 */
 async function run(ref: PluginRef, params: InfoParams, onChange: () => void): Promise<void> {
   running.set(ref.id, null)
   changed(onChange)
   const at = Date.now()
-  const base = { grade: params.grade, province: params.province, city: params.city }
+  // 只请求启用的卡片（开-11）：插件声明了卡片时传 cards；插件不认这个参数也照常工作，多给的卡片油记不显示
+  const base = { grade: params.grade, province: params.province, city: params.city, ...(params.cards ? { cards: params.cards } : {}) }
   let got: InfoCard[] | null = null
   let cursor: string | null = null
   try {
@@ -88,8 +96,9 @@ export async function refreshInfo(data: AppData, onChange: () => void, force = f
   if (!params) return
   const cache = load()
   const now = Date.now()
-  const due = pluginsWith(data, "info").filter(p => !running.has(p.id) && (force || needsInfoRefresh(cache.plugins[p.id], params, now)))
-  await Promise.all(due.map(p => run(p, params, onChange)))
+  const due = pluginsWith(data, "info").map(p => ({ p, ps: paramsOf(p, params) }))
+    .filter(({ p, ps }) => !running.has(p.id) && (force || needsInfoRefresh(cache.plugins[p.id], ps, now)))
+  await Promise.all(due.map(({ p, ps }) => run(p, ps, onChange)))
 }
 
 /** 页面上的信息卡片：每个提供 info 的插件，按添加的顺序 */
@@ -103,8 +112,9 @@ export function widgetInfo(data: AppData, now = Date.now()): { cards: WidgetCard
   return { cards: plugins.length ? widgetCards(load(), plugins, now) : [], card_titles: cardTitles(plugins) }
 }
 
-/** 添加着的提供 info 的插件和当前车辆的默认标号：变了时查一次（添加了插件，卡-1；换了车辆、改了默认标号） */
+/** 添加着的提供 info 的插件、它们启用的卡片和当前车辆的默认标号：变了时查一次（添加了插件，卡-1；启用了卡片，开-10；换了车辆、改了默认标号） */
 export function infoKey(data: AppData): string {
   const v = currentVehicle(data)
-  return `${pluginsWith(data, "info").map(p => p.id).join("|")}#${v ? vehicleGrade(v) : ""}`
+  const plugins = pluginsWith(data, "info").map(p => `${p.id}:${(enabledCards(p) ?? []).map(c => c.id).join("+")}`)
+  return `${plugins.join("|")}#${v ? vehicleGrade(v) : ""}`
 }

@@ -74,6 +74,18 @@
 - [x] `pages/plugin_detail.tsx` 的 `hint`：七项的说明改写，画稿第三十三轮的四张跟着改。
 - [x] FuelNote Check 的 `toggles` 截图（STAMP 75），看完截图（13/13，七项的说明都是新写法）。
 
+## 2.7.0-beta.5
+
+用户 2026-11-05：易捷的「今日优惠」是一种信息栏，油记应该读出它是什么；以后多一张卡片时不能合成一行「信息」。定了先讨论、并入 2.7；每张卡片一行；只请求启用的卡片；没声明的卡片不显示（设计 5.2 节、D30，画稿第三十四轮 R34Cards）。
+
+- [x] `common/plugin.ts`：`pluginItems`（能力或 `card:<id>`）、`itemSwitch`、`setItem`、`enabledCards`、`cardShown`；`usedCapabilities`、`sourceCaption`、`refreshedRef` 按项。`PluginRef.off` 存项的 key。测试 `tests/plugin.test.ts`（开-7～开-9、开-11）。
+- [x] `common/info_cards.ts`：只显示声明过、启用的卡片；还没查到的卡片每张一组（`pending`，按声明的顺序）；参数带 `cards`，变了重查；小组件和方案菜单只有启用的卡片。测试 `tests/info_cards.test.ts`（开-1、开-11、D30）。
+- [x] `app/info_cards.ts`：每个插件的参数加上启用的卡片，`info` 传 `cards`；`infoKey` 带启用的卡片。`app/plugins.ts` `setPluginItem`。
+- [x] `pages/plugin_detail.tsx` 按 `pluginItems` 列，卡片一行写卡片名称；`pages/widget_presets.tsx` 菜单只列启用的卡片。
+- [x] 示例插件 1.4.0：多声明「示例公告」（第二批才给），只给 `cards` 里的卡片；README、CHANGELOG。
+- [x] 契约 `docs/plugins.md` 第 4、9、11、13 节；设计 5.2 节、D30；小组件方案和信息卡片设计 7.3 节；CHANGELOG、README、`CLAUDE.md`。
+- [ ] FuelNote Check：`toggles` 改成按项（停用「示例公告」后插件只收到「示例卡片」、两张都停用、重新启用、升级多一张卡片），`info` 改成两张卡片；STAMP 76。在手机上跑 `fill`、`info`、`toggles`，看完截图。
+
 ## 易捷插件 0.4.3、沃尔沃插件 0.2.1
 
 - [x] 自己的页面用大标题，副标题「版本 x」（R30Plugins A）；版本号，插件计划里记上。

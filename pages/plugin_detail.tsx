@@ -1,11 +1,11 @@
 // 插件详情（插件化设计第 5 节，画稿 DsDetail，从设置 › 数据源推入）：提供的数据；连接状态和打码的账号，每次打开时问一次插件；
 // 管理连接打开插件自己的页面；移除插件只从油记里去掉。
-// 2.7（5.1、5.2 节，画稿第三十轮 R30DetailA，第三十三轮 R33One）：副标题写版本和脚本名；提供的数据轻点一行启用或停用：启用的打勾，
-// 停用的图标和名称变灰；不能停用的（车辆、仅剩的一项）右侧灰色的锁，不是按钮（D29）。
+// 2.7（5.1、5.2 节，画稿第三十轮 R30DetailA，第三十三轮 R33One，第三十四轮 R34Cards）：副标题写版本和脚本名；提供的数据轻点一行启用或停用：
+// 启用的打勾，停用的图标和名称变灰；不能停用的（车辆、仅剩的一项）右侧灰色的锁，不是按钮（D29）。声明了卡片时「信息」换成每张卡片一行（D30）。
 import { Button, EnvironmentValuesReader, HStack, Image, List, ProgressView, Section, Spacer, Text, useState, VStack } from "scripting"
 import {
-  CAPABILITY_TITLES, CapabilitySwitch, capabilitySwitch, connectPlugin, PluginCapability, pluginsOf, pluginState, pluginStateText, pluginStatus, pluginSubtitle, pluginVersion, removePlugin,
-  setPluginCapability, usedCapabilities,
+  connectPlugin, ItemSwitch, itemSwitch, PluginCapability, PluginItem, pluginItems, pluginsOf, pluginState, pluginStateText, pluginStatus, pluginSubtitle, pluginVersion,
+  removePlugin, setPluginItem, usedCapabilities,
 } from "../common/model"
 import { AppActions } from "./components"
 
@@ -21,7 +21,7 @@ function hint(cap: PluginCapability, name: string): string {
   if (cap === "trips") return "记加油时，按付款时间匹配停车记录并填入里程"
   if (cap === "vehicle_status") return "在记录页「当前」显示剩余油量和里程"
   if (cap === "fuel_price") return "按所在地区的挂牌价计算加满金额"
-  // 信息卡片（2.6）：只说放在哪，卡片里写什么由插件定
+  // 信息卡片（2.6）：只说放在哪，卡片里写什么由插件定；声明了卡片时每张一行，名称是卡片的标题（D30）
   if (cap === "info") return "在记录页「当前」下方显示信息卡片，可添加到小组件"
   return `记费用时，从${name}选择一次进店，填入需记录的各笔费用`
 }
@@ -32,18 +32,21 @@ function capsFooter(hasVehicles: boolean): string {
     + (hasVehicles ? "车辆数据随行程、车况、养修启用；" : "") + "至少保留一项，如需全部停用，请移除插件。"
 }
 
+/** 一张卡片那一行的说明（画稿 R34Cards） */
+const CARD_HINT = "信息卡片，显示在记录页「当前」下方，可添加到小组件"
+
 /**
- * 一项（画稿 R33One）：图标、名称和说明，右边启用的打勾、不能停用的灰色的锁。停用的图标和名称变灰；
+ * 一项（画稿 R33One、R34Cards）：图标、名称和说明，右边启用的打勾、不能停用的灰色的锁。停用的图标和名称变灰；
  * 车辆在行程、车况、养修都停用时也变灰、没有锁（开-8）
  */
-function CapabilityRow({ cap, name, state, used }: { cap: PluginCapability; name: string; state: CapabilitySwitch; used: boolean }) {
+function ItemRow({ item, name, state, used }: { item: PluginItem; name: string; state: ItemSwitch; used: boolean }) {
   const dim = !used
   const locked = state === "locked" || (state === "fixed" && used)
   return <HStack spacing={12}>
-    <Image systemName={ICONS[cap]} font="title3" foregroundStyle={dim ? "secondaryLabel" : "accentColor"} frame={{ width: 28 }} />
+    <Image systemName={ICONS[item.cap]} font="title3" foregroundStyle={dim ? "secondaryLabel" : "accentColor"} frame={{ width: 28 }} />
     <VStack alignment="leading" spacing={2}>
-      <Text font="headline" foregroundStyle={dim ? "secondaryLabel" : "label"}>{CAPABILITY_TITLES[cap]}</Text>
-      <Text font="caption" foregroundStyle="secondaryLabel">{hint(cap, name)}</Text>
+      <Text font="headline" foregroundStyle={dim ? "secondaryLabel" : "label"}>{item.title}</Text>
+      <Text font="caption" foregroundStyle="secondaryLabel">{item.card ? CARD_HINT : hint(item.cap, name)}</Text>
     </VStack>
     <Spacer />
     {state === "on" ? <Image systemName="checkmark" font="body" fontWeight="semibold" foregroundStyle="accentColor" /> : null}
@@ -70,9 +73,9 @@ export function PluginDetail({ app, pluginId }: { app: AppActions; pluginId: str
     setView(r.ok ? { loading: false, account: r.value.account, error: null } : { loading: false, account: null, error: r.error.message })
   }
 
-  /** 启用或停用一项：存进设置，这一页跟着重画；车辆、仅剩的一项不是按钮（setCapability 里也挡住） */
-  function toggle(cap: PluginCapability, on: boolean) {
-    app.setData(setPluginCapability(app.getData(), plugin.id, cap, on))
+  /** 启用或停用一项：存进设置，这一页跟着重画；车辆、仅剩的一项不是按钮（setItem 里也挡住） */
+  function toggle(key: string, on: boolean) {
+    app.setData(setPluginItem(app.getData(), plugin.id, key, on))
     setTick(t => t + 1)
   }
 
@@ -96,13 +99,13 @@ export function PluginDetail({ app, pluginId }: { app: AppActions; pluginId: str
     onAppear={() => { void refresh() }}
   >
     <Section header={<Text>提供的数据</Text>} footer={<Text>{capsFooter(plugin.capabilities.includes("vehicles"))}</Text>}>
-      {plugin.capabilities.map(c => {
-        const sw = capabilitySwitch(plugin, c)
-        const used = usedCapabilities(plugin).includes(c)
+      {pluginItems(plugin).map(item => {
+        const sw = itemSwitch(plugin, item.key)
+        const used = sw !== "off" && usedCapabilities(plugin).includes(item.cap)
         // 不能停用的不是按钮：按下没有反应，也不高亮
-        if (sw === "fixed" || sw === "locked") return <CapabilityRow key={c} cap={c} name={plugin.name} state={sw} used={used} />
-        return <Button key={c} action={() => toggle(c, sw === "off")}>
-          <CapabilityRow cap={c} name={plugin.name} state={sw} used={used} />
+        if (sw === "fixed" || sw === "locked") return <ItemRow key={item.key} item={item} name={plugin.name} state={sw} used={used} />
+        return <Button key={item.key} action={() => toggle(item.key, sw === "off")}>
+          <ItemRow item={item} name={plugin.name} state={sw} used={used} />
         </Button>
       })}
     </Section>

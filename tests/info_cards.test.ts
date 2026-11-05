@@ -24,7 +24,7 @@ function card(d: Partial<InfoCard> = {}): InfoCard {
 }
 const entry = (d: Partial<InfoEntry> = {}): InfoEntry => ({ fetched_at: NOW - H, params: P, cards: [card()], done: true, error: null, ...d })
 const view = (d: Partial<InfoPluginView> = {}): InfoPluginView => ({
-  plugin: { id: "example", name: "示例" }, title: "示例卡片", cards: [card()], busy: false, progress: null, error: null, ...d,
+  plugin: { id: "example", name: "示例" }, title: "示例卡片", cards: [card()], pending: [], order: [], busy: false, progress: null, error: null, ...d,
 })
 const EXAMPLE: PluginRef = { script: "s", id: "example", name: "示例", capabilities: ["fuel", "info"], cards: [{ id: "sample", title: "示例卡片" }] }
 
@@ -222,10 +222,41 @@ test("读账本：方案里的两格只认 card:<插件>/<卡片>", () => {
   assert.deepEqual(normalizePresets([{ name: "默认", slots: {} }]), [{ name: "默认", slots: {} }])
 })
 
-test("开-1（插件化设计 5.2 节）：关掉「信息」的插件不列卡片组，小组件方案也不写它的卡片", () => {
-  const cache = { ...EMPTY_INFO_CACHE, plugins: { example: entry() } }
-  const off: PluginRef = { ...EXAMPLE, off: ["info"] }
-  assert.deepEqual(infoViews(cache, [off], new Map(), NOW), [])
-  assert.deepEqual(cardTitles([off]), {})
-  assert.equal(infoViews(cache, [EXAMPLE], new Map(), NOW).length, 1)
+const TWO: PluginRef = { ...EXAMPLE, cards: [{ id: "sample", title: "示例卡片" }, { id: "notice", title: "示例公告" }] }
+
+test("开-1（插件化设计 5.2 节）：停用一张卡片只列启用的，卡片都停用时不列这个插件；声明了卡片时没声明的不显示；小组件方案和摘要也一样", () => {
+  const cache = { ...EMPTY_INFO_CACHE, plugins: { example: entry({ cards: [card(), card({ id: "notice", title: "示例公告" }), card({ id: "stray", title: "没声明" })] }) } }
+  const one: PluginRef = { ...TWO, off: ["card:notice"] }
+  assert.deepEqual(infoViews(cache, [TWO], new Map(), NOW)[0].cards.map(c => c.id), ["sample", "notice"])
+  assert.deepEqual(infoViews(cache, [one], new Map(), NOW)[0].cards.map(c => c.id), ["sample"])
+  assert.deepEqual(infoViews(cache, [{ ...TWO, off: ["card:notice", "card:sample"] }], new Map(), NOW), [])
+  assert.deepEqual(Object.keys(cardTitles([one])), [cardRefOf("example", "sample")])
+  assert.deepEqual(widgetCards(cache, [one], NOW).map(c => c.id), ["sample"])
+  // 没声明卡片的插件：返回的都显示
+  const plain: PluginRef = { script: "u", id: "example", name: "没声明", capabilities: ["info"] }
+  assert.deepEqual(infoViews(cache, [plain], new Map(), NOW)[0].cards.map(c => c.id), ["sample", "notice", "stray"])
+})
+
+test("还没查到的卡片（D30）：声明了、启用的每张一组，按声明的顺序，写进度、出错的原因或「还没读到」；查完了没给的那张不列", () => {
+  const groups = (views: InfoPluginView[]) => infoGroups(views).map(g => [g.card_id, g.title, g.text])
+  assert.deepEqual(groups(infoViews(EMPTY_INFO_CACHE, [TWO], new Map(), NOW)), [["sample", "示例卡片", "还没读到"], ["notice", "示例公告", "还没读到"]])
+  // 第一批只有示例公告、还在查：示例卡片在前，写进度
+  const first = { ...EMPTY_INFO_CACHE, plugins: { example: entry({ done: false, cards: [card({ id: "notice", title: "示例公告" })] }) } }
+  const busy = groups(infoViews(first, [TWO], new Map([["example", "正在读 1/2"]]), NOW))
+  assert.deepEqual(busy.map(g => g[0]), ["sample", "notice"])
+  assert.equal(busy[0][2], "正在读 1/2…")
+  // 出错停下：没查到的那张写原因
+  const failed = { ...EMPTY_INFO_CACHE, plugins: { example: entry({ done: false, error: "插件没有回应", cards: [card()] }) } }
+  assert.deepEqual(groups(infoViews(failed, [TWO], new Map(), NOW))[1], ["notice", "示例公告", "没有查完：插件没有回应"])
+  // 查完了只给了示例卡片：示例公告不列
+  const done = { ...EMPTY_INFO_CACHE, plugins: { example: entry({ cards: [card()] }) } }
+  assert.deepEqual(groups(infoViews(done, [TWO], new Map(), NOW)).map(g => g[0]), ["sample"])
+  // 停用的那张不占组
+  assert.deepEqual(groups(infoViews(EMPTY_INFO_CACHE, [{ ...TWO, off: ["card:notice"] }], new Map(), NOW)).map(g => g[0]), ["sample"])
+})
+
+test("开-11：交给插件的卡片（启用的）变了要重查", () => {
+  assert.equal(needsInfoRefresh(entry({ params: { ...P, cards: ["sample"] } }), { ...P, cards: ["sample", "notice"] }, NOW), true)
+  assert.equal(needsInfoRefresh(entry({ params: { ...P, cards: ["sample"] } }), { ...P, cards: ["sample"] }, NOW), false)
+  assert.equal(needsInfoRefresh(entry(), P, NOW), false)
 })
