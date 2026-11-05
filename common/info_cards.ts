@@ -1,6 +1,7 @@
 // 插件的信息卡片（docs/specs/2026-11-04-presets-and-cards.md 第 7 节，2.6）：缓存、什么时候查（7.2 节，卡-*）、给页面的视图、
 // 「当前」那一行（D21）、没有车况的车记录页最上面那一组（D14）、小组件摘要里的卡片。油记只认卡片的字段，不认卡片里写的是什么（D1、D20）：
 // 有效期、文字都由插件给。纯逻辑：调插件、读写缓存在 app/info_cards.ts。
+import { usedCapabilities } from "./plugin"
 import { InfoCard, InfoTone, PluginRef } from "./types"
 import { CardRef, WidgetCard } from "./widget_data"
 import { cardLine, cardRefOf } from "./widget_layout"
@@ -71,7 +72,8 @@ export type InfoPluginView = {
  * 插件查完了、一张卡片都没给时不列这个插件（不多一组）
  */
 export function infoViews(cache: InfoCache, plugins: PluginRef[], running: ReadonlyMap<string, string | null>, now: number): InfoPluginView[] {
-  return plugins.filter(p => p.capabilities.includes("info")).flatMap(p => {
+  // 关掉了「信息」的不列（开-1）
+  return plugins.filter(p => usedCapabilities(p).includes("info")).flatMap(p => {
     const e = cache.plugins[p.id]
     const busy = running.has(p.id)
     if (!busy && e && e.done && !e.cards.length) return []
@@ -132,7 +134,7 @@ export function widgetCards(cache: InfoCache, plugins: PluginRef[], now: number)
 export function cardTitles(plugins: PluginRef[]): Record<CardRef, { title: string; plugin_name: string }> {
   const out: Record<CardRef, { title: string; plugin_name: string }> = {}
   for (const p of plugins) {
-    if (!p.capabilities.includes("info")) continue
+    if (!usedCapabilities(p).includes("info")) continue
     for (const c of p.cards ?? []) out[cardRefOf(p.id, c.id)] = { title: c.title, plugin_name: p.name }
   }
   return out

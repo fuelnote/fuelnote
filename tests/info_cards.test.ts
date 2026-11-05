@@ -221,3 +221,11 @@ test("读账本：方案里的两格只认 card:<插件>/<卡片>", () => {
   // 没选卡片的方案不多出 cards
   assert.deepEqual(normalizePresets([{ name: "默认", slots: {} }]), [{ name: "默认", slots: {} }])
 })
+
+test("开-1（插件化设计 5.2 节）：关掉「信息」的插件不列卡片组，小组件方案也不写它的卡片", () => {
+  const cache = { ...EMPTY_INFO_CACHE, plugins: { example: entry() } }
+  const off: PluginRef = { ...EXAMPLE, off: ["info"] }
+  assert.deepEqual(infoViews(cache, [off], new Map(), NOW), [])
+  assert.deepEqual(cardTitles([off]), {})
+  assert.equal(infoViews(cache, [EXAMPLE], new Map(), NOW).length, 1)
+})

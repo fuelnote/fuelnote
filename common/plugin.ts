@@ -29,6 +29,44 @@ export function capabilityLine(caps: PluginCapability[]): string {
   return caps.map(c => CAPABILITY_TITLES[c]).join("、")
 }
 
+// ---------- 逐项开关（2.7，插件化设计 5.2 节） ----------
+
+/** 用到的项：提供的去掉关掉的；行程、车况、养修都没用到时「车辆」也不算（开-8）。油记各处只看用到的项 */
+export function usedCapabilities(ref: PluginRef): PluginCapability[] {
+  const off = ref.off ?? []
+  const on = ref.capabilities.filter(c => !off.includes(c))
+  return on.some(c => VEHICLE_CAPABILITIES.includes(c)) ? on : on.filter(c => c !== "vehicles")
+}
+
+/** 插件详情里一项的开关：车辆没有开关（fixed）；只剩这一项开着时不能关（locked，开-7） */
+export type CapabilitySwitch = "on" | "off" | "locked" | "fixed"
+
+export function capabilitySwitch(ref: PluginRef, cap: PluginCapability): CapabilitySwitch {
+  if (cap === "vehicles") return "fixed"
+  if ((ref.off ?? []).includes(cap)) return "off"
+  const others = ref.capabilities.filter(c => c !== "vehicles" && c !== cap && !(ref.off ?? []).includes(c))
+  return others.length ? "on" : "locked"
+}
+
+/** 拨开关：关掉写进 off，打开从 off 去掉，off 空了不留这个键；车辆、只剩的一项、没变的照原样返回 */
+export function setCapability(ref: PluginRef, cap: PluginCapability, on: boolean): PluginRef {
+  const now = capabilitySwitch(ref, cap)
+  if (now === "fixed" || now === "locked" || (now === "on") === on) return ref
+  const off = on ? (ref.off ?? []).filter(c => c !== cap) : CAPABILITIES.filter(c => c === cap || (ref.off ?? []).includes(c))
+  const { off: _old, ...rest } = ref
+  return off.length ? { ...rest, off } : rest
+}
+
+/** 设置 › 数据源一行的下面（5.1 节）：「版本 1.3.0 · 加油交易、油价」；读不到版本时只写用到的几项 */
+export function sourceCaption(ref: PluginRef, version: string): string {
+  return [version ? `版本 ${version}` : "", capabilityLine(usedCapabilities(ref))].filter(Boolean).join(" · ")
+}
+
+/** 插件详情的副标题（5.1 节）：「版本 0.2.0 · 脚本 FuelNoteVolvo」 */
+export function pluginSubtitle(ref: PluginRef, version: string): string {
+  return [version ? `版本 ${version}` : "", `脚本 ${ref.script}`].filter(Boolean).join(" · ")
+}
+
 // ---------- 错误 ----------
 
 /** 插件返回的错误（第 4.2 节），和油记这边的：不可用（脚本不在或没有返回）、没有回应（超时）、版本不兼容、返回的数据不对 */
@@ -423,7 +461,9 @@ export function pluginRef(script: string, info: PluginInfo): PluginRef {
  */
 export function refreshedRef(ref: PluginRef, info: PluginInfo, plugins: PluginRef[]): PluginRef | null {
   if (info.id !== ref.id || addProblem(info, plugins.filter(p => p.id !== ref.id))) return null
-  const next = pluginRef(ref.script, info)
+  // 关掉的几项照旧关着，新版本不再提供的去掉；新多出来的开着（开-9）
+  const off = (ref.off ?? []).filter(c => info.capabilities.includes(c))
+  const next = { ...pluginRef(ref.script, info), ...(off.length ? { off } : {}) }
   const same = next.name === ref.name && next.version === ref.version && next.capabilities.join() === ref.capabilities.join()
     && JSON.stringify(next.cards ?? []) === JSON.stringify(ref.cards ?? [])
   return same ? null : next

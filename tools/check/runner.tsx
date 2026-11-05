@@ -80,6 +80,14 @@ import { addPreset, buildWidgetSnapshot, presetList, presetNameProblem, removePr
 import { cardRefOf, cardSlotView, presetFor, setPresetCard } from "../../common/widget_layout"
 import { infoGroups, InfoPluginView, infoViewsFor, refreshInfo, viewsOfGroup } from "../../common/model"
 import { INFO_CACHE_FILE, InfoCache } from "../../common/info_cards"
+import { infoKey } from "../../app/info_cards"
+import type { PluginCapability } from "../../common/types"
+import { capabilitySwitch, pluginSubtitle, setCapability, sourceCaption, usedCapabilities } from "../../common/plugin"
+import { pluginsWith, setPluginCapability } from "../../app/plugins"
+import { pricePluginId } from "../../app/fuel_price"
+import { canReadTrips, hasStatusSource } from "../../app/vehicle_data"
+import { vehicleSources } from "../../app/data_sources"
+import { cardChoices } from "../../common/widget_layout"
 import { InfoSheet } from "../../pages/info_cards"
 import { makeAppData } from "../../common/ledger"
 import { SettingsPage } from "../../pages/settings"
@@ -93,7 +101,7 @@ const SANDBOX = "FuelNoteCheck"
 setDataRoot(SANDBOX)
 
 /** 改了这个值，手机重新运行后报到的 STAMP 跟着变（确认跑的是新代码） */
-export const STAMP = "70"
+export const STAMP = "71"
 const PORT = 3200
 const DAY = 86400e3
 const BJ_OFFSET = 8 * 3600e3
@@ -1578,6 +1586,123 @@ async function runInfo(): Promise<{ steps: Step[] }> {
   return { steps }
 }
 
+/** 示例插件全开（去掉关掉的几项），存进设置 */
+function allOn(data: AppData): AppData {
+  return updateSettings(data, {
+    plugins: pluginsOf(data).map(p => {
+      if (p.script !== EXAMPLE_PLUGIN) return p
+      const { off: _off, ...rest } = p
+      return rest
+    }),
+  })
+}
+
+/**
+ * 逐项开关和版本号（2.7，插件化设计 5.1、5.2 节）：示例插件、fill 的示例车。每一项关掉、看用到它的地方、再打开（开-1～开-6）；
+ * 只剩一项时拨不动（开-7）；行程、车况、养修都关了以后车辆不算用到（开-8）；插件升级（开-9）；重新打开信息卡片照常查（开-10）。最后恢复全开
+ */
+async function runToggles(): Promise<{ steps: Step[] }> {
+  const steps: Step[] = []
+  let data = loadData().data
+  const found = pluginsOf(data).find(p => p.script === EXAMPLE_PLUGIN)
+  const car = data.ledger.vehicles.find(v => v.id === FILL_CAR)
+  if (!found || !car) {
+    add(steps, "要先跑 fill、info（示例插件、示例车）", false)
+    return { steps }
+  }
+  data = allOn(updateSettings(data, { current_vehicle_id: FILL_CAR }))
+  const id = found.id
+  const ref = () => pluginsOf(data).find(p => p.id === id) ?? found
+  const version = pluginVersion(EXAMPLE_PLUGIN)
+  add(steps, "5.1：设置列表那一行写版本和用到的几项；插件详情的副标题写版本和脚本名（版本取手机上的 script.json）",
+    sourceCaption(ref(), version) === `版本 ${version} · 加油交易、车辆、行程、车况、养修、油价、信息` && pluginSubtitle(ref(), version) === `版本 ${version} · 脚本 ${EXAMPLE_PLUGIN}`,
+    `${sourceCaption(ref(), version)}；${pluginSubtitle(ref(), version)}`)
+  await refreshAndWatch(data)
+  const keyOn = infoKey(data)
+  const readWidget = () => JSON.parse(FileManager.readAsStringSync(`${dataDirectory()}/widget.json`)) as WidgetSnapshot
+
+  // 开-1 关「信息」
+  data = setPluginCapability(data, id, "info", false)
+  const saved = loadData().data.ledger.settings.plugins.find(p => p.id === id)
+  add(steps, "关掉的几项存进设置（跟着备份）", saved?.off?.join() === "info", JSON.stringify(saved?.off ?? null))
+  const seen = await refreshAndWatch(data, true)
+  saveWidgetSnapshot(data)
+  const w = readWidget()
+  const cardRef = cardRefOf(id, "sample")
+  add(steps, "开-1 关「信息」：没有卡片组，不查（「重新查」也不查），小组件里放了它的格子回到默认，方案菜单不列它的卡片",
+    infoViewsFor(data).length === 0 && seen.length === 0 && !(w.cards ?? []).length && cardSlotView(w, cardRef) === null && cardChoices(pluginsWith(data, "info")).length === 0,
+    `组 ${infoViewsFor(data).length}、查了 ${seen.length} 次、小组件卡片 ${(w.cards ?? []).length}、菜单 ${cardChoices(pluginsWith(data, "info")).length}`)
+  data = setPluginCapability(data, id, "info", true)
+  const back = await refreshAndWatch(data)
+  add(steps, "开-10 重新打开「信息」：用到信息的插件变了，回到前台时照常查，卡片组回来", infoKey(data) === keyOn && infoGroups(infoViewsFor(data)).length === 1,
+    `${back.join(" → ") || "缓存里的卡片还没过期，不用查"}；组 ${infoGroups(infoViewsFor(data)).length}`)
+
+  // 开-2～开-6：各关一项，看用到它的地方，再打开
+  const one = (cap: PluginCapability, name: string, check: () => boolean, detail: () => string) => {
+    data = setPluginCapability(data, id, cap, false)
+    add(steps, name, check(), detail())
+    data = setPluginCapability(data, id, cap, true)
+  }
+  one("fuel_price", "开-2 关「油价」：没有用油价的插件，不算加满金额", () => pricePluginId(data) === null && fillViewFor(data, car, { fuel_l: 32.5 }) === null,
+    () => `油价插件 ${pricePluginId(data) ?? "没有"}`)
+  one("fuel", "开-3 关「加油交易」：记加油没有「从示例选」", () => pluginsWith(data, "fuel").length === 0, () => `${pluginsWith(data, "fuel").length} 个`)
+  one("vehicle_status", "开-4 关「车况」：「当前」和小组件不显示油量，小组件不调插件；车照样关联着", () => {
+    saveWidgetSnapshot(data)
+    const s = readWidget()
+    return !hasStatusSource(data, car) && s.status === null && s.status_link === null && car.provider?.id === id
+  }, () => `车况 ${hasStatusSource(data, car)}`)
+  one("trips", "开-5 关「行程」：记加油不配停车", () => !canReadTrips(data, car), () => `能读行程 ${canReadTrips(data, car)}`)
+  one("service", "开-6 关「养修」：记费用没有「从示例选」", () => serviceSourceOf(data, car) === null, () => serviceSourceOf(data, car)?.name ?? "没有")
+  add(steps, "都打开以后照旧：油价、加油交易、车况、行程、养修都在", pricePluginId(data) === id && pluginsWith(data, "fuel").length === 1 && hasStatusSource(data, car)
+    && canReadTrips(data, car) && !!serviceSourceOf(data, car))
+
+  // 开-8：行程、车况、养修都关了
+  for (const c of ["trips", "vehicle_status", "service"] as PluginCapability[]) data = setPluginCapability(data, id, c, false)
+  add(steps, "开-8 行程、车况、养修都关了：车辆也不算用到，车辆的「车辆数据」里不列这个插件",
+    !usedCapabilities(ref()).includes("vehicles") && !vehicleSources(data).some(s => s.id === id) && capabilitySwitch(ref(), "vehicles") === "fixed",
+    usedCapabilities(ref()).join("、"))
+  // 开-7：只剩油价
+  for (const c of ["fuel", "info"] as PluginCapability[]) data = setPluginCapability(data, id, c, false)
+  const last = ref()
+  add(steps, "开-7 只剩「油价」开着：它拨不动（locked），再关也不变", capabilitySwitch(last, "fuel_price") === "locked" && setCapability(last, "fuel_price", false) === last
+    && setPluginCapability(data, id, "fuel_price", false).ledger.settings.plugins.find(p => p.id === id)?.off?.length === 5,
+    usedCapabilities(last).join("、"))
+  data = allOn(data)
+
+  // 开-9：像旧版本没有「信息」、关着「油价」的示例插件，升级后重新 describe
+  data = updateSettings(data, {
+    plugins: pluginsOf(data).map(p => (p.id === id
+      ? { script: p.script, id: p.id, name: p.name, capabilities: p.capabilities.filter(c => c !== "info"), version: "0", off: ["fuel_price"] as PluginCapability[] }
+      : p)),
+  })
+  data = (await refreshPlugins(() => data)) ?? data
+  add(steps, "开-9 插件升级多了「信息」：新的一项开着，关着的「油价」照旧关着", usedCapabilities(ref()).includes("info") && ref().off?.join() === "fuel_price",
+    `${usedCapabilities(ref()).join("、")}；关着 ${ref().off?.join("、") ?? "没有"}`)
+  data = allOn(data)
+  saveWidgetSnapshot(data)
+  return { steps }
+}
+
+/**
+ * 逐项开关的截图（/run/toggles 之后）：设置列表（示例插件关了「信息」）、插件详情（全开、关了「信息」、只剩「油价」）。
+ * 只在内存里改，存着的设置是全开的
+ */
+function toggleScreen(screen: string, data: AppData): VirtualNode | null {
+  const ref = pluginsOf(data).find(p => p.script === EXAMPLE_PLUGIN)
+  if (!ref) return null
+  const offs: Record<string, PluginCapability[]> = {
+    "toggles-settings": ["info"], "toggles-detail": [], "toggles-detail-off": ["info"],
+    "toggles-detail-locked": ["fuel", "trips", "vehicle_status", "service", "info"],
+  }
+  const off = offs[screen]
+  if (!off) return null
+  const plugins = pluginsOf(data).map(p => (p.id === ref.id ? off.reduce((acc, c) => setCapability(acc, c, false), p) : p))
+  const d = makeAppData({ ...data.ledger, settings: { ...data.ledger.settings, plugins } }, data.xxyh)
+  const app = { getData: () => d, setData: noop, addVehicle: async () => undefined }
+  if (screen === "toggles-settings") return <SettingsPage data={d} app={app} />
+  return <NavigationStack><PluginDetail app={app} pluginId={ref.id} /></NavigationStack>
+}
+
 /** 截图用的「正在查」「今天没有」：示例卡片改成第一批的样子，或者一行都没有 */
 function infoStates(views: InfoPluginView[], state: "busy" | "empty"): InfoPluginView[] {
   return views.map(v => ({
@@ -1706,6 +1831,7 @@ function screenElement(screen: string): VirtualNode | null {
   if (screen.startsWith("fill-")) return fillScreen(screen, data)
   if (screen.startsWith("presets-") || screen.startsWith("widgets-")) return presetsScreen(screen, data)
   if (screen.startsWith("info-")) return infoScreen(screen, data)
+  if (screen.startsWith("toggles-")) return toggleScreen(screen, data)
   if (screen.startsWith("bare-")) return bareScreen(screen, data)
   // 2.0.0-beta.4：备份与恢复、恢复列表、看一眼再恢复（最新的一份恢复前副本）、备份密码；用记账留下的「恢复前」副本
   if (screen.startsWith("backup-")) {
@@ -1829,6 +1955,7 @@ export function CheckPage() {
     server.registerAsyncHandler("/run/fill", guarded("加满金额", async () => jsonResponse(await runFill())))
     server.registerAsyncHandler("/run/presets", guarded("小组件方案", async () => jsonResponse(await runPresets())))
     server.registerAsyncHandler("/run/info", guarded("信息卡片", async () => jsonResponse(await runInfo())))
+    server.registerAsyncHandler("/run/toggles", guarded("逐项开关", async () => jsonResponse(await runToggles())))
     server.registerAsyncHandler("/run/bare", guarded("什么都不接", async () => jsonResponse(await runBare())))
     server.registerAsyncHandler("/shot", guarded("截图", async req =>
       pngResponse(await takeShot(query(req, "screen"), query(req, "scheme") === "dark" ? "dark" : "light", Number(query(req, "height")) || 0))))

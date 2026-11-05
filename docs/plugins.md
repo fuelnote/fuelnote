@@ -7,7 +7,8 @@
 ## 1. 标记
 
 - 脚本文件夹里放 `fuelnote.json`：`{ "contract": 1 }`。「设置 › 数据源 › 添加插件」只列带这个文件的脚本，不运行其他脚本。
-- 列表里的名称、版本、图标取脚本自己的 `script.json`（`localizedNames.zh` 或 `name`、`version`、`icon`、`color`）。
+- 列表里的名称、版本、图标取脚本自己的 `script.json`（`localizedNames.zh` 或 `name`、`version`、`icon`、`color`）。设置 › 数据源和插件详情写的版本也取它（2.7 起），同步了新版就跟着变。
+- 插件自己的页面（用户在 Scripting 里直接打开、或者油记打开它连接时）建议用大标题，下面一行写「版本 x」（`navigationSubtitle`，`Script.metadata.version`）：同步了新版以后，一打开就知道装的是哪一版。这不是契约，示例插件这样写。
 - 名称：显示名（`localizedNames.zh`）写「油记·<数据源>」，在 Scripting 的脚本列表里认得出是油记的插件；油记里显示的是 `describe` 返回的 `name`，插件自己页面的标题也用它。脚本名（`script.json` 的 `name`，也是文件夹名）建议写成 `FuelNote<数据源>`，定了不要改：油记按脚本名调用插件，改了要在油记里重新添加。仓库名建议 `fuelnote-plugin-<数据源>`。示例插件的脚本名「FuelNote 示例插件」早于这条，不改。
 - 分发：把运行需要的文件打成 zip（文件放在根目录），Scripting 用 zip 的地址导入；`script.json` 的 `remoteResource` 指向同一个地址，就按 `autoUpdateInterval` 自动更新（Scripting 文档 script 一节）。私有的插件可以放在 Secret Gist：拿到链接的人都能下载。
 
@@ -261,3 +262,8 @@ type Tone = "good" | "warn"   // 好（绿色）、提醒（橙色）；不给�
 - 以后加可选字段不升 `contract`，改了已有字段的含义才升。
 - 插件加了能力、改了名称时，升插件自己的版本（`script.json` 的 `version`）：油记打开时发现版本和上次不同，会重新 `describe`，更新名称和提供的数据（2.4 起），用户不用移除再添加。
 - `contract` 不是 1 的插件，油记显示「插件版本不兼容」，不调用。
+
+## 13. 用户关掉某几项（2.7 起）
+
+- 用户可以在油记的插件详情里关掉插件提供的某几项（「车辆」除外，至少留一项）。关掉的油记不再调用，用到它的地方也不显示；记录照旧。
+- 插件不用管：`describe` 照常写提供的全部，每个动作照常回答。插件升级后新多出来的一项默认开着。

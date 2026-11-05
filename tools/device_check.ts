@@ -1,6 +1,6 @@
 // 手机上的自动检查（电脑端）。手机上开着「FuelNote Check」（tools/check），它向采样服务报到后，这里直接请求手机。说明见 tools/check/README.md。
 //
-//   XXYH_ROOT=E:/GitHub/xxyh npx tsx tools/device_check.ts [--wait] [recognize] [ledger] [shots] [split] [benefits] [export] [service] [plugin] [map] [fill] [presets] [info]   （不写时都做）
+//   XXYH_ROOT=E:/GitHub/xxyh npx tsx tools/device_check.ts [--wait] [recognize] [ledger] [shots] [split] [benefits] [export] [service] [plugin] [map] [fill] [presets] [info] [toggles]   （不写时都做）
 //
 // --wait：先等手机上打开新版的「FuelNote Check」（STAMP 和示例插件的版本都和电脑上的一样，最多 30 分钟）再开始。可以先在后台跑着，手机上一打开就检查。
 //
@@ -390,6 +390,18 @@ async function infoCheck(phone: string): Promise<number> {
   return bad
 }
 
+const SHOTS_TOGGLES: Array<[string, number]> = [["toggles-settings", 0], ["toggles-detail", 1200], ["toggles-detail-off", 1200], ["toggles-detail-locked", 1200]]
+
+/** 逐项开关和版本号（2.7，插件化设计 5.1、5.2 节）：开-1～开-10；截图设置列表、插件详情（全开、关了「信息」、只剩一项） */
+async function togglesCheck(phone: string): Promise<number> {
+  const r = await post<{ steps: Step[] }>(`${phone}/run/toggles`, {})
+  writeFileSync(join(OUT, "toggles.json"), JSON.stringify(r, null, 1))
+  for (const s of r.steps) console.log(`  ${s.ok ? "✓" : "✗"} ${s.name}${s.detail ? `（${s.detail}）` : ""}`)
+  const bad = r.steps.filter(s => !s.ok).length
+  console.log(`逐项开关：${r.steps.length} 项，${bad ? `${bad} 项不对` : "全部通过"}`)
+  return bad
+}
+
 async function shots(phone: string, screens: Array<[string, number]>): Promise<number> {
   mkdirSync(join(OUT, "shots"), { recursive: true })
   let failed = 0
@@ -470,6 +482,11 @@ async function main() {
   if (run("info")) {
     bad += await infoCheck(phone)
     bad += await shots(phone, SHOTS_INFO)
+  }
+  // 要在 fill、info 之后（示例车、示例插件的卡片）；跑完恢复全开
+  if (run("toggles")) {
+    bad += await togglesCheck(phone)
+    bad += await shots(phone, SHOTS_TOGGLES)
   }
   process.exitCode = bad ? 1 : 0
 }

@@ -1,7 +1,11 @@
 // 插件详情（插件化设计第 5 节，画稿 DsDetail，从设置 › 数据源推入）：提供的数据；连接状态和打码的账号，每次打开时问一次插件；
 // 管理连接打开插件自己的页面；移除插件只从油记里去掉。
-import { Button, EnvironmentValuesReader, HStack, Image, List, ProgressView, Section, Spacer, Text, useState, VStack } from "scripting"
-import { CAPABILITY_TITLES, connectPlugin, PluginCapability, pluginsOf, pluginState, pluginStateText, pluginStatus, pluginVersion, removePlugin } from "../common/model"
+// 2.7（5.1、5.2 节，画稿第三十轮 R30DetailA、R30Toggles）：副标题写版本和脚本名；提供的数据每项一个开关，车辆没有开关，只剩一项时拨不动。
+import { Button, EnvironmentValuesReader, HStack, Image, List, ProgressView, Section, Spacer, Text, Toggle, useState, VStack } from "scripting"
+import {
+  CAPABILITY_TITLES, capabilitySwitch, connectPlugin, PluginCapability, pluginsOf, pluginState, pluginStateText, pluginStatus, pluginSubtitle, pluginVersion, removePlugin,
+  setPluginCapability,
+} from "../common/model"
 import { AppActions } from "./components"
 
 const ICONS: Record<PluginCapability, string> = {
@@ -20,8 +24,23 @@ function hint(cap: PluginCapability, name: string): string {
   return `记费用时从${name}选一次进店，要记的几笔一起填好`
 }
 
+const CAPS_FOOT = "关掉的一项，油记不再向插件要这项数据，用到它的地方也不再显示；已记的记录不受影响。至少留一项开着，都不用时移除插件。"
+const VEHICLES_FOOT = "「车辆」用来关联车，行程、车况、养修都要用到，不单独关掉。"
+
+/** 一项的图标、名称和说明 */
+function CapabilityLabel({ cap, name }: { cap: PluginCapability; name: string }) {
+  return <HStack spacing={12}>
+    <Image systemName={ICONS[cap]} font="title3" foregroundStyle="accentColor" frame={{ width: 28 }} />
+    <VStack alignment="leading" spacing={2}>
+      <Text font="headline">{CAPABILITY_TITLES[cap]}</Text>
+      <Text font="caption" foregroundStyle="secondaryLabel">{hint(cap, name)}</Text>
+    </VStack>
+  </HStack>
+}
+
 export function PluginDetail({ app, pluginId }: { app: AppActions; pluginId: string }) {
   const [view, setView] = useState<{ loading: boolean; account: string | null; error: string | null }>({ loading: true, account: null, error: null })
+  const [, setTick] = useState(0)
   const found = pluginsOf(app.getData()).find(p => p.id === pluginId)
   if (!found) return <List navigationTitle="插件"><Text foregroundStyle="secondaryLabel">这个插件已经移除。</Text></List>
   const plugin = found
@@ -36,6 +55,12 @@ export function PluginDetail({ app, pluginId }: { app: AppActions; pluginId: str
     setView(v => ({ ...v, loading: true }))
     const r = await connectPlugin(plugin)
     setView(r.ok ? { loading: false, account: r.value.account, error: null } : { loading: false, account: null, error: r.error.message })
+  }
+
+  /** 拨一项的开关：存进设置，这一页跟着重画 */
+  function toggle(cap: PluginCapability, on: boolean) {
+    app.setData(setPluginCapability(app.getData(), plugin.id, cap, on))
+    setTick(t => t + 1)
   }
 
   async function remove(close: () => void) {
@@ -54,17 +79,17 @@ export function PluginDetail({ app, pluginId }: { app: AppActions; pluginId: str
   const version = pluginVersion(plugin.script)
   return <EnvironmentValuesReader keys={["dismiss"]}>{env => <List
     navigationTitle={plugin.name}
-    navigationSubtitle={`插件 · ${[plugin.script, version].filter(Boolean).join(" ")}`}
+    navigationSubtitle={pluginSubtitle(plugin, version)}
     onAppear={() => { void refresh() }}
   >
-    <Section header={<Text>提供的数据</Text>}>
-      {plugin.capabilities.map(c => <HStack key={c} spacing={12}>
-        <Image systemName={ICONS[c]} font="title3" foregroundStyle="accentColor" frame={{ width: 28 }} />
-        <VStack alignment="leading" spacing={2}>
-          <Text font="headline">{CAPABILITY_TITLES[c]}</Text>
-          <Text font="caption" foregroundStyle="secondaryLabel">{hint(c, plugin.name)}</Text>
-        </VStack>
-      </HStack>)}
+    <Section header={<Text>提供的数据</Text>} footer={<Text>{(plugin.capabilities.includes("vehicles") ? VEHICLES_FOOT : "") + CAPS_FOOT}</Text>}>
+      {plugin.capabilities.map(c => {
+        const sw = capabilitySwitch(plugin, c)
+        if (sw === "fixed") return <CapabilityLabel key={c} cap={c} name={plugin.name} />
+        return <Toggle key={c} value={sw !== "off"} disabled={sw === "locked"} onChanged={on => toggle(c, on)}>
+          <CapabilityLabel cap={c} name={plugin.name} />
+        </Toggle>
+      })}
     </Section>
 
     <Section header={<Text>连接</Text>} footer={<Text>连接和断开在插件自己的页面中进行。凭据保存在插件中，油记无法读取，也不在油记的备份里。</Text>}>

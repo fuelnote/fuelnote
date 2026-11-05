@@ -3,7 +3,7 @@
 // 规则在 common/widget_layout.ts。
 import { Button, Divider, EnvironmentValuesReader, HStack, Image, List, Menu, NavigationLink, Section, Spacer, Text, TextField, useState, VStack, Widget } from "scripting"
 import {
-  addPreset, AppData, autoContent, buildWidgetSnapshot, cardChoices, CardRef, CardSlot, CONTENT_TITLES, DEFAULT_PRESET, pluginsOf, presetList, presetNameProblem, removePreset,
+  addPreset, AppData, autoContent, buildWidgetSnapshot, cardChoices, CardRef, CardSlot, CONTENT_TITLES, DEFAULT_PRESET, pluginsWith, presetList, presetNameProblem, removePreset,
   renamePreset, resetDefault, setPresetCard, setPresetSlot, SLOT_CHOICES, SLOT_TITLES, updateSettings, usedElsewhere, WidgetContent, WidgetPreset, WidgetSlot, WidgetSnapshot,
 } from "../common/model"
 import { AppActions, showError } from "./components"
@@ -110,7 +110,8 @@ export function WidgetPresetPage({ data, app, initialName }: { data: AppData; ap
   const isDefault = name === DEFAULT_PRESET
   // 菜单里「自动 · …」按当前车辆现在的摘要算（有没有车况、油价）
   const snap = buildWidgetSnapshot(data)
-  const choices = cardChoices(pluginsOf(data))
+  // 关掉了「信息」的插件不列它的卡片（开-1）
+  const choices = cardChoices(pluginsWith(data, "info"))
 
   function pick(slot: WidgetSlot, content: WidgetContent | null) {
     save(app, setPresetSlot(presetsOf(app.getData()), name, slot, content))

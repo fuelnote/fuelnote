@@ -2,8 +2,8 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
 import {
-  addProblem, capabilityLine, parseDescribe, parseFuel, parseFuelPrices, parseService, refreshedRef, parseStatus, parseTrips, parseVehicles, parseVehicleStatus, PLUGIN_TIMEOUT_MS, pluginRef,
-  pluginStateText, stateOfError, stateOfStatus,
+  addProblem, capabilityLine, capabilitySwitch, parseDescribe, parseFuel, parseFuelPrices, parseService, refreshedRef, parseStatus, parseTrips, parseVehicles, parseVehicleStatus, PLUGIN_TIMEOUT_MS, pluginRef,
+  pluginStateText, pluginSubtitle, setCapability, sourceCaption, stateOfError, stateOfStatus, usedCapabilities,
 } from "../common/plugin"
 import { normalizeLedger } from "../common/ledger_file"
 import { emptyLedger, PluginCapability, PluginRef } from "../common/types"
@@ -220,4 +220,64 @@ test("插件更新后（2.4）：版本变了重新 describe，名称、提供�
   assert.equal(refreshedRef(old, { id: "ejoy", name: "易捷", version: "0.3.0", capabilities: ["trips"], cards: [] }, [old]), null)
   const same = { ...old, version: "0.3.0", capabilities: ["fuel", "fuel_price"] as PluginCapability[] }
   assert.equal(refreshedRef(same, { id: "ejoy", name: "易捷", version: "0.3.0", capabilities: ["fuel", "fuel_price"], cards: [] }, [same]), null)
+})
+
+// ---------- 2.7 逐项开关和版本号（插件化设计 5.1、5.2 节） ----------
+
+const EXAMPLE: PluginRef = {
+  script: "FuelNote 示例插件", id: "example", name: "示例", version: "1.3.0",
+  capabilities: ["fuel", "vehicles", "trips", "vehicle_status", "service", "fuel_price", "info"],
+}
+const VOLVO: PluginRef = { script: "FuelNoteVolvo", id: "volvo_cn", name: "沃尔沃", version: "0.2.0", capabilities: ["vehicles", "trips", "vehicle_status", "service"] }
+
+test("用到的项：提供的去掉关掉的；没关时就是提供的", () => {
+  assert.deepEqual(usedCapabilities(EXAMPLE), EXAMPLE.capabilities)
+  assert.deepEqual(usedCapabilities({ ...EXAMPLE, off: ["info", "fuel_price"] }), ["fuel", "vehicles", "trips", "vehicle_status", "service"])
+})
+
+test("开-8：行程、车况、养修都关了，「车辆」也不算用到", () => {
+  assert.deepEqual(usedCapabilities({ ...EXAMPLE, off: ["trips", "vehicle_status", "service"] }), ["fuel", "fuel_price", "info"])
+  assert.deepEqual(usedCapabilities({ ...VOLVO, off: ["trips", "service"] }), ["vehicles", "vehicle_status"])
+})
+
+test("开-7：车辆没有开关；只剩一项开着时不能关；关掉的是 off", () => {
+  assert.equal(capabilitySwitch(VOLVO, "vehicles"), "fixed")
+  assert.equal(capabilitySwitch(VOLVO, "trips"), "on")
+  const one = { ...VOLVO, off: ["trips", "service"] as PluginCapability[] }
+  assert.equal(capabilitySwitch(one, "vehicle_status"), "locked")
+  assert.equal(capabilitySwitch(one, "trips"), "off")
+  const ejoy: PluginRef = { script: "FuelNoteEjoy", id: "ejoy", name: "易捷", capabilities: ["fuel", "fuel_price", "info"], off: ["fuel", "info"] }
+  assert.equal(capabilitySwitch(ejoy, "fuel_price"), "locked")
+  assert.equal(capabilitySwitch({ script: "s", id: "p", name: "只有油价", capabilities: ["fuel_price"] }, "fuel_price"), "locked")
+})
+
+test("拨开关：关掉写进 off，打开从 off 去掉，off 空了不留这个键；车辆和只剩的一项不变", () => {
+  const off = setCapability(EXAMPLE, "info", false)
+  assert.deepEqual(off.off, ["info"])
+  assert.deepEqual(setCapability(off, "fuel_price", false).off, ["fuel_price", "info"])
+  assert.ok(!("off" in setCapability(off, "info", true)))
+  assert.equal(setCapability(VOLVO, "vehicles", false), VOLVO)
+  const one = { ...VOLVO, off: ["trips", "service"] as PluginCapability[] }
+  assert.equal(setCapability(one, "vehicle_status", false), one)
+  assert.equal(setCapability(EXAMPLE, "info", true), EXAMPLE)
+})
+
+test("开-9：插件升级多了一项时新的开着；少了一项时从关掉的里去掉", () => {
+  const old: PluginRef = { script: "FuelNoteEjoy", id: "ejoy", name: "易捷", version: "0.4.2", capabilities: ["fuel", "fuel_price"], off: ["fuel_price"] }
+  const more = refreshedRef(old, { id: "ejoy", name: "易捷", version: "0.4.3", capabilities: ["fuel", "fuel_price", "info"], cards: [] }, [old])
+  assert.ok(more && more.off?.join() === "fuel_price" && usedCapabilities(more).join() === "fuel,info")
+  const less = refreshedRef(old, { id: "ejoy", name: "易捷", version: "0.4.3", capabilities: ["fuel"], cards: [] }, [old])
+  assert.ok(less && !("off" in less))
+})
+
+test("版本号（5.1 节）：设置列表那一行写版本和用到的几项；插件详情的副标题写版本和脚本名；读不到版本时不写这一段", () => {
+  assert.equal(sourceCaption({ ...EXAMPLE, off: ["info"] }, "1.3.1"), "版本 1.3.1 · 加油交易、车辆、行程、车况、养修、油价")
+  assert.equal(sourceCaption(VOLVO, ""), "车辆、行程、车况、养修")
+  assert.equal(pluginSubtitle(VOLVO, "0.2.0"), "版本 0.2.0 · 脚本 FuelNoteVolvo")
+  assert.equal(pluginSubtitle(VOLVO, ""), "脚本 FuelNoteVolvo")
+})
+
+test("账本的设置：插件关掉的几项原样保留（跟着备份）", () => {
+  const l = normalizeLedger({ ...emptyLedger(), settings: { plugins: [{ ...VOLVO, off: ["service"] }] } } as unknown as Record<string, unknown>)
+  assert.deepEqual(l.settings.plugins[0].off, ["service"])
 })

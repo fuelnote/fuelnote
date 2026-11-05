@@ -1,7 +1,7 @@
 // 数据源（插件化设计 4.2 节、第 5 节）：读车辆、行程、车况、养修只经过这里。2.3.0-beta.3 起数据源都是插件，没有内置的。
 // 插件经过 app/plugins.ts（排队、超时；行程、车况的缓存在 app/vehicle_data.ts）。
 import { AppData } from "../common/ledger"
-import { PluginResult, PluginState, VEHICLE_CAPABILITIES } from "../common/plugin"
+import { PluginResult, PluginState, usedCapabilities, VEHICLE_CAPABILITIES } from "../common/plugin"
 import { PluginCapability, PluginRef, ProviderId, Vehicle } from "../common/types"
 import { RemoteVehicle, ServiceVisit, Trip, VehicleStatus } from "../providers/types"
 import { pluginService, pluginsOf, pluginState, pluginTrips, pluginVehicles, pluginVehicleStatus } from "./plugins"
@@ -32,7 +32,8 @@ function value<T>(r: PluginResult<T>): T {
 
 function plugin(ref: PluginRef): DataSource {
   return {
-    id: ref.id, name: ref.name, script: ref.script, capabilities: ref.capabilities,
+    // 用到的项（2.7，插件化设计 5.2 节）：关掉的车况、行程、养修不调，车辆关联也按它列
+    id: ref.id, name: ref.name, script: ref.script, capabilities: usedCapabilities(ref),
     readable: () => pluginState(ref.id) !== "not_connected",
     state: () => pluginState(ref.id),
     vehicles: async () => value(await pluginVehicles(ref)),

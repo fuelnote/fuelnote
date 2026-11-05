@@ -1,7 +1,7 @@
 // 设置
 import { Button, Capsule, HStack, Image, List, Navigation, NavigationLink, NavigationStack, Script, Section, Spacer, Text, Toggle, useState, VStack } from "scripting"
 import {
-  AppData, capabilityLine, currentVehicle, missingSources, OCR_ENGINE_TITLES, pluginsOf, pluginState, pluginStateText, pluginStatus, updateSettings, Vehicle,
+  AppData, currentVehicle, missingSources, OCR_ENGINE_TITLES, pluginsOf, pluginState, pluginStateText, pluginStatus, pluginVersion, sourceCaption, updateSettings, Vehicle,
 } from "../common/model"
 import { CaptureSettings } from "./capture_settings"
 import { BackupRowLabel, BackupSettings } from "./backup_settings"
@@ -21,7 +21,7 @@ function Detail({ title, detail }: { title: string; detail: string }) {
   </HStack>
 }
 
-/** 数据源一行（画稿 DsSettings）：名称，下面写「插件」和提供的数据；右边是连接状态 */
+/** 数据源一行（画稿 DsSettings；2.7 起 R30Sources A）：名称，下面写版本和用到的几项（插件化设计 5.1 节）；右边是连接状态 */
 function SourceRow({ title, detail, state, warn }: { title: string; detail: string; state: string; warn: boolean }) {
   return <HStack foregroundStyle="label">
     <VStack alignment="leading" spacing={3}>
@@ -95,7 +95,7 @@ export function SettingsPage({ data, app }: { data: AppData; app: AppActions }) 
         {plugins.map(p => {
           const state = pluginState(p.id)
           return <NavigationLink key={p.id} destination={<PluginDetail app={app} pluginId={p.id} />}>
-            <SourceRow title={p.name} detail={`插件 · ${capabilityLine(p.capabilities)}`} state={state ? pluginStateText(state) : ""} warn={state === "expired"} />
+            <SourceRow title={p.name} detail={sourceCaption(p, pluginVersion(p.script))} state={state ? pluginStateText(state) : ""} warn={state === "expired"} />
           </NavigationLink>
         })}
         <Button title="添加插件" systemImage="plus" action={() => { void openAdd() }} />

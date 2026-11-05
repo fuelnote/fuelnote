@@ -3,7 +3,7 @@
 import { joinPath } from "../common/files"
 import { AppData } from "../common/ledger"
 import { forgetInfo, INFO_CACHE_FILE, InfoCache } from "../common/info_cards"
-import { addProblem, FuelTxn, PLUGIN_MARKER, pluginRef, PluginResult, PluginState, PluginStatus, refreshedRef } from "../common/plugin"
+import { addProblem, FuelTxn, PLUGIN_MARKER, pluginRef, PluginResult, PluginState, PluginStatus, refreshedRef, setCapability, usedCapabilities } from "../common/plugin"
 import { createPluginSource, PluginCacheFile } from "../common/plugin_source"
 import { FuelPrices, InfoBatch, PluginCapability, PluginRef, PriceRegion } from "../common/types"
 import { callPlugin } from "../platform/plugin_bridge"
@@ -61,8 +61,9 @@ export function pluginVersion(script: string): string {
 
 export const pluginsOf = (data: AppData): PluginRef[] => data.ledger.settings.plugins
 
+/** 用到这一项的插件，按添加的顺序（2.7 起看用到的项：插件详情里关掉的不算，插件化设计 5.2 节） */
 export function pluginsWith(data: AppData, cap: PluginCapability): PluginRef[] {
-  return pluginsOf(data).filter(p => p.capabilities.includes(cap))
+  return pluginsOf(data).filter(p => usedCapabilities(p).includes(cap))
 }
 
 /** 添加：先调 describe 确认版本和提供的数据，再检查 id；不能加时抛出给用户看的原因 */
@@ -93,6 +94,11 @@ export async function refreshPlugins(getData: () => AppData): Promise<AppData | 
   if (!updates.size) return null
   const data = getData()
   return updateSettings(data, { plugins: pluginsOf(data).map(p => updates.get(p.id) ?? p) })
+}
+
+/** 插件详情里拨一项的开关（2.7，插件化设计 5.2 节）：存进设置，跟着备份；车辆、只剩的一项拨不动（开-7） */
+export function setPluginCapability(data: AppData, id: string, cap: PluginCapability, on: boolean): AppData {
+  return updateSettings(data, { plugins: pluginsOf(data).map(p => (p.id === id ? setCapability(p, cap, on) : p)) })
 }
 
 /** 移除：只从油记里去掉，清掉它的缓存（2.6 起也清掉它的信息卡片，卡-7）；不删脚本，也不动插件里的凭据，已记的加油不受影响 */
