@@ -84,7 +84,7 @@
 - [x] `pages/plugin_detail.tsx` 按 `pluginItems` 列，卡片一行写卡片名称；`pages/widget_presets.tsx` 菜单只列启用的卡片。
 - [x] 示例插件 1.4.0：多声明「示例公告」（第二批才给），只给 `cards` 里的卡片；README、CHANGELOG。
 - [x] 契约 `docs/plugins.md` 第 4、9、11、13 节；设计 5.2 节、D30；小组件方案和信息卡片设计 7.3 节；CHANGELOG、README、`CLAUDE.md`。
-- [ ] FuelNote Check：`toggles` 改成按项（停用「示例公告」后插件只收到「示例卡片」、两张都停用、重新启用、升级多一张卡片），`info` 改成两张卡片；STAMP 76。在手机上跑 `fill`、`info`、`toggles`，看完截图。
+- [x] FuelNote Check：`toggles` 改成按项（停用「示例公告」后插件只收到「示例卡片」、两张都停用、重新启用、升级多一张卡片），`info` 改成两张卡片；STAMP 76。在手机上跑 `fill`、`info`、`toggles`，看完截图（2026-11-05：fill 8/8、info 10/10、toggles 16/16；开-11 交给插件 `["sample"]`，插件只给了示例卡片，说明 `Script.run` 传数组参数没问题）。
 
 ## 易捷插件 0.4.3、沃尔沃插件 0.2.1
 
