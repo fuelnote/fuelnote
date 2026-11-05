@@ -1,9 +1,10 @@
 // 插件详情（插件化设计第 5 节，画稿 DsDetail，从设置 › 数据源推入）：提供的数据；连接状态和打码的账号，每次打开时问一次插件；
 // 管理连接打开插件自己的页面；移除插件只从油记里去掉。
-// 2.7（5.1、5.2 节，画稿第三十轮 R30DetailA、R30Toggles）：副标题写版本和脚本名；提供的数据每项一个开关，车辆没有开关，只剩一项时拨不动。
-import { Button, EnvironmentValuesReader, HStack, Image, List, ProgressView, Section, Spacer, Text, Toggle, useState, VStack } from "scripting"
+// 2.7（5.1、5.2 节，画稿第三十轮 R30DetailA，第三十一轮 R31Choices A）：副标题写版本和脚本名；提供的数据轻点一行勾上或取消，不用的一项变灰；
+// 车辆没有勾，只剩一项时勾是灰的、点了没反应。beta.1 用的是开关，iOS 26 的开关太宽，和两行字的行不协调（D29）。
+import { Button, EnvironmentValuesReader, HStack, Image, List, ProgressView, Section, Spacer, Text, useState, VStack } from "scripting"
 import {
-  CAPABILITY_TITLES, capabilitySwitch, connectPlugin, PluginCapability, pluginsOf, pluginState, pluginStateText, pluginStatus, pluginSubtitle, pluginVersion, removePlugin,
+  CAPABILITY_TITLES, CapabilitySwitch, capabilitySwitch, connectPlugin, PluginCapability, pluginsOf, pluginState, pluginStateText, pluginStatus, pluginSubtitle, pluginVersion, removePlugin,
   setPluginCapability,
 } from "../common/model"
 import { AppActions } from "./components"
@@ -24,17 +25,22 @@ function hint(cap: PluginCapability, name: string): string {
   return `记费用时从${name}选一次进店，要记的几笔一起填好`
 }
 
-const CAPS_FOOT = "关掉的一项，油记不再向插件要这项数据，用到它的地方也不再显示；已记的记录不受影响。至少留一项开着，都不用时移除插件。"
-const VEHICLES_FOOT = "「车辆」用来关联车，行程、车况、养修都要用到，不单独关掉。"
+const CAPS_FOOT = "轻点勾上或取消。不勾的一项，油记不再向插件要这项数据，用到它的地方也不再显示；已记的记录不受影响。至少留一项，都不用时移除插件。"
+const VEHICLES_FOOT = "「车辆」用来关联车，行程、车况、养修都要用到，没有勾。"
 
-/** 一项的图标、名称和说明 */
-function CapabilityLabel({ cap, name }: { cap: PluginCapability; name: string }) {
+/** 一项：图标、名称和说明，右边的勾（画稿 R31Choices A）。不用的一项图标和名称变灰；只剩一项时勾是灰的；车辆没有勾 */
+function CapabilityRow({ cap, name, state }: { cap: PluginCapability; name: string; state: CapabilitySwitch }) {
+  const dim = state === "off"
   return <HStack spacing={12}>
-    <Image systemName={ICONS[cap]} font="title3" foregroundStyle="accentColor" frame={{ width: 28 }} />
+    <Image systemName={ICONS[cap]} font="title3" foregroundStyle={dim ? "secondaryLabel" : "accentColor"} frame={{ width: 28 }} />
     <VStack alignment="leading" spacing={2}>
-      <Text font="headline">{CAPABILITY_TITLES[cap]}</Text>
+      <Text font="headline" foregroundStyle={dim ? "secondaryLabel" : "label"}>{CAPABILITY_TITLES[cap]}</Text>
       <Text font="caption" foregroundStyle="secondaryLabel">{hint(cap, name)}</Text>
     </VStack>
+    <Spacer />
+    {state === "on" || state === "locked"
+      ? <Image systemName="checkmark" font="body" fontWeight="semibold" foregroundStyle={state === "on" ? "accentColor" : "tertiaryLabel"} />
+      : null}
   </HStack>
 }
 
@@ -57,7 +63,7 @@ export function PluginDetail({ app, pluginId }: { app: AppActions; pluginId: str
     setView(r.ok ? { loading: false, account: r.value.account, error: null } : { loading: false, account: null, error: r.error.message })
   }
 
-  /** 拨一项的开关：存进设置，这一页跟着重画 */
+  /** 勾上或取消一项：存进设置，这一页跟着重画；车辆、只剩的一项不变（setCapability 里挡住） */
   function toggle(cap: PluginCapability, on: boolean) {
     app.setData(setPluginCapability(app.getData(), plugin.id, cap, on))
     setTick(t => t + 1)
@@ -85,10 +91,10 @@ export function PluginDetail({ app, pluginId }: { app: AppActions; pluginId: str
     <Section header={<Text>提供的数据</Text>} footer={<Text>{(plugin.capabilities.includes("vehicles") ? VEHICLES_FOOT : "") + CAPS_FOOT}</Text>}>
       {plugin.capabilities.map(c => {
         const sw = capabilitySwitch(plugin, c)
-        if (sw === "fixed") return <CapabilityLabel key={c} cap={c} name={plugin.name} />
-        return <Toggle key={c} value={sw !== "off"} disabled={sw === "locked"} onChanged={on => toggle(c, on)}>
-          <CapabilityLabel cap={c} name={plugin.name} />
-        </Toggle>
+        if (sw === "fixed") return <CapabilityRow key={c} cap={c} name={plugin.name} state={sw} />
+        return <Button key={c} action={() => { if (sw !== "locked") toggle(c, sw === "off") }}>
+          <CapabilityRow cap={c} name={plugin.name} state={sw} />
+        </Button>
       })}
     </Section>
 
