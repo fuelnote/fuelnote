@@ -10,7 +10,7 @@
 import { RemoteVehicle, ServiceVisit, Trip, VehicleStatus } from "../providers/types"
 import { BJ_OFFSET } from "./format"
 import {
-  FuelTxn, parseDescribe, parseFuel, parseFuelPrices, parseInfo, parseService, parseStatus, parseTrips, parseVehicles, parseVehicleStatus, PluginAction, pluginError, PluginInfo,
+  callError, FuelTxn, parseDescribe, parseFuel, parseFuelPrices, parseInfo, parseService, parseStatus, parseTrips, parseVehicles, parseVehicleStatus, PluginAction, pluginError, PluginInfo,
   PluginResult,
   PluginState, PluginStatus, PLUGIN_TIMEOUT_MS, stateOfError, stateOfStatus,
 } from "./plugin"
@@ -134,7 +134,7 @@ export function createPluginSource(deps: PluginSourceDeps): PluginSource {
     const task = prev.then((): Promise<PluginResult<unknown>> => {
       const call = deps.call(script, action, params).then(
         (raw): PluginResult<unknown> => ({ ok: true, value: raw }),
-        (): PluginResult<unknown> => ({ ok: false, error: pluginError("unavailable") }),
+        (e: unknown): PluginResult<unknown> => ({ ok: false, error: callError(e) }),
       )
       const limit = PLUGIN_TIMEOUT_MS[action]
       if (limit == null) return call

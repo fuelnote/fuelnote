@@ -22,6 +22,8 @@ Script.run({ name: 脚本名, queryParameters: { fuelnote: 1, action, ...参数 
 - 不管成功还是出错，都要 `Script.exit(对象)`，最外层包一层 try/catch。不 exit 时油记会一直等到超时。
 - 插件可以弹出自己的页面（连接、填凭据），页面叠在油记上面。
 - 油记不会同时给同一个插件发两个请求；`singleMode` 会结束这个插件还挂着的上一次。
+- 调用要用户允许（Scripting 2026-11 的 TestFlight 版起，Scripting 文档 `Script.run`）：油记第一次调用一个插件时，Scripting 先询问用户；选「始终允许此调用」以后不再询问，可以在 Scripting 的「设置 › 脚本权限 › 脚本调用」中更改。用户阻止时 `Script.run` 以 `SCRIPT_INVOCATION_BLOCKED` 拒绝，油记写明到那里允许，不当作插件不可用。无法询问的地方（例如小组件）又没有已保存的决定时，插件照样运行，但不能使用需要脚本权限的接口。
+- 插件使用它自己的脚本权限（定位、剪贴板、文件系统等，Scripting 文档「脚本权限」），和油记的权限无关：要用时由插件自己申请，建议在插件页打开时调 `Script.requestAccess`。同步接口（例如 `FileManager` 的 `*Sync`）无法当场申请，没有授权时直接出错，要先 `await Script.requestAccess`。少量的状态和缓存建议存在 `Storage`（默认插件私有，不需要权限）。
 
 ## 3. 返回
 
@@ -34,8 +36,8 @@ Script.run({ name: 脚本名, queryParameters: { fuelnote: 1, action, ...参数 
 
 | action | 参数 | 返回（ok 之外） | 油记等多久 |
 |---|---|---|---|
-| `describe` | — | `contract`（1）、`id`、`name`、`version`、`capabilities`；提供 `info` 时还有 `cards`（第 9 节） | 5 秒 |
-| `status` | — | `connected`、`expired`、`account`（打码后的账号，可为 null） | 5 秒 |
+| `describe` | — | `contract`（1）、`id`、`name`、`version`、`capabilities`；提供 `info` 时还有 `cards`（第 9 节） | 30 秒 |
+| `status` | — | `connected`、`expired`、`account`（打码后的账号，可为 null） | 30 秒 |
 | `connect` | — | 弹出插件自己的连接页；返回 `connected`、`account` | 不限 |
 | `fuel` | `from`、`to`（毫秒时间戳） | `items`：`FuelTxn[]`（第 5 节） | 20 秒 |
 | `vehicles`（2.3 起） | — | `items`：`RemoteVehicle[]`（第 6 节） | 20 秒 |
@@ -49,7 +51,7 @@ Script.run({ name: 脚本名, queryParameters: { fuelnote: 1, action, ...参数 
 - `name`：设置里显示的名称；从这个插件选来填的记录，来源存的就是保存时的名称。
 - `capabilities`：提供的数据，`fuel`；2.3 起还有 `vehicles`、`trips`、`vehicle_status`、`service`；2.4 起还有 `fuel_price`；2.6 起还有 `info`。提供 `trips`、`vehicle_status`、`service` 之一的，必须提供 `vehicles`（关联车辆用）；`fuel_price`、`info` 不需要。
 - `vehicle`：`vehicles` 给的车辆 `id`。
-- 超时从油记真正调用时算起。超时后油记不再等，晚回来的结果丢掉。
+- 超时从油记真正调用时算起，Scripting 询问用户是否允许调用的时间也算在里面（第 2 节）：`describe`（添加插件时第一个调用）、`status` 因此等 30 秒。超时后油记不再等，晚回来的结果丢掉。
 - 油记按月要交易：`from` 是某个月第一天 0 点，`to` 是某个月最后一刻（北京时间），一次可能跨几个月。结果按月缓存：包含最近 2 天的月份 10 分钟，更早的 1 天；出错不缓存。
 - 行程、车况由油记缓存，插件不用另存。
 - `service` 第一次要读全部进店的明细，所以油记等 60 秒；插件自己存已结算的明细，以后只读列表和新结算的。油记把结果缓存 10 分钟，选进店页下拉时重读。
@@ -237,7 +239,7 @@ type Tone = "good" | "warn"   // 好（绿色）、提醒（橙色）；不给�
 - 分批：一批最多等 20 秒，最好 10 秒以内；两批之间油记可以插进别的请求，例如记加油时选交易。查到的先显示。
 - `summary`、`empty` 写短，16 个字以内，小组件里一行放得下。
 - 油记在后台调，插件不弹自己的页面。
-- 要用手机的位置时插件自己取（和油记是同一个 Scripting 的定位权限），可以发给它的数据源。油记交给插件的位置只有省、市。
+- 要用手机的位置时插件自己取，定位权限也由插件自己申请（第 2 节），可以发给它的数据源。油记交给插件的位置只有省、市。
 - 什么时候查：打开油记、回到前台时，没有卡片、有卡片过了 `until`，或者默认标号、省、市变了才查；点开卡片的一页里可以「重新查」。查到一半出错时，已查到的照样显示，说明里写出错的原因，下次打开再查。油记只看 `until`，不按天算：按天更新的卡片，`until` 给当天 24 点。
 - 一张卡片都不给也可以：油记不多一组，24 小时后再查。
 - 缺 `id`、`title` 或 `until` 的卡片，缺 `label` 或 `value` 的行，油记会丢掉。`place` 缺名称、经纬度不是数或超出范围时当没有，这一行照样显示。

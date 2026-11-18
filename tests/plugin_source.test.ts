@@ -167,14 +167,15 @@ test("超时从真正调用时算起：排队等前一个请求的时间不算",
   assert.deepEqual(ids(await f), ["oct-2"], "排队 4 秒、调用 19 秒，没有超过 20 秒")
 })
 
-test("超时：不再等，返回「插件没有回应」，放开这个插件；晚回来的结果丢掉，不缓存", async () => {
+test("超时：不再等，返回「插件没有回应」并提示在 Scripting 的询问里选始终允许（D34），放开这个插件；晚回来的结果丢掉，不缓存", async () => {
   const h = harness({ auto: false })
   const range = { from: bj("2026-10-01T00:00:00"), to: NOW }
   const f = h.source.fuel(REF, range)
   await h.flush()
   await h.advance(20 * 1000)
   const r = await f
-  assert.ok(!r.ok && r.error.kind === "timeout" && r.error.message === "插件没有回应")
+  assert.ok(!r.ok && r.error.kind === "timeout")
+  assert.equal(!r.ok && r.error.message, "插件没有回应。如果 Scripting 正在询问是否允许调用，请选择「始终允许此调用」")
   const again = h.source.fuel(REF, range)
   await h.flush()
   assert.equal(h.calls.length, 2, "下一次重新调用插件")
@@ -183,6 +184,39 @@ test("超时：不再等，返回「插件没有回应」，放开这个插件�
   assert.deepEqual(h.file()?.months ?? {}, {}, "超时以后才回来的结果不缓存")
   h.calls[1].resolve({ ok: true, items: [ALL[3], ALL[4]] })
   assert.deepEqual(ids(await again), ["oct-2", "oct-1"])
+})
+
+test("describe、status 等 30 秒（D34）：第一次调用时 Scripting 先问用户，29 秒时选了也来得及；30 秒还没回来算没有回应", async () => {
+  const h = harness({ auto: false })
+  const d = h.source.describe("FuelNoteExample")
+  await h.flush()
+  await h.advance(29 * 1000)
+  h.calls[0].resolve({ ok: true, contract: 1, id: "example", name: "示例", version: "1.4.1", capabilities: ["fuel"] })
+  assert.ok((await d).ok)
+  const s = h.source.status(REF)
+  await h.flush()
+  await h.advance(29 * 1000)
+  assert.equal(h.calls.length, 2)
+  await h.advance(1000)
+  const r = await s
+  assert.ok(!r.ok && r.error.kind === "timeout")
+})
+
+test("调用被阻止（D34）：Script.run 以 SCRIPT_INVOCATION_BLOCKED 拒绝时写明去 Scripting 里允许，不改上次的状态；别的拒绝仍是不可用", async () => {
+  const sourceRejecting = (reason: unknown) => createPluginSource({
+    call: () => Promise.reject(reason),
+    load: () => null, save: () => undefined, now: () => NOW, sleep: () => new Promise<void>(() => undefined),
+  })
+  const blocked = Object.assign(new Error("Script invocation blocked"), { code: "SCRIPT_INVOCATION_BLOCKED" })
+  const d = await sourceRejecting(blocked).describe("FuelNoteExample")
+  assert.ok(!d.ok && d.error.kind === "blocked")
+  assert.equal(!d.ok && d.error.message, "油记调用这个插件已被阻止。请在 Scripting 的「设置 › 脚本权限 › 脚本调用」中允许")
+  const source = sourceRejecting(new Error("SCRIPT_INVOCATION_BLOCKED"))
+  const s = await source.status(REF)
+  assert.ok(!s.ok && s.error.kind === "blocked", "只在说明里带着代码时也认得出")
+  assert.equal(source.lastState("example"), null)
+  const other = await sourceRejecting(new Error("别的原因")).status(REF)
+  assert.ok(!other.ok && other.error.kind === "unavailable")
 })
 
 test("连接页不限时；重新连接后清掉这个插件的缓存，移除时连状态一起清", async () => {

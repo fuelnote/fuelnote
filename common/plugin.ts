@@ -9,9 +9,12 @@ export const PLUGIN_MARKER = "fuelnote.json"
 
 export type PluginAction = "describe" | "status" | "connect" | PluginCapability
 
-/** 油记等多久（docs/plugins.md 第 4 节）；connect 打开插件自己的页面，不限 */
+/**
+ * 油记等多久（docs/plugins.md 第 4 节）；connect 打开插件自己的页面，不限。
+ * describe、status 等 30 秒：第一次调用一个插件时 Scripting 先问用户是否允许，等用户选的时间也算在里面（插件化设计 D34）
+ */
 export const PLUGIN_TIMEOUT_MS: Record<PluginAction, number | null> = {
-  describe: 5000, status: 5000, connect: null, vehicles: 20000, fuel: 20000, trips: 20000, vehicle_status: 10000, service: 60000, fuel_price: 10000,
+  describe: 30000, status: 30000, connect: null, vehicles: 20000, fuel: 20000, trips: 20000, vehicle_status: 10000, service: 60000, fuel_price: 10000,
   // 信息卡片一批最多等 20 秒（小组件方案和信息卡片设计 D23）
   info: 20000,
 }
@@ -101,8 +104,11 @@ export function pluginSubtitle(ref: PluginRef, version: string): string {
 
 // ---------- 错误 ----------
 
-/** 插件返回的错误（第 4.2 节），和油记这边的：不可用（脚本不在或没有返回）、没有回应（超时）、版本不兼容、返回的数据不对 */
-export type PluginErrorKind = "not_connected" | "expired" | "network" | "unsupported" | "failed" | "unavailable" | "timeout" | "incompatible" | "invalid"
+/**
+ * 插件返回的错误（第 4.2 节），和油记这边的：不可用（脚本不在或没有返回）、调用被阻止（用户在 Scripting 里阻止油记调用它，D34）、
+ * 没有回应（超时）、版本不兼容、返回的数据不对
+ */
+export type PluginErrorKind = "not_connected" | "expired" | "network" | "unsupported" | "failed" | "unavailable" | "blocked" | "timeout" | "incompatible" | "invalid"
 export type PluginError = { kind: PluginErrorKind; message: string }
 export type PluginResult<T> = { ok: true; value: T } | { ok: false; error: PluginError }
 
@@ -115,7 +121,8 @@ const MESSAGES: Record<PluginErrorKind, string> = {
   unsupported: "插件不支持这项数据",
   failed: "读取失败",
   unavailable: "插件不可用：找不到这个脚本，或它没有返回结果",
-  timeout: "插件没有回应",
+  blocked: "油记调用这个插件已被阻止。请在 Scripting 的「设置 › 脚本权限 › 脚本调用」中允许",
+  timeout: "插件没有回应。如果 Scripting 正在询问是否允许调用，请选择「始终允许此调用」",
   incompatible: "插件版本不兼容",
   invalid: "插件返回的数据不对",
 }
@@ -123,6 +130,13 @@ const MESSAGES: Record<PluginErrorKind, string> = {
 /** 插件写了 message 时直接给用户看，没写时用默认的说法 */
 export function pluginError(kind: PluginErrorKind, message?: string | null): PluginError {
   return { kind, message: message?.trim() || MESSAGES[kind] }
+}
+
+/** Script.run 拒绝时：用户在 Scripting 里阻止了这次调用（SCRIPT_INVOCATION_BLOCKED，D34）算调用被阻止，别的算不可用 */
+export function callError(e: unknown): PluginError {
+  const code = e && typeof e === "object" ? (e as { code?: unknown }).code : null
+  const text = e instanceof Error ? e.message : String(e)
+  return pluginError(code === "SCRIPT_INVOCATION_BLOCKED" || text.includes("SCRIPT_INVOCATION_BLOCKED") ? "blocked" : "unavailable")
 }
 
 function fail(kind: PluginErrorKind, message?: string | null): { ok: false; error: PluginError } {
